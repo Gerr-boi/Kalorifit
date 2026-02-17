@@ -1,0 +1,1550 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KaloriFit - Logg maten. Få kontroll. Lev lettere.</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Google Fonts - Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: {
+                            50: '#ecfdf5',
+                            100: '#d1fae5',
+                            200: '#a7f3d0',
+                            300: '#6ee7b7',
+                            400: '#34d399',
+                            500: '#10b981',
+                            600: '#059669',
+                            700: '#047857',
+                            800: '#065f46',
+                            900: '#064e3b',
+                        },
+                        secondary: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            200: '#bfdbfe',
+                            300: '#93c5fd',
+                            400: '#60a5fa',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            800: '#1e40af',
+                            900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * {
+            scroll-behavior: smooth;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+        }
+        
+        .gradient-text {
+            background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .progress-ring {
+            transform: rotate(-90deg);
+        }
+        
+        .progress-ring-circle {
+            transition: stroke-dashoffset 0.5s ease;
+        }
+        
+        .water-glass {
+            transition: all 0.3s ease;
+        }
+        
+        .water-glass:hover {
+            transform: scale(1.1);
+        }
+        
+        .water-glass.filled {
+            color: #3b82f6;
+        }
+        
+        .meal-card {
+            transition: all 0.3s ease;
+        }
+        
+        .meal-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        
+        .food-item {
+            transition: all 0.2s ease;
+        }
+        
+        .food-item:hover {
+            background-color: #f0fdf4;
+        }
+        
+        .nav-link {
+            position: relative;
+        }
+        
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+            transition: width 0.3s ease;
+        }
+        
+        .nav-link:hover::after,
+        .nav-link.active::after {
+            width: 100%;
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.5s ease;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .pulse-animation {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .drop-zone {
+            border: 3px dashed #d1d5db;
+            transition: all 0.3s ease;
+        }
+        
+        .drop-zone.dragover {
+            border-color: #10b981;
+            background-color: #ecfdf5;
+        }
+        
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #10b981, transparent);
+            animation: scan 2s linear infinite;
+        }
+        
+        @keyframes scan {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+        
+        .hidden-section {
+            display: none;
+        }
+        
+        .mobile-menu {
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+        
+        .mobile-menu.open {
+            transform: translateX(0);
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <!-- Logo -->
+                <div class="flex items-center cursor-pointer" onclick="showSection('hero')">
+                    <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center mr-3">
+                        <i class="fas fa-leaf text-white text-lg"></i>
+                    </div>
+                    <span class="text-xl font-bold gradient-text">KaloriFit</span>
+                </div>
+                
+                <!-- Desktop Navigation -->
+                <div class="hidden md:flex items-center space-x-8">
+                    <button onclick="showSection('dashboard')" class="nav-link text-gray-600 hover:text-gray-900 font-medium" data-section="dashboard">Dashboard</button>
+                    <button onclick="showSection('logg-mat')" class="nav-link text-gray-600 hover:text-gray-900 font-medium" data-section="logg-mat">Logg Mat</button>
+                    <button onclick="showSection('ai-kamera')" class="nav-link text-gray-600 hover:text-gray-900 font-medium" data-section="ai-kamera">AI Kamera</button>
+                    <button onclick="showSection('profil')" class="nav-link text-gray-600 hover:text-gray-900 font-medium" data-section="profil">Profil</button>
+                    <button onclick="showSection('dashboard')" class="gradient-bg text-white px-5 py-2 rounded-full font-medium hover:shadow-lg transition-shadow">
+                        Kom i gang
+                    </button>
+                </div>
+                
+                <!-- Mobile menu button -->
+                <div class="md:hidden flex items-center">
+                    <button onclick="toggleMobileMenu()" class="text-gray-600 hover:text-gray-900">
+                        <i class="fas fa-bars text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Menu -->
+        <div id="mobileMenu" class="mobile-menu fixed inset-y-0 right-0 w-64 bg-white shadow-xl z-50 md:hidden">
+            <div class="p-6">
+                <button onclick="toggleMobileMenu()" class="absolute top-4 right-4 text-gray-600">
+                    <i class="fas fa-times text-2xl"></i>
+                </button>
+                <div class="mt-8 space-y-4">
+                    <button onclick="showSection('dashboard'); toggleMobileMenu()" class="block w-full text-left py-3 px-4 rounded-lg hover:bg-gray-100 font-medium">Dashboard</button>
+                    <button onclick="showSection('logg-mat'); toggleMobileMenu()" class="block w-full text-left py-3 px-4 rounded-lg hover:bg-gray-100 font-medium">Logg Mat</button>
+                    <button onclick="showSection('ai-kamera'); toggleMobileMenu()" class="block w-full text-left py-3 px-4 rounded-lg hover:bg-gray-100 font-medium">AI Kamera</button>
+                    <button onclick="showSection('profil'); toggleMobileMenu()" class="block w-full text-left py-3 px-4 rounded-lg hover:bg-gray-100 font-medium">Profil</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="hero" class="section">
+        <div class="gradient-bg min-h-[90vh] flex items-center">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+                <div class="grid md:grid-cols-2 gap-12 items-center">
+                    <!-- Text Content -->
+                    <div class="text-white">
+                        <h1 class="text-4xl md:text-6xl font-bold mb-6 leading-tight">
+                            Logg maten.<br>
+                            Få kontroll.<br>
+                            <span class="text-emerald-200">Lev lettere.</span>
+                        </h1>
+                        <p class="text-lg md:text-xl text-emerald-100 mb-8 max-w-lg">
+                            Norges smarteste kaloriapp. Logg måltider på sekunder med AI-bildegjenkjenning. 
+                            Få full oversikt over dine næringsstoffer.
+                        </p>
+                        <div class="flex flex-col sm:flex-row gap-4">
+                            <button onclick="showSection('dashboard')" class="bg-white text-emerald-600 px-8 py-4 rounded-full font-semibold text-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
+                                Start gratis
+                            </button>
+                            <button onclick="showSection('ai-kamera')" class="border-2 border-white text-white px-8 py-4 rounded-full font-semibold text-lg hover:bg-white hover:text-emerald-600 transition-all">
+                                <i class="fas fa-camera mr-2"></i>Prøv AI-kamera
+                            </button>
+                        </div>
+                        <div class="mt-8 flex items-center gap-6 text-emerald-100">
+                            <div class="flex items-center">
+                                <i class="fas fa-check-circle mr-2"></i>
+                                <span>100% gratis</span>
+                            </div>
+                            <div class="flex items-center">
+                                <i class="fas fa-check-circle mr-2"></i>
+                                <span>Ingen reklame</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- App Mockup -->
+                    <div class="relative">
+                        <div class="relative z-10 bg-white rounded-3xl shadow-2xl p-6 max-w-sm mx-auto">
+                            <!-- Phone Header -->
+                            <div class="flex justify-between items-center mb-4">
+                                <span class="text-gray-400 text-sm">9:41</span>
+                                <div class="w-20 h-6 bg-gray-900 rounded-full"></div>
+                                <div class="flex gap-1">
+                                    <i class="fas fa-signal text-gray-400 text-xs"></i>
+                                    <i class="fas fa-wifi text-gray-400 text-xs"></i>
+                                    <i class="fas fa-battery-full text-gray-400 text-xs"></i>
+                                </div>
+                            </div>
+                            
+                            <!-- App Content Preview -->
+                            <div class="space-y-4">
+                                <div class="flex justify-between items-center">
+                                    <div>
+                                        <p class="text-gray-500 text-sm">Hei, Alex!</p>
+                                        <p class="font-bold text-gray-800">Dagens oversikt</p>
+                                    </div>
+                                    <div class="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
+                                        <i class="fas fa-user text-emerald-600"></i>
+                                    </div>
+                                </div>
+                                
+                                <!-- Calorie Circle -->
+                                <div class="flex justify-center py-4">
+                                    <div class="relative w-32 h-32">
+                                        <svg class="progress-ring w-32 h-32">
+                                            <circle cx="64" cy="64" r="56" fill="none" stroke="#e5e7eb" stroke-width="10"/>
+                                            <circle cx="64" cy="64" r="56" fill="none" stroke="url(#gradient)" stroke-width="10" 
+                                                stroke-dasharray="351.86" stroke-dashoffset="87.97" stroke-linecap="round"/>
+                                            <defs>
+                                                <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                    <stop offset="0%" stop-color="#10b981"/>
+                                                    <stop offset="100%" stop-color="#3b82f6"/>
+                                                </linearGradient>
+                                            </defs>
+                                        </svg>
+                                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                            <span class="text-2xl font-bold text-gray-800">1,450</span>
+                                            <span class="text-xs text-gray-500">/ 2,000</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Macros -->
+                                <div class="grid grid-cols-3 gap-2">
+                                    <div class="bg-blue-50 rounded-lg p-2 text-center">
+                                        <p class="text-xs text-gray-500">Protein</p>
+                                        <p class="font-bold text-blue-600">85g</p>
+                                    </div>
+                                    <div class="bg-emerald-50 rounded-lg p-2 text-center">
+                                        <p class="text-xs text-gray-500">Karbo</p>
+                                        <p class="font-bold text-emerald-600">120g</p>
+                                    </div>
+                                    <div class="bg-orange-50 rounded-lg p-2 text-center">
+                                        <p class="text-xs text-gray-500">Fett</p>
+                                        <p class="font-bold text-orange-600">45g</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Decorative Elements -->
+                        <div class="absolute -top-4 -right-4 w-24 h-24 bg-emerald-300 rounded-full opacity-50 blur-xl"></div>
+                        <div class="absolute -bottom-4 -left-4 w-32 h-32 bg-blue-300 rounded-full opacity-50 blur-xl"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Features Section -->
+        <div class="bg-white py-20">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="text-center mb-16">
+                    <h2 class="text-3xl md:text-4xl font-bold text-gray-800 mb-4">Alt du trenger for å nå målene dine</h2>
+                    <p class="text-gray-600 max-w-2xl mx-auto">KaloriFit kombinerer smart teknologi med enkel brukervennlighet</p>
+                </div>
+                
+                <div class="grid md:grid-cols-3 gap-8">
+                    <div class="text-center p-8 rounded-2xl bg-gray-50 hover:shadow-lg transition-shadow">
+                        <div class="w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <i class="fas fa-camera text-white text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-3">AI Bildegjenkjenning</h3>
+                        <p class="text-gray-600">Ta et bilde av maten din, så gjenkjenner vi den automatisk med næringsinformasjon.</p>
+                    </div>
+                    
+                    <div class="text-center p-8 rounded-2xl bg-gray-50 hover:shadow-lg transition-shadow">
+                        <div class="w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <i class="fas fa-chart-pie text-white text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-3">Smart Tracking</h3>
+                        <p class="text-gray-600">Følg med på kalorier, makronæringsstoffer og vanndrikking i sanntid.</p>
+                    </div>
+                    
+                    <div class="text-center p-8 rounded-2xl bg-gray-50 hover:shadow-lg transition-shadow">
+                        <div class="w-16 h-16 gradient-bg rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <i class="fas fa-utensils text-white text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800 mb-3">Norsk Matbase</h3>
+                        <p class="text-gray-600">Over 50 norske matvarer i databasen vår, fra brød til laks.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Dashboard Section -->
+    <section id="dashboard" class="section hidden-section">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">Dashboard</h1>
+                <p class="text-gray-600">Dagens oversikt - <span id="currentDate"></span></p>
+            </div>
+            
+            <div class="grid lg:grid-cols-3 gap-6">
+                <!-- Calorie Overview -->
+                <div class="lg:col-span-1">
+                    <div class="glass-card rounded-2xl p-6 shadow-sm">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-4">Kalorier i dag</h2>
+                        <div class="flex justify-center">
+                            <div class="relative w-48 h-48">
+                                <svg class="progress-ring w-48 h-48">
+                                    <circle cx="96" cy="96" r="80" fill="none" stroke="#e5e7eb" stroke-width="14"/>
+                                    <circle id="calorieRing" cx="96" cy="96" r="80" fill="none" stroke="url(#gradient)" stroke-width="14" 
+                                        stroke-dasharray="502.65" stroke-dashoffset="502.65" stroke-linecap="round" class="progress-ring-circle"/>
+                                </svg>
+                                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                    <span id="caloriesEaten" class="text-4xl font-bold text-gray-800">0</span>
+                                    <span class="text-sm text-gray-500">/ <span id="calorieGoal">2000</span> kcal</span>
+                                    <span id="caloriesRemaining" class="text-sm text-emerald-600 font-medium mt-1">2000 igjen</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-4 grid grid-cols-2 gap-4 text-center">
+                            <div class="bg-emerald-50 rounded-lg p-3">
+                                <p class="text-xs text-gray-500">Spist</p>
+                                <p id="caloriesSpist" class="font-bold text-emerald-600">0 kcal</p>
+                            </div>
+                            <div class="bg-blue-50 rounded-lg p-3">
+                                <p class="text-xs text-gray-500">Mål</p>
+                                <p class="font-bold text-blue-600">2000 kcal</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Water Tracker -->
+                    <div class="glass-card rounded-2xl p-6 shadow-sm mt-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-lg font-semibold text-gray-800">Vanndrikking</h2>
+                            <span id="waterCount" class="text-blue-600 font-bold">0 / 8 glass</span>
+                        </div>
+                        <div class="flex justify-center gap-2 flex-wrap">
+                            <button onclick="toggleWater(1)" class="water-glass text-3xl text-gray-300" data-glass="1">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                            <button onclick="toggleWater(2)" class="water-glass text-3xl text-gray-300" data-glass="2">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                            <button onclick="toggleWater(3)" class="water-glass text-3xl text-gray-300" data-glass="3">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                            <button onclick="toggleWater(4)" class="water-glass text-3xl text-gray-300" data-glass="4">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                            <button onclick="toggleWater(5)" class="water-glass text-3xl text-gray-300" data-glass="5">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                            <button onclick="toggleWater(6)" class="water-glass text-3xl text-gray-300" data-glass="6">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                            <button onclick="toggleWater(7)" class="water-glass text-3xl text-gray-300" data-glass="7">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                            <button onclick="toggleWater(8)" class="water-glass text-3xl text-gray-300" data-glass="8">
+                                <i class="fas fa-glass-water"></i>
+                            </button>
+                        </div>
+                        <p class="text-center text-sm text-gray-500 mt-3">Klikk for å registrere et glass vann</p>
+                    </div>
+                </div>
+                
+                <!-- Macros & Meals -->
+                <div class="lg:col-span-2 space-y-6">
+                    <!-- Macros -->
+                    <div class="glass-card rounded-2xl p-6 shadow-sm">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-4">Makronæringsstoffer</h2>
+                        <div class="grid md:grid-cols-3 gap-6">
+                            <!-- Protein -->
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-sm font-medium text-gray-700">Protein</span>
+                                    <span class="text-sm text-gray-500"><span id="proteinValue">0</span> / 150g</span>
+                                </div>
+                                <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                                    <div id="proteinBar" class="h-full bg-blue-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Carbs -->
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-sm font-medium text-gray-700">Karbohydrater</span>
+                                    <span class="text-sm text-gray-500"><span id="carbsValue">0</span> / 250g</span>
+                                </div>
+                                <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                                    <div id="carbsBar" class="h-full bg-emerald-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Fat -->
+                            <div>
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-sm font-medium text-gray-700">Fett</span>
+                                    <span class="text-sm text-gray-500"><span id="fatValue">0</span> / 70g</span>
+                                </div>
+                                <div class="h-3 bg-gray-200 rounded-full overflow-hidden">
+                                    <div id="fatBar" class="h-full bg-orange-500 rounded-full transition-all duration-500" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Today's Meals -->
+                    <div class="glass-card rounded-2xl p-6 shadow-sm">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-lg font-semibold text-gray-800">Dagens måltider</h2>
+                            <button onclick="showSection('logg-mat')" class="text-emerald-600 hover:text-emerald-700 font-medium text-sm">
+                                <i class="fas fa-plus mr-1"></i>Legg til
+                            </button>
+                        </div>
+                        
+                        <div id="mealsList" class="space-y-3">
+                            <!-- Breakfast -->
+                            <div class="meal-card bg-gray-50 rounded-xl p-4">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-coffee text-orange-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-800">Frokost</p>
+                                            <p id="breakfastItems" class="text-sm text-gray-500">Ingen mat registrert</p>
+                                        </div>
+                                    </div>
+                                    <span id="breakfastCalories" class="font-semibold text-gray-700">0 kcal</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Lunch -->
+                            <div class="meal-card bg-gray-50 rounded-xl p-4">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-sun text-emerald-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-800">Lunsj</p>
+                                            <p id="lunchItems" class="text-sm text-gray-500">Ingen mat registrert</p>
+                                        </div>
+                                    </div>
+                                    <span id="lunchCalories" class="font-semibold text-gray-700">0 kcal</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Dinner -->
+                            <div class="meal-card bg-gray-50 rounded-xl p-4">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-moon text-blue-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-800">Middag</p>
+                                            <p id="dinnerItems" class="text-sm text-gray-500">Ingen mat registrert</p>
+                                        </div>
+                                    </div>
+                                    <span id="dinnerCalories" class="font-semibold text-gray-700">0 kcal</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Snacks -->
+                            <div class="meal-card bg-gray-50 rounded-xl p-4">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-cookie-bite text-purple-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="font-medium text-gray-800">Snacks</p>
+                                            <p id="snacksItems" class="text-sm text-gray-500">Ingen mat registrert</p>
+                                        </div>
+                                    </div>
+                                    <span id="snacksCalories" class="font-semibold text-gray-700">0 kcal</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Weekly Chart -->
+                    <div class="glass-card rounded-2xl p-6 shadow-sm">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-4">Ukentlig oversikt</h2>
+                        <canvas id="weeklyChart" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Logg Mat Section -->
+    <section id="logg-mat" class="section hidden-section">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">Logg Mat</h1>
+                <p class="text-gray-600">Søk etter matvarer eller legg til egne</p>
+            </div>
+            
+            <div class="grid lg:grid-cols-3 gap-6">
+                <!-- Search Section -->
+                <div class="lg:col-span-2">
+                    <div class="glass-card rounded-2xl p-6 shadow-sm">
+                        <!-- Search Bar -->
+                        <div class="relative mb-6">
+                            <input type="text" id="foodSearch" placeholder="Søk etter matvarer..." 
+                                class="w-full pl-12 pr-4 py-4 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-lg"
+                                oninput="searchFood(this.value)">
+                            <i class="fas fa-search absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 text-lg"></i>
+                        </div>
+                        
+                        <!-- Quick Categories -->
+                        <div class="flex flex-wrap gap-2 mb-6">
+                            <button onclick="filterCategory('alle')" class="px-4 py-2 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium hover:bg-emerald-200 transition">Alle</button>
+                            <button onclick="filterCategory('frokost')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition">Frokost</button>
+                            <button onclick="filterCategory('lunsj')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition">Lunsj</button>
+                            <button onclick="filterCategory('middag')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition">Middag</button>
+                            <button onclick="filterCategory('snacks')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm font-medium hover:bg-gray-200 transition">Snacks</button>
+                        </div>
+                        
+                        <!-- Food List -->
+                        <div id="foodList" class="space-y-2 max-h-96 overflow-y-auto">
+                            <!-- Food items will be populated here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Add Food Form -->
+                <div class="lg:col-span-1">
+                    <div class="glass-card rounded-2xl p-6 shadow-sm sticky top-24">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">Legg til matvare</h3>
+                        
+                        <form id="addFoodForm" onsubmit="addFoodItem(event)">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Matvare</label>
+                                    <input type="text" id="selectedFoodName" readonly 
+                                        class="w-full px-4 py-3 border border-gray-200 rounded-lg bg-gray-50 text-gray-600"
+                                        placeholder="Velg en matvare">
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Måltid</label>
+                                    <select id="mealType" class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        <option value="breakfast">Frokost</option>
+                                        <option value="lunch">Lunsj</option>
+                                        <option value="dinner">Middag</option>
+                                        <option value="snacks">Snacks</option>
+                                    </select>
+                                </div>
+                                
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Porsjonsstørrelse</label>
+                                    <div class="flex gap-2">
+                                        <input type="number" id="portionSize" value="1" min="0.1" step="0.1"
+                                            class="flex-1 px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                        <select id="portionUnit" class="px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                            <option value="serving">porsjon</option>
+                                            <option value="g">g</option>
+                                            <option value="ml">ml</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div id="nutritionPreview" class="bg-gray-50 rounded-lg p-4 hidden">
+                                    <p class="text-sm font-medium text-gray-700 mb-2">Næringsinnhold:</p>
+                                    <div class="grid grid-cols-2 gap-2 text-sm">
+                                        <span class="text-gray-600">Kalorier: <span id="previewCalories" class="font-medium">0</span></span>
+                                        <span class="text-gray-600">Protein: <span id="previewProtein" class="font-medium">0</span>g</span>
+                                        <span class="text-gray-600">Karbo: <span id="previewCarbs" class="font-medium">0</span>g</span>
+                                        <span class="text-gray-600">Fett: <span id="previewFat" class="font-medium">0</span>g</span>
+                                    </div>
+                                </div>
+                                
+                                <button type="submit" id="addFoodBtn" disabled
+                                    class="w-full gradient-bg text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                                    <i class="fas fa-plus mr-2"></i>Legg til
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- AI Kamera Section -->
+    <section id="ai-kamera" class="section hidden-section">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">AI Kamera</h1>
+                <p class="text-gray-600">Ta et bilde av maten din, så gjenkjenner vi den automatisk</p>
+            </div>
+            
+            <div class="grid lg:grid-cols-2 gap-6">
+                <!-- Upload Area -->
+                <div class="glass-card rounded-2xl p-6 shadow-sm">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Last opp bilde</h3>
+                    
+                    <div id="dropZone" class="drop-zone rounded-2xl p-12 text-center cursor-pointer" 
+                        onclick="document.getElementById('fileInput').click()"
+                        ondrop="handleDrop(event)" 
+                        ondragover="handleDragOver(event)"
+                        ondragleave="handleDragLeave(event)">
+                        <input type="file" id="fileInput" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+                        
+                        <div id="uploadPrompt">
+                            <div class="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fas fa-camera text-emerald-600 text-3xl"></i>
+                            </div>
+                            <p class="text-gray-600 mb-2">Dra og slipp et bilde her, eller klikk for å velge</p>
+                            <p class="text-sm text-gray-400">Støtter JPG, PNG</p>
+                        </div>
+                        
+                        <div id="imagePreview" class="hidden">
+                            <div class="relative inline-block">
+                                <img id="previewImg" src="" alt="Preview" class="max-w-full max-h-64 rounded-lg">
+                                <button onclick="clearImage(event)" class="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full hover:bg-red-600">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button id="analyzeBtn" onclick="analyzeImage()" disabled
+                        class="w-full gradient-bg text-white py-4 rounded-xl font-semibold mt-6 hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fas fa-magic mr-2"></i>Analyser mat
+                    </button>
+                </div>
+                
+                <!-- Analysis Result -->
+                <div class="glass-card rounded-2xl p-6 shadow-sm">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-4">Gjenkjent mat</h3>
+                    
+                    <div id="analysisLoading" class="hidden text-center py-12">
+                        <div class="relative w-24 h-24 mx-auto mb-4">
+                            <div class="absolute inset-0 border-4 border-emerald-200 rounded-full"></div>
+                            <div class="absolute inset-0 border-4 border-emerald-500 rounded-full border-t-transparent animate-spin"></div>
+                            <i class="fas fa-brain absolute inset-0 flex items-center justify-center text-emerald-600 text-2xl"></i>
+                        </div>
+                        <p class="text-gray-600">Analyserer bildet...</p>
+                        <p class="text-sm text-gray-400 mt-2">AI gjenkjenner matvarer</p>
+                    </div>
+                    
+                    <div id="analysisResult" class="hidden">
+                        <div class="flex items-center gap-4 mb-6">
+                            <div class="w-16 h-16 bg-emerald-100 rounded-xl flex items-center justify-center">
+                                <i id="resultIcon" class="fas fa-utensils text-emerald-600 text-2xl"></i>
+                            </div>
+                            <div>
+                                <h4 id="resultName" class="text-xl font-bold text-gray-800">Matvarenavn</h4>
+                                <p class="text-gray-500">Gjenkjent med <span id="confidence">95%</span> sikkerhet</p>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4 mb-6">
+                            <div class="bg-gray-50 rounded-lg p-3 text-center">
+                                <p class="text-xs text-gray-500">Kalorier</p>
+                                <p id="resultCalories" class="font-bold text-gray-800">0 kcal</p>
+                            </div>
+                            <div class="bg-blue-50 rounded-lg p-3 text-center">
+                                <p class="text-xs text-gray-500">Protein</p>
+                                <p id="resultProtein" class="font-bold text-blue-600">0g</p>
+                            </div>
+                            <div class="bg-emerald-50 rounded-lg p-3 text-center">
+                                <p class="text-xs text-gray-500">Karbo</p>
+                                <p id="resultCarbs" class="font-bold text-emerald-600">0g</p>
+                            </div>
+                            <div class="bg-orange-50 rounded-lg p-3 text-center">
+                                <p class="text-xs text-gray-500">Fett</p>
+                                <p id="resultFat" class="font-bold text-orange-600">0g</p>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Legg til som</label>
+                                <select id="aiMealType" class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                                    <option value="breakfast">Frokost</option>
+                                    <option value="lunch">Lunsj</option>
+                                    <option value="dinner">Middag</option>
+                                    <option value="snacks">Snacks</option>
+                                </select>
+                            </div>
+                            <button onclick="addAIFood()" class="w-full gradient-bg text-white py-3 rounded-lg font-semibold hover:shadow-lg transition-all">
+                                <i class="fas fa-plus mr-2"></i>Legg til i dagbok
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="analysisEmpty" class="text-center py-12 text-gray-400">
+                        <i class="fas fa-image text-5xl mb-4"></i>
+                        <p>Last opp et bilde for å analysere mat</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Tips Section -->
+            <div class="mt-8 glass-card rounded-2xl p-6 shadow-sm">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">Tips for best resultat</h3>
+                <div class="grid md:grid-cols-3 gap-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-lightbulb text-emerald-600"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-800">God belysning</p>
+                            <p class="text-sm text-gray-600">Sørg for at maten er godt belyst</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-expand text-emerald-600"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-800">Tydelig bilde</p>
+                            <p class="text-sm text-gray-600">Ta bildet ovenfra med hele tallerkenen synlig</p>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                            <i class="fas fa-utensils text-emerald-600"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-800">Én rett om gangen</p>
+                            <p class="text-sm text-gray-600">Analyser én rett for best nøyaktighet</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Profil Section -->
+    <section id="profil" class="section hidden-section">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="mb-8">
+                <h1 class="text-3xl font-bold text-gray-800">Profil</h1>
+                <p class="text-gray-600">Dine innstillinger og mål</p>
+            </div>
+            
+            <div class="grid lg:grid-cols-3 gap-6">
+                <!-- Profile Info -->
+                <div class="lg:col-span-1">
+                    <div class="glass-card rounded-2xl p-6 shadow-sm text-center">
+                        <div class="w-24 h-24 gradient-bg rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i class="fas fa-user text-white text-4xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-800">Din Profil</h3>
+                        <p class="text-gray-500 mb-6">Medlem siden 2024</p>
+                        
+                        <div class="space-y-3 text-left">
+                            <div class="flex justify-between py-2 border-b border-gray-100">
+                                <span class="text-gray-500">Vekt</span>
+                                <span class="font-medium text-gray-800">75 kg</span>
+                            </div>
+                            <div class="flex justify-between py-2 border-b border-gray-100">
+                                <span class="text-gray-500">Høyde</span>
+                                <span class="font-medium text-gray-800">175 cm</span>
+                            </div>
+                            <div class="flex justify-between py-2 border-b border-gray-100">
+                                <span class="text-gray-500">Alder</span>
+                                <span class="font-medium text-gray-800">30 år</span>
+                            </div>
+                            <div class="flex justify-between py-2">
+                                <span class="text-gray-500">Aktivitetsnivå</span>
+                                <span class="font-medium text-gray-800">Moderat</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Goals Settings -->
+                <div class="lg:col-span-2">
+                    <div class="glass-card rounded-2xl p-6 shadow-sm mb-6">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">Daglige mål</h3>
+                        
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Kalorimål (kcal)</label>
+                                <input type="number" id="goalCalories" value="2000" 
+                                    class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    onchange="updateGoals()">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Proteinmål (g)</label>
+                                <input type="number" id="goalProtein" value="150" 
+                                    class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    onchange="updateGoals()">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Karbomål (g)</label>
+                                <input type="number" id="goalCarbs" value="250" 
+                                    class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    onchange="updateGoals()">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Fettmål (g)</label>
+                                <input type="number" id="goalFat" value="70" 
+                                    class="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                    onchange="updateGoals()">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Stats Summary -->
+                    <div class="glass-card rounded-2xl p-6 shadow-sm">
+                        <h3 class="text-lg font-semibold text-gray-800 mb-4">Din statistikk</h3>
+                        
+                        <div class="grid md:grid-cols-4 gap-4">
+                            <div class="bg-emerald-50 rounded-xl p-4 text-center">
+                                <p class="text-2xl font-bold text-emerald-600" id="statDays">1</p>
+                                <p class="text-sm text-gray-600">Dager logget</p>
+                            </div>
+                            <div class="bg-blue-50 rounded-xl p-4 text-center">
+                                <p class="text-2xl font-bold text-blue-600" id="statMeals">0</p>
+                                <p class="text-sm text-gray-600">Måltider logget</p>
+                            </div>
+                            <div class="bg-orange-50 rounded-xl p-4 text-center">
+                                <p class="text-2xl font-bold text-orange-600" id="statAvgCalories">0</p>
+                                <p class="text-sm text-gray-600">Gj.snitt kcal</p>
+                            </div>
+                            <div class="bg-purple-50 rounded-xl p-4 text-center">
+                                <p class="text-2xl font-bold text-purple-600" id="statWater">0</p>
+                                <p class="text-sm text-gray-600">Glass vann i dag</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-white py-12 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid md:grid-cols-4 gap-8">
+                <div>
+                    <div class="flex items-center mb-4">
+                        <div class="w-10 h-10 gradient-bg rounded-xl flex items-center justify-center mr-3">
+                            <i class="fas fa-leaf text-white text-lg"></i>
+                        </div>
+                        <span class="text-xl font-bold">KaloriFit</span>
+                    </div>
+                    <p class="text-gray-400">Norges smarteste kaloriapp. Logg maten, få kontroll, lev lettere.</p>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold mb-4">Funksjoner</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#" onclick="showSection('dashboard')" class="hover:text-white">Dashboard</a></li>
+                        <li><a href="#" onclick="showSection('logg-mat')" class="hover:text-white">Logg Mat</a></li>
+                        <li><a href="#" onclick="showSection('ai-kamera')" class="hover:text-white">AI Kamera</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold mb-4">Ressurser</h4>
+                    <ul class="space-y-2 text-gray-400">
+                        <li><a href="#" class="hover:text-white">Hjelp</a></li>
+                        <li><a href="#" class="hover:text-white">Om oss</a></li>
+                        <li><a href="#" class="hover:text-white">Kontakt</a></li>
+                    </ul>
+                </div>
+                
+                <div>
+                    <h4 class="font-semibold mb-4">Følg oss</h4>
+                    <div class="flex gap-4">
+                        <a href="#" class="w-10 h-10 bg-gray-700 rounded-lg flex items-center justify-center hover:bg-gray-600 transition">
+                            <i class="fab fa-facebook-f"></i>
+                        </a>
+                        <a href="#" class="w-10 h-10 bg-gray-700 rounded-lg flex items-center justify-center hover:bg-gray-600 transition">
+                            <i class="fab fa-instagram"></i>
+                        </a>
+                        <a href="#" class="w-10 h-10 bg-gray-700 rounded-lg flex items-center justify-center hover:bg-gray-600 transition">
+                            <i class="fab fa-twitter"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="border-t border-gray-700 mt-8 pt-8 text-center text-gray-400">
+                <p>&copy; 2024 KaloriFit. Alle rettigheter reservert.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // ==================== DATA ====================
+        // Food database with 50+ Norwegian foods
+        const foodDatabase = [
+            // Breakfast items
+            { id: 1, name: "Brødskive med smør", category: "frokost", calories: 120, protein: 3, carbs: 20, fat: 3, fiber: 2, sugar: 1, salt: 0.5, icon: "fa-bread-slice" },
+            { id: 2, name: "Brødskive med ost", category: "frokost", calories: 180, protein: 8, carbs: 20, fat: 7, fiber: 2, sugar: 1, salt: 1.2, icon: "fa-cheese" },
+            { id: 3, name: "Brødskive med leverpostei", category: "frokost", calories: 200, protein: 10, carbs: 18, fat: 10, fiber: 2, sugar: 1, salt: 1.5, icon: "fa-bread-slice" },
+            { id: 4, name: "Egg (kokt)", category: "frokost", calories: 70, protein: 6, carbs: 0.5, fat: 5, fiber: 0, sugar: 0.5, salt: 0.1, icon: "fa-egg" },
+            { id: 5, name: "Egg (stekt)", category: "frokost", calories: 90, protein: 6, carbs: 0.5, fat: 7, fiber: 0, sugar: 0.5, salt: 0.1, icon: "fa-egg" },
+            { id: 6, name: "Kaviar på brød", category: "frokost", calories: 150, protein: 5, carbs: 20, fat: 5, fiber: 2, sugar: 2, salt: 2, icon: "fa-fish" },
+            { id: 7, name: "Yoghurt naturell", category: "frokost", calories: 60, protein: 5, carbs: 4, fat: 3, fiber: 0, sugar: 4, salt: 0.1, icon: "fa-wine-bottle" },
+            { id: 8, name: "Yoghurt med bær", category: "frokost", calories: 100, protein: 5, carbs: 15, fat: 2, fiber: 1, sugar: 12, salt: 0.1, icon: "fa-wine-bottle" },
+            { id: 9, name: "Müsli med melk", category: "frokost", calories: 250, protein: 10, carbs: 40, fat: 5, fiber: 5, sugar: 15, salt: 0.3, icon: "fa-wheat" },
+            { id: 10, name: "Havregrøt", category: "frokost", calories: 150, protein: 5, carbs: 27, fat: 3, fiber: 4, sugar: 0.5, salt: 0, icon: "fa-wheat" },
+            { id: 11, name: "Knekkebrød med avokado", category: "frokost", calories: 160, protein: 3, carbs: 15, fat: 10, fiber: 5, sugar: 1, salt: 0.5, icon: "fa-bread-slice" },
+            { id: 12, name: "Pannekaker", category: "frokost", calories: 220, protein: 6, carbs: 30, fat: 8, fiber: 1, sugar: 8, salt: 0.5, icon: "fa-circle" },
+            { id: 13, name: "Vafler", category: "frokost", calories: 280, protein: 6, carbs: 35, fat: 12, fiber: 1, sugar: 10, salt: 0.5, icon: "fa-border-all" },
+            { id: 14, name: "Croissant", category: "frokost", calories: 280, protein: 5, carbs: 30, fat: 16, fiber: 2, sugar: 5, salt: 0.8, icon: "fa-bread-slice" },
+            { id: 15, name: "Skyr naturell", category: "frokost", calories: 60, protein: 11, carbs: 4, fat: 0.2, fiber: 0, sugar: 3, salt: 0.1, icon: "fa-wine-bottle" },
+            
+            // Lunch items
+            { id: 16, name: "Smørbrød med skinke", category: "lunsj", calories: 280, protein: 15, carbs: 30, fat: 10, fiber: 3, sugar: 2, salt: 2, icon: "fa-bread-slice" },
+            { id: 17, name: "Smørbrød med roastbiff", category: "lunsj", calories: 320, protein: 20, carbs: 30, fat: 12, fiber: 3, sugar: 2, salt: 2, icon: "fa-bread-slice" },
+            { id: 18, name: "Smørbrød med egg og reker", category: "lunsj", calories: 350, protein: 25, carbs: 28, fat: 15, fiber: 3, sugar: 2, salt: 2, icon: "fa-bread-slice" },
+            { id: 19, name: "Lapskaus", category: "lunsj", calories: 350, protein: 20, carbs: 35, fat: 15, fiber: 5, sugar: 5, salt: 1.5, icon: "fa-utensils" },
+            { id: 20, name: "Fiskesuppe", category: "lunsj", calories: 200, protein: 15, carbs: 15, fat: 10, fiber: 2, sugar: 3, salt: 1.5, icon: "fa-fish" },
+            { id: 21, name: "Grønnsakssuppe", category: "lunsj", calories: 120, protein: 4, carbs: 20, fat: 3, fiber: 5, sugar: 8, salt: 1, icon: "fa-carrot" },
+            { id: 22, name: "Kyllingsalat", category: "lunsj", calories: 280, protein: 30, carbs: 10, fat: 14, fiber: 3, sugar: 4, salt: 1, icon: "fa-drumstick-bite" },
+            { id: 23, name: "Tunfisksalat", category: "lunsj", calories: 250, protein: 25, carbs: 8, fat: 14, fiber: 2, sugar: 3, salt: 1, icon: "fa-fish" },
+            { id: 24, name: "Caesarsalat", category: "lunsj", calories: 350, protein: 20, carbs: 15, fat: 24, fiber: 3, sugar: 4, salt: 1.5, icon: "fa-leaf" },
+            { id: 25, name: "Quiche", category: "lunsj", calories: 400, protein: 15, carbs: 30, fat: 25, fiber: 2, sugar: 3, salt: 1.5, icon: "fa-chart-pie" },
+            
+            // Dinner items
+            { id: 26, name: "Laks med poteter", category: "middag", calories: 450, protein: 35, carbs: 35, fat: 20, fiber: 3, sugar: 2, salt: 0.8, icon: "fa-fish" },
+            { id: 27, name: "Torsk med poteter", category: "middag", calories: 350, protein: 40, carbs: 35, fat: 5, fiber: 3, sugar: 2, salt: 0.8, icon: "fa-fish" },
+            { id: 28, name: "Sei med poteter", category: "middag", calories: 320, protein: 35, carbs: 35, fat: 4, fiber: 3, sugar: 2, salt: 0.8, icon: "fa-fish" },
+            { id: 29, name: "Makrell i tomat", category: "middag", calories: 280, protein: 20, carbs: 5, fat: 20, fiber: 1, sugar: 3, salt: 1.5, icon: "fa-fish" },
+            { id: 30, name: "Sardiner på boks", category: "middag", calories: 220, protein: 25, carbs: 0, fat: 15, fiber: 0, sugar: 0, salt: 1.5, icon: "fa-fish" },
+            { id: 31, name: "Kyllingfilet med ris", category: "middag", calories: 450, protein: 40, carbs: 50, fat: 8, fiber: 2, sugar: 1, salt: 0.8, icon: "fa-drumstick-bite" },
+            { id: 32, name: "Kyllinglår med poteter", category: "middag", calories: 500, protein: 35, carbs: 35, fat: 25, fiber: 3, sugar: 2, salt: 1, icon: "fa-drumstick-bite" },
+            { id: 33, name: "Karbonader med poteter", category: "middag", calories: 550, protein: 35, carbs: 35, fat: 30, fiber: 3, sugar: 2, salt: 1.5, icon: "fa-drumstick-bite" },
+            { id: 34, name: "Kjøttkaker med poteter", category: "middag", calories: 600, protein: 30, carbs: 40, fat: 35, fiber: 4, sugar: 5, salt: 2, icon: "fa-drumstick-bite" },
+            { id: 35, name: "Fårikål", category: "middag", calories: 450, protein: 35, carbs: 15, fat: 30, fiber: 5, sugar: 5, salt: 1.5, icon: "fa-drumstick-bite" },
+            { id: 36, name: "Lutefisk med poteter", category: "middag", calories: 350, protein: 35, carbs: 35, fat: 8, fiber: 3, sugar: 2, salt: 2, icon: "fa-fish" },
+            { id: 37, name: "Rakfisk med poteter", category: "middag", calories: 380, protein: 30, carbs: 35, fat: 15, fiber: 3, sugar: 2, salt: 3, icon: "fa-fish" },
+            { id: 38, name: "Pinnekjøtt med poteter", category: "middag", calories: 650, protein: 45, carbs: 35, fat: 40, fiber: 3, sugar: 2, salt: 3, icon: "fa-drumstick-bite" },
+            { id: 39, name: "Ribbe med poteter", category: "middag", calories: 800, protein: 40, carbs: 35, fat: 55, fiber: 3, sugar: 2, salt: 2.5, icon: "fa-drumstick-bite" },
+            { id: 40, name: "Medisterkaker med poteter", category: "middag", calories: 550, protein: 25, carbs: 35, fat: 35, fiber: 3, sugar: 3, salt: 2, icon: "fa-drumstick-bite" },
+            { id: 41, name: "Pølser med potetmos", category: "middag", calories: 600, protein: 20, carbs: 60, fat: 30, fiber: 4, sugar: 8, salt: 3, icon: "fa-hotdog" },
+            { id: 42, name: "Fiskegrateng", category: "middag", calories: 450, protein: 25, carbs: 40, fat: 22, fiber: 2, sugar: 5, salt: 1.5, icon: "fa-fish" },
+            { id: 43, name: "Fiskekaker med poteter", category: "middag", calories: 400, protein: 30, carbs: 35, fat: 15, fiber: 3, sugar: 2, salt: 2, icon: "fa-fish" },
+            { id: 44, name: "Biff med poteter", category: "middag", calories: 600, protein: 50, carbs: 35, fat: 30, fiber: 3, sugar: 2, salt: 1, icon: "fa-drumstick-bite" },
+            { id: 45, name: "Svinekotelett med poteter", category: "middag", calories: 650, protein: 45, carbs: 35, fat: 40, fiber: 3, sugar: 2, salt: 1.5, icon: "fa-drumstick-bite" },
+            { id: 46, name: "Lammebog med poteter", category: "middag", calories: 600, protein: 45, carbs: 35, fat: 35, fiber: 3, sugar: 2, salt: 1.5, icon: "fa-drumstick-bite" },
+            { id: 47, name: "Taco (3 lefser)", category: "middag", calories: 550, protein: 30, carbs: 50, fat: 25, fiber: 8, sugar: 8, salt: 2.5, icon: "fa-pepper-hot" },
+            { id: 48, name: "Pizza (1/2)", category: "middag", calories: 800, protein: 30, carbs: 90, fat: 35, fiber: 5, sugar: 10, salt: 3, icon: "fa-pizza-slice" },
+            { id: 49, name: "Hamburger", category: "middag", calories: 600, protein: 30, carbs: 50, fat: 30, fiber: 3, sugar: 10, salt: 2, icon: "fa-hamburger" },
+            { id: 50, name: "Kebab", category: "middag", calories: 700, protein: 35, carbs: 60, fat: 35, fiber: 5, sugar: 8, salt: 3, icon: "fa-drumstick-bite" },
+            { id: 51, name: "Sushi (10 biter)", category: "middag", calories: 450, protein: 20, carbs: 70, fat: 8, fiber: 3, sugar: 10, salt: 2, icon: "fa-fish" },
+            { id: 52, name: "Wok med kylling", category: "middag", calories: 400, protein: 30, carbs: 40, fat: 15, fiber: 6, sugar: 10, salt: 2, icon: "fa-drumstick-bite" },
+            { id: 53, name: "Pasta Bolognese", category: "middag", calories: 550, protein: 30, carbs: 65, fat: 20, fiber: 5, sugar: 10, salt: 2, icon: "fa-utensils" },
+            { id: 54, name: "Pasta Carbonara", category: "middag", calories: 650, protein: 25, carbs: 60, fat: 35, fiber: 3, sugar: 5, salt: 2, icon: "fa-utensils" },
+            { id: 55, name: "Lasagne", category: "middag", calories: 600, protein: 35, carbs: 50, fat: 30, fiber: 5, sugar: 10, salt: 2.5, icon: "fa-utensils" },
+            
+            // Sides
+            { id: 56, name: "Kokte poteter", category: "middag", calories: 150, protein: 3, carbs: 35, fat: 0, fiber: 3, sugar: 2, salt: 0, icon: "fa-circle" },
+            { id: 57, name: "Stekte poteter", category: "middag", calories: 250, protein: 3, carbs: 35, fat: 12, fiber: 3, sugar: 2, salt: 0.5, icon: "fa-circle" },
+            { id: 58, name: "Potetmos", category: "middag", calories: 200, protein: 3, carbs: 30, fat: 8, fiber: 3, sugar: 3, salt: 0.5, icon: "fa-circle" },
+            { id: 59, name: "Ris (kokt)", category: "middag", calories: 200, protein: 4, carbs: 45, fat: 0.5, fiber: 1, sugar: 0, salt: 0, icon: "fa-wheat" },
+            { id: 60, name: "Pasta (kokt)", category: "middag", calories: 220, protein: 8, carbs: 45, fat: 1, fiber: 3, sugar: 2, salt: 0, icon: "fa-utensils" },
+            { id: 61, name: "Grønnsaker (dampet)", category: "middag", calories: 50, protein: 3, carbs: 10, fat: 0, fiber: 5, sugar: 5, salt: 0.1, icon: "fa-carrot" },
+            { id: 62, name: "Salat", category: "middag", calories: 30, protein: 2, carbs: 5, fat: 0, fiber: 3, sugar: 3, salt: 0.1, icon: "fa-leaf" },
+            
+            // Snacks
+            { id: 63, name: "Eple", category: "snacks", calories: 80, protein: 0.5, carbs: 20, fat: 0.3, fiber: 4, sugar: 16, salt: 0, icon: "fa-apple-alt" },
+            { id: 64, name: "Banan", category: "snacks", calories: 100, protein: 1, carbs: 25, fat: 0.3, fiber: 3, sugar: 18, salt: 0, icon: "fa-carrot" },
+            { id: 65, name: "Appelsin", category: "snacks", calories: 70, protein: 1, carbs: 17, fat: 0.2, fiber: 3, sugar: 14, salt: 0, icon: "fa-carrot" },
+            { id: 66, name: "Gulrot", category: "snacks", calories: 40, protein: 1, carbs: 10, fat: 0.2, fiber: 3, sugar: 6, salt: 0.1, icon: "fa-carrot" },
+            { id: 67, name: "Nøttemiks (30g)", category: "snacks", calories: 180, protein: 6, carbs: 6, fat: 16, fiber: 3, sugar: 2, salt: 0.3, icon: "fa-circle" },
+            { id: 68, name: "Mandler (30g)", category: "snacks", calories: 180, protein: 6, carbs: 6, fat: 16, fiber: 4, sugar: 1, salt: 0, icon: "fa-circle" },
+            { id: 69, name: "Valnøtter (30g)", category: "snacks", calories: 200, protein: 5, carbs: 4, fat: 20, fiber: 2, sugar: 1, salt: 0, icon: "fa-circle" },
+            { id: 70, name: "Kjeks (3 stk)", category: "snacks", calories: 150, protein: 2, carbs: 20, fat: 7, fiber: 1, sugar: 8, salt: 0.5, icon: "fa-cookie" },
+            { id: 71, name: "Sjokolade (25g)", category: "snacks", calories: 135, protein: 2, carbs: 15, fat: 8, fiber: 2, sugar: 14, salt: 0.1, icon: "fa-candy-cane" },
+            { id: 72, name: "Potetgull (30g)", category: "snacks", calories: 160, protein: 2, carbs: 15, fat: 10, fiber: 1, sugar: 0, salt: 0.5, icon: "fa-circle" },
+            { id: 73, name: "Ost (30g)", category: "snacks", calories: 120, protein: 8, carbs: 0, fat: 10, fiber: 0, sugar: 0, salt: 0.8, icon: "fa-cheese" },
+            { id: 74, name: "Kesam (150g)", category: "snacks", calories: 150, protein: 20, carbs: 10, fat: 3, fiber: 0, sugar: 10, salt: 0.5, icon: "fa-wine-bottle" },
+            { id: 75, name: "Smoothie", category: "snacks", calories: 150, protein: 3, carbs: 30, fat: 2, fiber: 3, sugar: 25, salt: 0.1, icon: "fa-glass-whiskey" },
+            
+            // Drinks
+            { id: 76, name: "Melk (2dl)", category: "frokost", calories: 100, protein: 7, carbs: 10, fat: 3.5, fiber: 0, sugar: 10, salt: 0.1, icon: "fa-glass-whiskey" },
+            { id: 77, name: "Skummet melk (2dl)", category: "frokost", calories: 70, protein: 7, carbs: 10, fat: 0.5, fiber: 0, sugar: 10, salt: 0.1, icon: "fa-glass-whiskey" },
+            { id: 78, name: "Appelsinjuice (2dl)", category: "frokost", calories: 90, protein: 1, carbs: 22, fat: 0, fiber: 0, sugar: 20, salt: 0, icon: "fa-glass-whiskey" },
+            { id: 79, name: "Kaffe (svart)", category: "frokost", calories: 2, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, salt: 0, icon: "fa-coffee" },
+            { id: 80, name: "Te (uten sukker)", category: "frokost", calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, salt: 0, icon: "fa-mug-hot" },
+            { id: 81, name: "Vann", category: "alle", calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, salt: 0, icon: "fa-glass-water" },
+            { id: 82, name: "Brus (sukkerfri)", category: "snacks", calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, salt: 0, icon: "fa-wine-bottle" },
+            { id: 83, name: "Brus (med sukker)", category: "snacks", calories: 150, protein: 0, carbs: 40, fat: 0, fiber: 0, sugar: 40, salt: 0, icon: "fa-wine-bottle" },
+            { id: 84, name: "Øl (0.5l)", category: "middag", calories: 200, protein: 2, carbs: 15, fat: 0, fiber: 0, sugar: 0, salt: 0, icon: "fa-wine-bottle" },
+            { id: 85, name: "Vin (1 glass)", category: "middag", calories: 120, protein: 0, carbs: 4, fat: 0, fiber: 0, sugar: 1, salt: 0, icon: "fa-wine-glass" },
+        ];
+
+        // ==================== STATE ====================
+        let appState = {
+            dailyLog: {
+                date: new Date().toISOString().split('T')[0],
+                meals: {
+                    breakfast: [],
+                    lunch: [],
+                    dinner: [],
+                    snacks: []
+                },
+                water: 0
+            },
+            goals: {
+                calories: 2000,
+                protein: 150,
+                carbs: 250,
+                fat: 70
+            },
+            selectedFood: null,
+            aiResult: null
+        };
+
+        // Weekly data for chart
+        const weeklyData = {
+            labels: ['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'],
+            calories: [1850, 2100, 1950, 2200, 1800, 2300, 0]
+        };
+
+        // ==================== INITIALIZATION ====================
+        document.addEventListener('DOMContentLoaded', function() {
+            loadState();
+            initDashboard();
+            initFoodList();
+            initWeeklyChart();
+            updateCurrentDate();
+        });
+
+        function updateCurrentDate() {
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('currentDate').textContent = new Date().toLocaleDateString('no-NO', options);
+        }
+
+        // ==================== NAVIGATION ====================
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.add('hidden-section');
+            });
+            
+            // Show selected section
+            document.getElementById(sectionId).classList.remove('hidden-section');
+            document.getElementById(sectionId).classList.add('fade-in');
+            
+            // Update nav links
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active', 'text-emerald-600');
+                if (link.dataset.section === sectionId) {
+                    link.classList.add('active', 'text-emerald-600');
+                }
+            });
+            
+            // Update dashboard if showing
+            if (sectionId === 'dashboard') {
+                updateDashboard();
+            }
+            
+            // Scroll to top
+            window.scrollTo(0, 0);
+        }
+
+        function toggleMobileMenu() {
+            document.getElementById('mobileMenu').classList.toggle('open');
+        }
+
+        // ==================== DASHBOARD ====================
+        function initDashboard() {
+            updateDashboard();
+        }
+
+        function updateDashboard() {
+            // Calculate totals
+            let totalCalories = 0;
+            let totalProtein = 0;
+            let totalCarbs = 0;
+            let totalFat = 0;
+            
+            const mealTypes = ['breakfast', 'lunch', 'dinner', 'snacks'];
+            const mealNames = { breakfast: 'Frokost', lunch: 'Lunsj', dinner: 'Middag', snacks: 'Snacks' };
+            
+            mealTypes.forEach(type => {
+                const meals = appState.dailyLog.meals[type];
+                let mealCalories = 0;
+                let mealItems = [];
+                
+                meals.forEach(meal => {
+                    const food = foodDatabase.find(f => f.id === meal.foodId);
+                    if (food) {
+                        const multiplier = meal.portion;
+                        const cals = Math.round(food.calories * multiplier);
+                        totalCalories += cals;
+                        totalProtein += food.protein * multiplier;
+                        totalCarbs += food.carbs * multiplier;
+                        totalFat += food.fat * multiplier;
+                        mealCalories += cals;
+                        mealItems.push(`${meal.portion}x ${food.name}`);
+                    }
+                });
+                
+                // Update meal display
+                document.getElementById(`${type}Calories`).textContent = `${mealCalories} kcal`;
+                document.getElementById(`${type}Items`).textContent = mealItems.length > 0 ? mealItems.join(', ') : 'Ingen mat registrert';
+            });
+            
+            // Update calorie ring
+            const circumference = 2 * Math.PI * 80;
+            const offset = circumference - (totalCalories / appState.goals.calories) * circumference;
+            document.getElementById('calorieRing').style.strokeDashoffset = Math.max(0, offset);
+            
+            // Update calorie displays
+            document.getElementById('caloriesEaten').textContent = totalCalories;
+            document.getElementById('caloriesSpist').textContent = `${totalCalories} kcal`;
+            const remaining = appState.goals.calories - totalCalories;
+            document.getElementById('caloriesRemaining').textContent = `${remaining > 0 ? remaining : 0} igjen`;
+            
+            // Update macro bars
+            document.getElementById('proteinValue').textContent = Math.round(totalProtein);
+            document.getElementById('carbsValue').textContent = Math.round(totalCarbs);
+            document.getElementById('fatValue').textContent = Math.round(totalFat);
+            
+            document.getElementById('proteinBar').style.width = `${Math.min(100, (totalProtein / appState.goals.protein) * 100)}%`;
+            document.getElementById('carbsBar').style.width = `${Math.min(100, (totalCarbs / appState.goals.carbs) * 100)}%`;
+            document.getElementById('fatBar').style.width = `${Math.min(100, (totalFat / appState.goals.fat) * 100)}%`;
+            
+            // Update water
+            updateWaterDisplay();
+            
+            // Update stats
+            updateStats();
+            
+            // Update weekly chart
+            weeklyData.calories[6] = totalCalories;
+            updateWeeklyChart();
+            
+            saveState();
+        }
+
+        function updateWaterDisplay() {
+            const water = appState.dailyLog.water;
+            document.getElementById('waterCount').textContent = `${water} / 8 glass`;
+            document.getElementById('statWater').textContent = water;
+            
+            for (let i = 1; i <= 8; i++) {
+                const glass = document.querySelector(`[data-glass="${i}"]`);
+                if (i <= water) {
+                    glass.classList.add('filled');
+                } else {
+                    glass.classList.remove('filled');
+                }
+            }
+        }
+
+        function toggleWater(glassNum) {
+            if (appState.dailyLog.water === glassNum) {
+                appState.dailyLog.water = glassNum - 1;
+            } else {
+                appState.dailyLog.water = glassNum;
+            }
+            updateWaterDisplay();
+            saveState();
+        }
+
+        function updateStats() {
+            let totalMeals = 0;
+            Object.values(appState.dailyLog.meals).forEach(meals => {
+                totalMeals += meals.length;
+            });
+            document.getElementById('statMeals').textContent = totalMeals;
+        }
+
+        // ==================== FOOD LOGGING ====================
+        function initFoodList() {
+            renderFoodList(foodDatabase);
+        }
+
+        function renderFoodList(foods) {
+            const list = document.getElementById('foodList');
+            list.innerHTML = '';
+            
+            foods.forEach(food => {
+                const item = document.createElement('div');
+                item.className = 'food-item flex items-center justify-between p-4 bg-gray-50 rounded-lg cursor-pointer';
+                item.onclick = () => selectFood(food);
+                item.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                            <i class="fas ${food.icon} text-emerald-600"></i>
+                        </div>
+                        <div>
+                            <p class="font-medium text-gray-800">${food.name}</p>
+                            <p class="text-sm text-gray-500">${food.calories} kcal per porsjon</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm font-medium text-emerald-600">P: ${food.protein}g</p>
+                        <p class="text-sm text-gray-500">K: ${food.carbs}g F: ${food.fat}g</p>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function searchFood(query) {
+            const filtered = foodDatabase.filter(food => 
+                food.name.toLowerCase().includes(query.toLowerCase())
+            );
+            renderFoodList(filtered);
+        }
+
+        function filterCategory(category) {
+            if (category === 'alle') {
+                renderFoodList(foodDatabase);
+            } else {
+                const filtered = foodDatabase.filter(food => food.category === category);
+                renderFoodList(filtered);
+            }
+        }
+
+        function selectFood(food) {
+            appState.selectedFood = food;
+            document.getElementById('selectedFoodName').value = food.name;
+            document.getElementById('addFoodBtn').disabled = false;
+            
+            // Update preview
+            document.getElementById('nutritionPreview').classList.remove('hidden');
+            document.getElementById('previewCalories').textContent = food.calories;
+            document.getElementById('previewProtein').textContent = food.protein;
+            document.getElementById('previewCarbs').textContent = food.carbs;
+            document.getElementById('previewFat').textContent = food.fat;
+        }
+
+        function addFoodItem(event) {
+            event.preventDefault();
+            
+            if (!appState.selectedFood) return;
+            
+            const mealType = document.getElementById('mealType').value;
+            const portion = parseFloat(document.getElementById('portionSize').value);
+            
+            appState.dailyLog.meals[mealType].push({
+                foodId: appState.selectedFood.id,
+                portion: portion,
+                timestamp: new Date().toISOString()
+            });
+            
+            // Reset form
+            document.getElementById('addFoodForm').reset();
+            document.getElementById('selectedFoodName').value = '';
+            document.getElementById('addFoodBtn').disabled = true;
+            document.getElementById('nutritionPreview').classList.add('hidden');
+            appState.selectedFood = null;
+            
+            // Show success message
+            alert('Matvare lagt til!');
+            
+            saveState();
+        }
+
+        // ==================== AI CAMERA ====================
+        function handleDragOver(event) {
+            event.preventDefault();
+            event.currentTarget.classList.add('dragover');
+        }
+
+        function handleDragLeave(event) {
+            event.currentTarget.classList.remove('dragover');
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('dragover');
+            
+            const files = event.dataTransfer.files;
+            if (files.length > 0) {
+                handleFile(files[0]);
+            }
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+
+        function handleFile(file) {
+            if (!file.type.startsWith('image/')) {
+                alert('Vennligst velg et bilde');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('previewImg').src = e.target.result;
+                document.getElementById('uploadPrompt').classList.add('hidden');
+                document.getElementById('imagePreview').classList.remove('hidden');
+                document.getElementById('analyzeBtn').disabled = false;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearImage(event) {
+            event.stopPropagation();
+            document.getElementById('fileInput').value = '';
+            document.getElementById('uploadPrompt').classList.remove('hidden');
+            document.getElementById('imagePreview').classList.add('hidden');
+            document.getElementById('analyzeBtn').disabled = true;
+            document.getElementById('analysisResult').classList.add('hidden');
+            document.getElementById('analysisEmpty').classList.remove('hidden');
+        }
+
+        function analyzeImage() {
+            document.getElementById('analysisLoading').classList.remove('hidden');
+            document.getElementById('analysisEmpty').classList.add('hidden');
+            document.getElementById('analysisResult').classList.add('hidden');
+            document.getElementById('analyzeBtn').disabled = true;
+            
+            // Simulate AI analysis
+            setTimeout(() => {
+                // Randomly select a food from database
+                const randomFood = foodDatabase[Math.floor(Math.random() * foodDatabase.length)];
+                appState.aiResult = randomFood;
+                
+                document.getElementById('analysisLoading').classList.add('hidden');
+                document.getElementById('analysisResult').classList.remove('hidden');
+                document.getElementById('analyzeBtn').disabled = false;
+                
+                // Update result display
+                document.getElementById('resultName').textContent = randomFood.name;
+                document.getElementById('confidence').textContent = `${Math.floor(Math.random() * 10 + 85)}%`;
+                document.getElementById('resultCalories').textContent = `${randomFood.calories} kcal`;
+                document.getElementById('resultProtein').textContent = `${randomFood.protein}g`;
+                document.getElementById('resultCarbs').textContent = `${randomFood.carbs}g`;
+                document.getElementById('resultFat').textContent = `${randomFood.fat}g`;
+                
+                // Update icon
+                const iconEl = document.getElementById('resultIcon');
+                iconEl.className = `fas ${randomFood.icon} text-emerald-600 text-2xl`;
+            }, 2000);
+        }
+
+        function addAIFood() {
+            if (!appState.aiResult) return;
+            
+            const mealType = document.getElementById('aiMealType').value;
+            
+            appState.dailyLog.meals[mealType].push({
+                foodId: appState.aiResult.id,
+                portion: 1,
+                timestamp: new Date().toISOString()
+            });
+            
+            alert(`${appState.aiResult.name} lagt til i ${mealType === 'breakfast' ? 'frokost' : mealType === 'lunch' ? 'lunsj' : mealType === 'dinner' ? 'middag' : 'snacks'}!`);
+            
+            saveState();
+        }
+
+        // ==================== PROFILE ====================
+        function updateGoals() {
+            appState.goals.calories = parseInt(document.getElementById('goalCalories').value) || 2000;
+            appState.goals.protein = parseInt(document.getElementById('goalProtein').value) || 150;
+            appState.goals.carbs = parseInt(document.getElementById('goalCarbs').value) || 250;
+            appState.goals.fat = parseInt(document.getElementById('goalFat').value) || 70;
+            
+            document.getElementById('calorieGoal').textContent = appState.goals.calories;
+            
+            saveState();
+            updateDashboard();
+        }
+
+        // ==================== CHART ====================
+        let weeklyChart = null;
+
+        function initWeeklyChart() {
+            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            
+            weeklyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: weeklyData.labels,
+                    datasets: [{
+                        label: 'Kalorier',
+                        data: weeklyData.calories,
+                        backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                        borderColor: 'rgba(16, 185, 129, 1)',
+                        borderWidth: 2,
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(0, 0, 0, 0.05)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateWeeklyChart() {
+            if (weeklyChart) {
+                weeklyChart.data.datasets[0].data = weeklyData.calories;
+                weeklyChart.update();
+            }
+        }
+
+        // ==================== STORAGE ====================
+        function saveState() {
+            localStorage.setItem('kalorifit_state', JSON.stringify(appState));
+        }
+
+        function loadState() {
+            const saved = localStorage.getItem('kalorifit_state');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Check if it's a new day
+                const today = new Date().toISOString().split('T')[0];
+                if (parsed.dailyLog.date === today) {
+                    appState = parsed;
+                } else {
+                    // Reset daily log for new day
+                    appState.goals = parsed.goals;
+                }
+            }
+            
+            // Update form values
+            document.getElementById('goalCalories').value = appState.goals.calories;
+            document.getElementById('goalProtein').value = appState.goals.protein;
+            document.getElementById('goalCarbs').value = appState.goals.carbs;
+            document.getElementById('goalFat').value = appState.goals.fat;
+        }
+    </script>
+</body>
+</html>
