@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut } from 'lucide-react';
+import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity } from 'lucide-react';
 
 interface Stat {
   label: string;
@@ -14,15 +14,39 @@ const stats: Stat[] = [
 ];
 
 const menuItems = [
-  { icon: Bell, label: 'Varsler', value: 'På' },
-  { icon: Shield, label: 'Personvern', value: '' },
-  { icon: Moon, label: 'Mørk modus', value: 'Av' },
-  { icon: Globe, label: 'Språk', value: 'Norsk' },
-  { icon: HelpCircle, label: 'Hjelp og støtte', value: '' },
+  { id: 'notifications', icon: Bell, label: 'Varsler', value: 'På' },
+  { id: 'privacy', icon: Shield, label: 'Personvern', value: '' },
+  { id: 'darkmode', icon: Moon, label: 'Mørk modus', value: 'Av' },
+  { id: 'language', icon: Globe, label: 'Språk', value: 'Norsk' },
+  { id: 'bmi', icon: Activity, label: 'BMI-kalkulator', value: '' },
+  { id: 'help', icon: HelpCircle, label: 'Hjelp og støtte', value: '' },
 ];
 
 export default function ProfileScreen() {
-  const [_darkMode, _setDarkMode] = useState(false);
+
+  const [showBmi, setShowBmi] = useState(false);
+  const [heightCm, setHeightCm] = useState<string>('170');
+  const [weightKg, setWeightKg] = useState<string>('70');
+
+  const toNumber = (s: string) => {
+    const n = Number(String(s).replace(',', '.'));
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  const bmi = (() => {
+    const hCm = toNumber(heightCm);
+    const wKg = toNumber(weightKg);
+    if (!hCm || !wKg || hCm <= 0 || wKg <= 0) return null;
+    const hM = hCm / 100;
+    return wKg / (hM * hM);
+  })();
+
+  const bmiCategory = (b: number) => {
+    if (b < 18.5) return 'Undervekt';
+    if (b < 25) return 'Normal';
+    if (b < 30) return 'Overvekt';
+    return 'Fedme';
+  };
 
   return (
     <div className="screen">
@@ -100,6 +124,9 @@ export default function ProfileScreen() {
         {menuItems.map((item, index) => (
           <button
             key={index}
+            onClick={() => {
+              if (item.id === 'bmi') setShowBmi(true);
+            }}
             className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors border-b last:border-b-0"
           >
             <div className="flex items-center gap-3">
@@ -123,6 +150,73 @@ export default function ProfileScreen() {
         <LogOut className="w-5 h-5" />
         Logg ut
       </button>
+
+      {showBmi && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 -mt-24">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-800">BMI-kalkulator</h3>
+              <button
+                onClick={() => setShowBmi(false)}
+                className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-gray-600">Høyde (cm)</label>
+                <input
+                  inputMode="decimal"
+                  value={heightCm}
+                  onChange={(e) => setHeightCm(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                  placeholder="f.eks. 180"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-gray-600">Vekt (kg)</label>
+                <input
+                  inputMode="decimal"
+                  value={weightKg}
+                  onChange={(e) => setWeightKg(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200"
+                  placeholder="f.eks. 82"
+                />
+              </div>
+
+              <div className="rounded-xl bg-gray-50 p-4">
+                {bmi === null ? (
+                  <p className="text-sm text-gray-600">Skriv inn høyde og vekt for å beregne BMI.</p>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600">Din BMI</p>
+                      <p className="text-2xl font-bold text-gray-800">{bmi.toFixed(1)}</p>
+                      <p className="text-sm text-gray-600">{bmiCategory(bmi)}</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        // TODO: save to user profile / backend / localStorage
+                        setShowBmi(false);
+                      }}
+                      className="rounded-xl bg-orange-500 px-4 py-2 text-white font-medium"
+                    >
+                      Lagre
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-gray-500">
+                Tips: For bedre kaloriberegning bør du også lagre aktivitetsnivå og mål (ned/opp/vedlikehold).
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Version */}
       <p className="text-center text-sm text-gray-400 mt-4 pb-8">
