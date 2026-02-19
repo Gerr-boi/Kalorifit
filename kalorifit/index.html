@@ -1352,7 +1352,7 @@
             appState.selectedFood = null;
             
             // Show success message
-            alert('Matvare lagt til!');
+            alert('Matvaren er lagt til!');
             
             saveState();
         }
@@ -1386,7 +1386,7 @@
 
         function handleFile(file) {
             if (!file.type.startsWith('image/')) {
-                alert('Vennligst velg et bilde');
+                alert('Vennligst velg et bilde.');
                 return;
             }
             
