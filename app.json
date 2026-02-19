@@ -39,7 +39,12 @@
           }
         }
       ],
-      "expo-barcode-scanner"
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Kalorifit to use the camera to scan food barcodes."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
