@@ -10,11 +10,11 @@
     <meta name="description" content="Norges smarteste kaloriapp. Logg maten, få kontroll, lev lettere." />
     
     <!-- PWA Manifest -->
-    <link rel="manifest" href="./manifest.json" />
+    <link rel="manifest" href="/manifest.json" />
     
     <!-- Icons -->
-    <link rel="apple-touch-icon" href="./icon-192x192.png" />
-    <link rel="icon" type="image/png" href="./icon-192x192.png" />
+    <link rel="apple-touch-icon" href="/icon-192x192.png" />
+    <link rel="icon" type="image/png" href="/icon-192x192.png" />
     
     <title>KaloriFit - Logg maten. Få kontroll. Lev lettere.</title>
     
@@ -36,16 +36,47 @@
         overscroll-behavior-y: none;
       }
     </style>
-    <script type="module" crossorigin src="./assets/index-B5TEzWW3.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/index-CSYYHcXK.css">
+    <script type="module" crossorigin src="/assets/index-D23hNoH_.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DVe_Fppz.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-status" style="padding:16px;font-family:system-ui,sans-serif;color:#111827;">
+        Starting app...
+      </div>
+    </div>
+    <script>
+      window.addEventListener('error', (event) => {
+        const el = document.getElementById('boot-status');
+        if (!el) return;
+        el.innerHTML = '<strong>Boot error:</strong> ' + String(event.message || 'Unknown error');
+      });
+
+      window.setTimeout(() => {
+        const root = document.getElementById('root');
+        const boot = document.getElementById('boot-status');
+        if (!root || !boot) return;
+        if (root.childElementCount <= 1) {
+          boot.innerHTML = '<strong>App did not mount.</strong><br/>Check browser console and dev server terminal.';
+        }
+      }, 3000);
+    </script>
     
     <!-- Service Worker Registration -->
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        const isLocalhost =
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.hostname === '::1';
+
+        window.addEventListener('load', async () => {
+          if (isLocalhost) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map((reg) => reg.unregister()));
+            return;
+          }
+
           navigator.serviceWorker.register('/sw.js')
             .then((registration) => {
               console.log('SW registered:', registration);

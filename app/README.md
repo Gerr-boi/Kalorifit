@@ -1,73 +1,96 @@
-# React + TypeScript + Vite
+# KaloriFit Web App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This app now includes a production-safe MVP food detection flow:
 
-Currently, two official plugins are available:
+- Frontend image upload + preview + detect button
+- Backend endpoint `POST /api/detect-food`
+- Provider adapter abstraction (`FoodDetectorProvider`)
+- Default provider: Clarifai
+- Label filtering/normalization with threshold and synonym mapping
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Run locally
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+1. Install dependencies:
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+2. Create `.env` in `app/`:
+```env
+CLARIFAI_PAT=your_pat_here
+# Optional:
+# CLARIFAI_MODEL_ID=food-item-recognition
+# CLARIFAI_API_BASE=https://api.clarifai.com/v2
+# PORT=8787
 ```
+
+3. Start frontend + backend:
+```bash
+npm run dev
+```
+
+Frontend runs via Vite and proxies `/api/*` to the local API server.
+
+## API
+
+### `POST /api/detect-food`
+
+- Content type: `multipart/form-data`
+- Field name: `image`
+- Supported mime types: `image/jpeg`, `image/png`, `image/webp`
+- Max size: `8MB`
+
+Response:
+```json
+{
+  "items": [
+    { "name": "pizza", "confidence": 0.92 },
+    { "name": "salad", "confidence": 0.81 }
+  ]
+}
+```
+
+If no food is detected, returns:
+```json
+{
+  "items": []
+}
+```
+
+## Provider abstraction
+
+Provider interface contract:
+
+```ts
+interface FoodDetectorProvider {
+  detectFood(imageBytes: Buffer): Promise<Array<{ name: string; confidence: number }>>;
+}
+```
+
+Current implementation:
+- `server/providers/clarifaiFoodDetectorProvider.js`
+
+To switch provider later:
+1. Add a new provider implementing the same `detectFood` method.
+2. Inject it into `createApp({ provider: yourProvider })`.
+3. Keep endpoint and frontend unchanged.
+
+## Tests
+
+Run:
+```bash
+npm run test
+```
+
+Included:
+- Unit test: `server/__tests__/foodLabelUtils.test.js`
+  - threshold + synonym + food filtering logic
+- Integration test: `server/__tests__/detectFoodEndpoint.test.js`
+  - endpoint behavior with mocked provider
+
+## Security/Privacy notes
+
+- No provider API keys are used in browser code.
+- API keys are read from server env vars only.
+- Uploads are processed in memory (multer memory storage) and not persisted.
+

@@ -183,6 +183,14 @@ export default function HomeScreen() {
         ))}
       </div>
 
+      {/* Workout Logging */}
+      <div className="card mt-4">
+        <button className="w-full flex items-center justify-center gap-3 p-4 text-orange-500 font-medium hover:bg-orange-50 transition-colors rounded-lg">
+          <span className="text-2xl">💪</span>
+          <span>Logg treningsøkt</span>
+        </button>
+      </div>
+
       {/* Goal Reached Popup */}
       {showPopup && (
         <div className="popup-overlay" onClick={() => setShowPopup(false)}>
