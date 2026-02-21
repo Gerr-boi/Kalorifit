@@ -1,0 +1,26 @@
+[
+  {
+    "id": "fjordland-byggrt",
+    "brand": "Fjordland",
+    "product_name": "Byggr\u00f8t",
+    "aliases": ["byggr\u00f8t", "fjordland byggr\u00f8t", "bygggr\u00f8t", "byggr ot"],
+    "barcode": null,
+    "keywords": ["gr\u00f8t", "havre", "bygg"]
+  },
+  {
+    "id": "tine-lettmelk-1l",
+    "brand": "Tine",
+    "product_name": "Lettmelk 1L",
+    "aliases": ["lettmelk", "tine lettmelk", "lett melk"],
+    "barcode": null,
+    "keywords": ["melk", "milk"]
+  },
+  {
+    "id": "q-meieriene-sjokolademelk",
+    "brand": "Q",
+    "product_name": "Sjokolademelk",
+    "aliases": ["q sjokolademelk", "sjokomelk", "chocolate milk"],
+    "barcode": null,
+    "keywords": ["kakao", "sjoko", "melk"]
+  }
+]
