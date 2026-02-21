@@ -7,6 +7,8 @@ import { resolveLabelMatvaretabellen } from '../../ai-scanner-logic/matvaretabel
 import type { NutritionResult } from '../../ai-scanner-logic/types';
 import type { MacroNutrients } from '../../ai-scanner-logic/types';
 import { createEmptyDayLog, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { getScopedStorageKey } from '../../hooks/useLocalStorageState';
 import FoodDetectionPanel from '../food/FoodDetectionPanel';
 
 type ScanMode = 'search' | 'photo' | 'barcode';
@@ -72,6 +74,7 @@ declare global {
 }
 
 export default function ScanScreen() {
+  const { activeUserId } = useCurrentUser();
   const MAX_VISION_WAIT_MS = 30000;
   const MAX_RESOLVER_WAIT_MS = 7500;
   const MAX_TOTAL_MATCH_WAIT_MS = 18000;
@@ -79,6 +82,9 @@ export default function ScanScreen() {
   const JPEG_QUALITY = 0.82;
   const VISUAL_ANCHOR_STORAGE_KEY = 'kalorifit.visual_anchors.v1';
   const MAX_VISUAL_ANCHORS = 40;
+  const visualAnchorStorageKey = getScopedStorageKey(VISUAL_ANCHOR_STORAGE_KEY, 'user', activeUserId);
+  const dailyLogsStorageKey = getScopedStorageKey('home.dailyLogs.v2', 'user', activeUserId);
+  const lastLoggedFoodStorageKey = getScopedStorageKey('home.lastLoggedFood.v1', 'user', activeUserId);
   const [mode, setMode] = useState<ScanMode>('photo');
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState('');
@@ -97,6 +103,11 @@ export default function ScanScreen() {
   const [correctionNotFood, setCorrectionNotFood] = useState(false);
   const [correctionBadPhoto, setCorrectionBadPhoto] = useState(false);
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
+  const [scanState, setScanState] = useState<'idle' | 'needs_manual_label' | 'no_match'>('idle');
+  const [manualLabel, setManualLabel] = useState<string>('');
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [candidates, setCandidates] = useState<NutritionResult[]>([]);
+  const [showCandidates, setShowCandidates] = useState(false);
   const [photoCamActive, setPhotoCamActive] = useState(false);
   const [photoCamReady, setPhotoCamReady] = useState(false);
   const [photoCamError, setPhotoCamError] = useState<string | null>(null);
@@ -117,6 +128,11 @@ export default function ScanScreen() {
   const liveDevicesRef = useRef<MediaDeviceInfo[]>([]);
   const activeCameraIdRef = useRef<string | null>(null);
   const activeScanTraceRef = useRef<ScanTrace | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const prevUrlRef = useRef<string | null>(null);
+  const barcodeInFlightRef = useRef(false);
+  const lastHandledRef = useRef<{ code: string; at: number } | null>(null);
+  const stableCountsRef = useRef(new Map<string, { count: number; lastAt: number }>());
 
   function getDeviceInfo() {
     const nav = window.navigator;
@@ -164,7 +180,7 @@ export default function ScanScreen() {
 
   function loadVisualAnchors(): VisualAnchor[] {
     try {
-      const raw = window.localStorage.getItem(VISUAL_ANCHOR_STORAGE_KEY);
+      const raw = window.localStorage.getItem(visualAnchorStorageKey);
       if (!raw) return [];
       const parsed = JSON.parse(raw) as VisualAnchor[];
       if (!Array.isArray(parsed)) return [];
@@ -176,7 +192,7 @@ export default function ScanScreen() {
 
   function saveVisualAnchors(next: VisualAnchor[]) {
     try {
-      window.localStorage.setItem(VISUAL_ANCHOR_STORAGE_KEY, JSON.stringify(next.slice(0, MAX_VISUAL_ANCHORS)));
+      window.localStorage.setItem(visualAnchorStorageKey, JSON.stringify(next.slice(0, MAX_VISUAL_ANCHORS)));
     } catch {
       // ignore localStorage failures
     }
@@ -361,9 +377,8 @@ export default function ScanScreen() {
     };
 
     try {
-      const storageKey = 'home.dailyLogs.v2';
       const todayKey = toDateKey(new Date());
-      const raw = window.localStorage.getItem(storageKey);
+      const raw = window.localStorage.getItem(dailyLogsStorageKey);
       const parsed = raw ? (JSON.parse(raw) as Record<string, DayLog>) : {};
       const dayLog = parsed[todayKey] ?? createEmptyDayLog();
       const nextDayLog: DayLog = {
@@ -377,8 +392,8 @@ export default function ScanScreen() {
         waterMl: Number(dayLog.waterMl ?? 0),
       };
       nextDayLog.meals[mealId].push(loggedEntry);
-      window.localStorage.setItem(storageKey, JSON.stringify({ ...parsed, [todayKey]: nextDayLog }));
-      window.localStorage.setItem('home.lastLoggedFood.v1', JSON.stringify(loggedEntry));
+      window.localStorage.setItem(dailyLogsStorageKey, JSON.stringify({ ...parsed, [todayKey]: nextDayLog }));
+      window.localStorage.setItem(lastLoggedFoodStorageKey, JSON.stringify(loggedEntry));
     } catch (err) {
       console.error('Failed to save scan to daily log:', err);
       showFeedback('Kunne ikke lagre i dagboken. Prøv igjen.', 'error');
@@ -394,15 +409,9 @@ export default function ScanScreen() {
   };
 
   // Camera roll / file picker support
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const prevUrlRef = useRef<string | null>(null);
-
   const openCameraRoll = () => {
     fileInputRef.current?.click();
   };
-const barcodeInFlightRef = useRef(false);
-const lastHandledRef = useRef<{ code: string; at: number } | null>(null);
-const stableCountsRef = useRef(new Map<string, { count: number; lastAt: number }>());
 
 function normalizeBarcode(code: string) {
   return code.replace(/\s+/g, "").trim();
@@ -853,12 +862,6 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
       setManualBarcodeError('Fant ikke produkt for denne strekkoden.');
     }
   };
-
-  const [scanState, setScanState] = useState<'idle' | 'needs_manual_label' | 'no_match'>('idle');
-  const [manualLabel, setManualLabel] = useState<string>('');
-  const [manualError, setManualError] = useState<string | null>(null);
-  const [candidates, setCandidates] = useState<NutritionResult[]>([]);
-  const [showCandidates, setShowCandidates] = useState(false);
 
   function extractImageUrl(raw: unknown): string | undefined {
     if (!raw || typeof raw !== 'object') return undefined;

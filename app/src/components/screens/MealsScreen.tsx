@@ -265,6 +265,7 @@ export default function MealsScreen() {
   const [profilePrefs] = useLocalStorageState<ProfilePrefs>('profile', {});
   const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
   const [workouts] = useLocalStorageState<Array<{ dateKey: string; caloriesBurned: number }>>('home.workoutSessions.v1', []);
+  const [, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
 
   const today = useMemo(() => startOfDay(new Date()), []);
   const todayKey = useMemo(() => toDateKey(today), [today]);
@@ -429,11 +430,7 @@ export default function MealsScreen() {
       next[todayKey].meals[mealId].push(entry);
       return next;
     });
-    try {
-      window.localStorage.setItem('home.lastLoggedFood.v1', JSON.stringify(entry));
-    } catch {
-      // ignore localStorage failures
-    }
+    setLastLoggedFood(entry);
     setDiaryFeedback(`${recipe.title} lagt til i dagbok.`);
     window.setTimeout(() => setDiaryFeedback(null), 2400);
   }
