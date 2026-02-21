@@ -170,6 +170,14 @@ export function createApp(options = {}) {
     limits: { fileSize: MAX_FILE_SIZE_BYTES },
   });
 
+  app.get('/', (_req, res) => {
+    res.json({
+      ok: true,
+      service: 'food-detection-api',
+      health: '/api/health',
+    });
+  });
+
   app.get('/api/health', async (_req, res) => {
     const providerHealth = typeof provider.health === 'function' ? await provider.health() : null;
     res.json({
