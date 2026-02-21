@@ -1,16 +1,58 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Home, Users, Camera, UtensilsCrossed, User } from 'lucide-react';
 import HomeScreen from './components/screens/HomeScreen';
 import CommunityScreen from './components/screens/CommunityScreen';
 import ScanScreen from './components/screens/ScanScreen';
 import MealsScreen from './components/screens/MealsScreen';
 import ProfileScreen from './components/screens/ProfileScreen';
+import {
+  ensureWeeklyReportForSunday,
+  type DayLog,
+  type WeeklyPerformanceReport,
+} from './lib/disciplineEngine';
+import {
+  ensureMonthlyIdentityReport,
+  type IdentityReportsByMonth,
+} from './lib/identityEngine';
 import './App.css';
 
 type Tab = 'home' | 'community' | 'scan' | 'meals' | 'profile';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
+
+  useEffect(() => {
+    const runAutomations = () => {
+      try {
+        const logsRaw = localStorage.getItem('home.dailyLogs.v2');
+        const reportsRaw = localStorage.getItem('home.weeklyReports.v1');
+        const identityRaw = localStorage.getItem('home.identityReports.v1');
+        const logsByDate: Record<string, DayLog> = logsRaw ? (JSON.parse(logsRaw) as Record<string, DayLog>) : {};
+        const reportsByWeek: Record<string, WeeklyPerformanceReport> = reportsRaw
+          ? (JSON.parse(reportsRaw) as Record<string, WeeklyPerformanceReport>)
+          : {};
+        const identityByMonth: IdentityReportsByMonth = identityRaw
+          ? (JSON.parse(identityRaw) as IdentityReportsByMonth)
+          : {};
+
+        const nextReports = ensureWeeklyReportForSunday(new Date(), logsByDate, reportsByWeek);
+        if (nextReports !== reportsByWeek) {
+          localStorage.setItem('home.weeklyReports.v1', JSON.stringify(nextReports));
+        }
+
+        const nextIdentityReports = ensureMonthlyIdentityReport(new Date(), logsByDate, identityByMonth);
+        if (nextIdentityReports !== identityByMonth) {
+          localStorage.setItem('home.identityReports.v1', JSON.stringify(nextIdentityReports));
+        }
+      } catch {
+        // Ignore malformed local storage payloads.
+      }
+    };
+
+    runAutomations();
+    const interval = window.setInterval(runAutomations, 60 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const renderScreen = () => {
     switch (activeTab) {
