@@ -1,12 +1,14 @@
-import { type ChangeEvent, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Plus, Trophy, UserPlus, X } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { addDays, createEmptyDayLog, startOfDay, toDateKey, type DayLog } from '../../lib/disciplineEngine';
 
 type ReactionKey = 'fire' | 'strong' | 'beast' | 'insane' | 'watching';
 
 type CommunityProfile = {
   name?: string;
+  profileImageDataUrl?: string | null;
   goalStrategy?: string;
   trainingType?: string;
   socialAnonymousPosting?: boolean;
@@ -27,6 +29,7 @@ type CommunityPost = {
   authorId: string;
   authorName: string;
   authorInitials: string;
+  authorAvatarDataUrl?: string;
   level: 'Beginner' | 'Intermediate' | 'Advanced';
   goal: string;
   trainingStyle: string;
@@ -38,6 +41,8 @@ type CommunityPost = {
   prHighlight: string;
   streak: number;
   createdAt: number;
+  hideCalories: boolean;
+  hideBodyPhoto: boolean;
   reactions: Record<ReactionKey, number>;
 };
 
@@ -111,6 +116,7 @@ function scoreForLeaderboard(streak: number, postCount: number, totalCalories: n
 }
 
 export default function CommunityScreen() {
+  const { activeUserId } = useCurrentUser();
   const [activeTab, setActiveTab] = useState<'feed' | 'friends'>('feed');
   const [showAddPost, setShowAddPost] = useState(false);
   const [postMode, setPostMode] = useState<'photo' | 'text'>('photo');
@@ -124,7 +130,7 @@ export default function CommunityScreen() {
   const [profile] = useLocalStorageState<CommunityProfile>('profile', {});
   const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
   const [workoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', []);
-  const [posts, setPosts] = useLocalStorageState<CommunityPost[]>('community.posts.v1', []);
+  const [posts, setPosts] = useLocalStorageState<CommunityPost[]>('community.posts.v1', [], { scope: 'global' });
   const [myReactions, setMyReactions] = useLocalStorageState<Record<string, ReactionKey | undefined>>(
     'community.myReactions.v1',
     {},
@@ -141,6 +147,18 @@ export default function CommunityScreen() {
       .filter((entry) => entry.dateKey === todayKey)
       .sort((a, b) => (a.durationMin < b.durationMin ? 1 : -1))[0] ?? null;
   }, [todayKey, workoutSessions]);
+
+  useEffect(() => {
+    setPosts((prev) => {
+      let changed = false;
+      const next = prev.map((post) => {
+        if (post.authorId !== 'self') return post;
+        changed = true;
+        return { ...post, authorId: activeUserId };
+      });
+      return changed ? next : prev;
+    });
+  }, [activeUserId, setPosts]);
 
   const leaderboard = useMemo(() => {
     const byAuthor = posts.reduce<Record<string, { id: string; name: string; initials: string; streak: number; posts: number; calories: number }>>(
@@ -162,7 +180,7 @@ export default function CommunityScreen() {
       {},
     );
 
-    const selfId = 'self';
+    const selfId = activeUserId;
     const current = byAuthor[selfId] ?? {
       id: selfId,
       name: displayName,
@@ -183,12 +201,12 @@ export default function CommunityScreen() {
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
-  }, [currentStreak, displayName, posts]);
+  }, [activeUserId, currentStreak, displayName, posts]);
 
   const visiblePosts = useMemo(() => {
-    if (activeTab === 'friends') return posts.filter((post) => post.authorId !== 'self');
+    if (activeTab === 'friends') return posts.filter((post) => post.authorId !== activeUserId);
     return posts;
-  }, [activeTab, posts]);
+  }, [activeTab, activeUserId, posts]);
 
   function openAddPostModal() {
     setShowAddPost(true);
@@ -231,9 +249,10 @@ export default function CommunityScreen() {
 
     const nextPost: CommunityPost = {
       id: createId('post'),
-      authorId: 'self',
-      authorName: displayName,
-      authorInitials: initialsFromName(displayName),
+      authorId: activeUserId,
+      authorName: profile.socialAnonymousPosting ? 'Anonymous' : displayName,
+      authorInitials: profile.socialAnonymousPosting ? 'AN' : initialsFromName(displayName),
+      authorAvatarDataUrl: profile.socialAnonymousPosting ? undefined : (profile.profileImageDataUrl ?? undefined),
       level: toLevel(streak),
       goal,
       trainingStyle,
@@ -245,6 +264,8 @@ export default function CommunityScreen() {
       prHighlight: prHighlight.trim() || 'Solid training block complete',
       streak,
       createdAt: Date.now(),
+      hideCalories: Boolean(profile.socialHideWeightNumbers),
+      hideBodyPhoto: Boolean(profile.socialHideBodyPhotos),
       reactions: { ...emptyReactions },
     };
 
@@ -342,19 +363,21 @@ export default function CommunityScreen() {
 
       <div className="pb-24">
         {visiblePosts.map((post) => {
-          const isSelf = post.authorId === 'self';
-          const shownName = isSelf && profile.socialAnonymousPosting ? 'Anonymous' : post.authorName;
-          const showCalories = !(isSelf && profile.socialHideWeightNumbers);
-          const showImage = !(isSelf && profile.socialHideBodyPhotos) && Boolean(post.imageDataUrl);
+          const showCalories = !post.hideCalories;
+          const showImage = !post.hideBodyPhoto && Boolean(post.imageDataUrl);
 
           return (
             <div key={post.id} className="feed-item">
               <div className="feed-header">
-                <div className="w-11 h-11 bg-gradient-to-br from-orange-100 to-orange-200 rounded-full flex items-center justify-center text-xs font-bold text-orange-700">
-                  {post.authorInitials}
-                </div>
+                {post.authorAvatarDataUrl ? (
+                  <img src={post.authorAvatarDataUrl} alt={post.authorName} className="w-11 h-11 rounded-full object-cover" />
+                ) : (
+                  <div className="w-11 h-11 bg-gradient-to-br from-orange-100 to-orange-200 rounded-full flex items-center justify-center text-xs font-bold text-orange-700">
+                    {post.authorInitials}
+                  </div>
+                )}
                 <div className="flex-1">
-                  <h3 className="font-semibold text-gray-800">{shownName}</h3>
+                  <h3 className="font-semibold text-gray-800">{post.authorName}</h3>
                   <p className="text-xs text-gray-500">
                     {post.goal} | {post.trainingStyle} | {post.level} | {relativeTimeFrom(post.createdAt)}
                   </p>

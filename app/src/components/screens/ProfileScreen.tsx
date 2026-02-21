@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity, ArrowLeft, Trophy, X } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
+import { useCurrentUser } from '../../hooks/useCurrentUser';
 import {
   calculateDailyDisciplineScore,
   createEmptyDayLog,
@@ -80,8 +81,8 @@ type Profile = {
 };
 
 const DEFAULT_PROFILE: Profile = {
-  name: 'Anna Hansen',
-  memberSince: '2024',
+  name: 'Member',
+  memberSince: String(new Date().getFullYear()),
   heightCm: DEFAULT_NUTRITION_PROFILE.heightCm,
   weightKg: DEFAULT_NUTRITION_PROFILE.weightKg,
   age: DEFAULT_NUTRITION_PROFILE.age,
@@ -137,6 +138,7 @@ const DIET_EXPLORER_OPTIONS: Array<{
 ];
 
 export default function ProfileScreen() {
+  const { users, currentUser, setActiveUserId, createUser, updateUserName } = useCurrentUser();
   const [profile, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
   const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
   const [weeklyReports, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>('home.weeklyReports.v1', {});
@@ -171,6 +173,7 @@ export default function ProfileScreen() {
   const [draftEventDate, setDraftEventDate] = useState(profile.eventDate ?? '');
   const [draftPsychologyType, setDraftPsychologyType] = useState<PsychologyType>(profile.psychologyType ?? DEFAULT_NUTRITION_PROFILE.psychologyType);
   const [draftSpecialPhase, setDraftSpecialPhase] = useState<SpecialPhase>(profile.specialPhase ?? DEFAULT_NUTRITION_PROFILE.specialPhase);
+  const [newUserName, setNewUserName] = useState('');
   const [darkMode, setDarkMode] = useLocalStorageState<boolean>('darkMode', false);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -210,8 +213,12 @@ export default function ProfileScreen() {
   })();
 
   useEffect(() => {
-    setProfile((prev) => ({ ...DEFAULT_PROFILE, ...prev }));
-  }, [setProfile]);
+    setProfile((prev) => {
+      const hasCustomName = prev.name?.trim() && prev.name !== DEFAULT_PROFILE.name;
+      const nextName = hasCustomName ? prev.name : currentUser.name;
+      return { ...DEFAULT_PROFILE, ...prev, name: nextName };
+    });
+  }, [currentUser.name, setProfile]);
 
   const today = useMemo(() => startOfDay(new Date()), []);
   const todayKey = useMemo(() => toDateKey(today), [today]);
@@ -395,7 +402,13 @@ export default function ProfileScreen() {
       psychologyType: normalized.psychologyType,
       specialPhase: normalized.specialPhase,
     }));
+    updateUserName(currentUser.id, nextName);
     setShowPersonalSettings(false);
+  };
+
+  const handleCreateUser = () => {
+    createUser(newUserName);
+    setNewUserName('');
   };
 
   const applyDietStyle = (style: DietStyle) => {
@@ -553,7 +566,7 @@ export default function ProfileScreen() {
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="f.eks. Anna Hansen"
+                  placeholder="f.eks. Ola Nordmann"
                 />
               </div>
 
@@ -887,6 +900,38 @@ export default function ProfileScreen() {
             <p className="stat-label dark:text-gray-300">{stat.label}</p>
           </div>
         ))}
+      </div>
+
+      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Account</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Current user: {currentUser.name}</p>
+          </div>
+          <select
+            value={currentUser.id}
+            onChange={(e) => setActiveUserId(e.target.value)}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-100"
+          >
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={newUserName}
+            onChange={(e) => setNewUserName(e.target.value)}
+            placeholder="New user name"
+            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+          />
+          <button type="button" onClick={handleCreateUser} className="rounded-lg bg-orange-500 text-white px-3 py-2 text-sm font-medium">
+            Add user
+          </button>
+        </div>
       </div>
 
       <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
