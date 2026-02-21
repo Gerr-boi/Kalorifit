@@ -16,7 +16,6 @@ export class FoodDetectorProvider {
   async submitFeedback(_payload, _options = {}) {
     throw new Error('FoodDetectorProvider.submitFeedback must be implemented');
   }
-
   async health() {
     return null;
   }

@@ -127,7 +127,6 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
       clearTimeout(timeoutId);
     }
   }
-
   async health() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3_000);
