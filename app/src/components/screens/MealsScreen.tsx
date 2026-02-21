@@ -247,12 +247,9 @@ function sumDaySignals(log: DayLog) {
   );
 }
 
-function hashToRange(seed: string, min: number, max: number) {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
-  const normalized = Math.abs(hash % 10000) / 10000;
-  return Math.round(min + normalized * (max - min));
-}
+const EMPTY_PROFILE_PREFS: ProfilePrefs = {};
+const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
+const EMPTY_WORKOUTS: Array<{ dateKey: string; caloriesBurned: number }> = [];
 
 export default function MealsScreen() {
   const [favorites, setFavorites] = useState<Set<string>>(new Set(['r1', 'r4']));
@@ -262,9 +259,9 @@ export default function MealsScreen() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [diaryFeedback, setDiaryFeedback] = useState<string | null>(null);
 
-  const [profilePrefs] = useLocalStorageState<ProfilePrefs>('profile', {});
-  const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
-  const [workouts] = useLocalStorageState<Array<{ dateKey: string; caloriesBurned: number }>>('home.workoutSessions.v1', []);
+  const [profilePrefs] = useLocalStorageState<ProfilePrefs>('profile', EMPTY_PROFILE_PREFS);
+  const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
+  const [workouts] = useLocalStorageState<Array<{ dateKey: string; caloriesBurned: number }>>('home.workoutSessions.v1', EMPTY_WORKOUTS);
   const [, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
 
   const today = useMemo(() => startOfDay(new Date()), []);
@@ -300,6 +297,20 @@ export default function MealsScreen() {
   const poorSleepProxy = todayLog.waterMl < 800 && todaySignals.protein < 60;
   const stressProxy = profile.specialPhase === 'recovery' || profile.trainingType === 'crossfit';
   const lowFiberToday = todaySignals.fiber < 2;
+  const recentMealKeywords = useMemo(() => {
+    const words = new Set<string>();
+    const stopwords = new Set(['med', 'og', 'til', 'for', 'på', 'the', 'and']);
+    Array.from({ length: 7 }, (_, i) => logsByDate[toDateKey(addDays(today, -i))] ?? createEmptyDayLog())
+      .flatMap((log) => Object.values(log.meals).flat())
+      .forEach((item) => {
+        item.name
+          .toLowerCase()
+          .split(/[^a-zA-ZæøåÆØÅ]+/)
+          .filter((token) => token.length > 2 && !stopwords.has(token))
+          .forEach((token) => words.add(token));
+      });
+    return words;
+  }, [logsByDate, today]);
 
   const weeklyInsight = weekSignals.fermented < 4
     ? 'Denne uken mangler du fermentert mat. Tarmvennlige forslag prioriteres.'
@@ -353,11 +364,17 @@ export default function MealsScreen() {
         if (activeSort === 'gut' && (r.signals.fermented || r.signals.fiber >= 6)) s += 4;
         if (activeSort === 'high_energy' && r.signals.highEnergy) s += 4;
         if (activeSort === 'anti_inflammatory' && r.signals.antiInflammatory) s += 4;
+        if (activeSort === 'recommended') {
+          const title = r.title.toLowerCase();
+          const keywordMatches = Array.from(recentMealKeywords).filter((token) => title.includes(token)).length;
+          s += Math.min(keywordMatches, 2) * 1.5;
+          if (favorites.has(r.id)) s += 1;
+        }
         return s;
       };
       return score(b) - score(a);
     });
-  }, [activeMealFilter, activeSort, favorites, hardWorkoutToday, lowFiberToday, profile.dietStyle, profile.goalCategory, profile.goalStrategy, profilePrefs.allergies, profilePrefs.intolerances, showFavoritesOnly]);
+  }, [activeMealFilter, activeSort, favorites, hardWorkoutToday, lowFiberToday, profile.dietStyle, profile.goalCategory, profile.goalStrategy, profilePrefs.allergies, profilePrefs.intolerances, recentMealKeywords, showFavoritesOnly]);
 
   const blocksWithItems = useMemo(() => recommendationBlocks.map((block) => ({ ...block, items: filteredRecipes.filter(block.match).slice(0, 3) })), [filteredRecipes, recommendationBlocks]);
   const activeSortLabel = smartSortOptions.find((item) => item.id === activeSort)?.label ?? 'Anbefalt for deg';
@@ -520,10 +537,14 @@ export default function MealsScreen() {
           </div>
         )}
         {filteredRecipes.map((recipe) => {
-          const audience = profile.goalStrategy === 'gut_health' ? 'Tarmhelse' : profile.goalCategory === 'muscle_gain' ? 'Styrkeutovere' : 'KaloriFit-medlemmer';
-          const city = ['Oslo', 'Bergen', 'Trondheim', 'Stavanger'][hashToRange(recipe.id, 0, 3)];
-          const tried = hashToRange(`${recipe.id}-tried`, 8, 42);
-          const saved = hashToRange(`${recipe.id}-saved`, 18, 160);
+          const recommendationReasons = [
+            recipe.goalCategories.includes(profile.goalCategory) ? 'Matcher mal' : null,
+            recipe.dietStyles.includes(profile.dietStyle) ? 'Passer koststil' : null,
+            hardWorkoutToday && recipe.tags.includes('recovery') ? 'Bra etter trening' : null,
+            lowFiberToday && recipe.signals.fiber >= 7 ? 'Hoy fiber i dag' : null,
+            activeSort === 'gut' && (recipe.signals.fermented || recipe.signals.fiber >= 6) ? 'Tarmvennlig' : null,
+            activeSort === 'evening' && recipe.signals.eveningFriendly ? 'Kveldvennlig' : null,
+          ].filter(Boolean).slice(0, 3) as string[];
           return (
             <div key={recipe.id} className="recipe-card cursor-pointer" onClick={() => addRecipeToDiary(recipe)}>
               <div className="relative">
@@ -550,8 +571,14 @@ export default function MealsScreen() {
                   <div className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /><span>{recipe.servings} pers</span></div>
                 </div>
                 <div className="rounded-xl bg-slate-50 border border-slate-100 p-2 mb-3">
-                  <p className="text-[11px] text-slate-600">{tried} personer i {audience} har provd denne</p>
-                  <p className="text-[11px] text-slate-500">Mest lagret i {city}: {saved} lagringer</p>
+                  <p className="text-[11px] text-slate-600 mb-1">Hvorfor anbefalt:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {(recommendationReasons.length > 0 ? recommendationReasons : ['Variasjon i planen']).map((reason) => (
+                      <span key={reason} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
                   {recipe.tags.map((tag) => (

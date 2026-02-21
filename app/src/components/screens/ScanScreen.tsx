@@ -1742,6 +1742,33 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
     await startLiveBarcodeScan(next.deviceId);
   };
 
+  const switchPhotoCamera = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      showFeedback('Kan ikke bytte kamera i denne nettleseren.', 'error');
+      return;
+    }
+
+    let devices = liveDevicesRef.current;
+    if (devices.length < 2) {
+      const listed = await navigator.mediaDevices.enumerateDevices();
+      devices = listed.filter((d) => d.kind === 'videoinput');
+      liveDevicesRef.current = devices;
+    }
+
+    if (devices.length < 2) {
+      showFeedback('Fant bare ett kamera.', 'info');
+      return;
+    }
+
+    const activeId = activeCameraIdRef.current;
+    const currentIndex = devices.findIndex((d) => d.deviceId === activeId);
+    const next = devices[(currentIndex + 1 + devices.length) % devices.length];
+
+    stopPhotoCamera();
+    setMode('photo');
+    await startPhotoCamera(next.deviceId);
+  };
+
   function calcServing(per100g: MacroNutrients | null | undefined, amount: number) {
     const f = amount / 100;
     return {
@@ -1924,18 +1951,30 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
               Kamerarull
             </button>
 
-            {mode === 'barcode' && (
+            {(mode === 'barcode' || mode === 'photo') && (
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setManualBarcode('');
-                    setManualBarcodeError(null);
-                    setShowBarcodeEntry(true);
-                  }}
-                  className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
-                >
-                  Manuell kode
-                </button>
+                {mode === 'barcode' && (
+                  <button
+                    onClick={() => {
+                      setManualBarcode('');
+                      setManualBarcodeError(null);
+                      setShowBarcodeEntry(true);
+                    }}
+                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
+                  >
+                    Manuell kode
+                  </button>
+                )}
+                {mode === 'photo' && photoCamActive && (
+                  <button
+                    onClick={() => {
+                      void switchPhotoCamera();
+                    }}
+                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
+                  >
+                    Bytt kamera
+                  </button>
+                )}
                 {liveScanActive && (
                   <button
                     onClick={() => {

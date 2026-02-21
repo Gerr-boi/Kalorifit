@@ -19,18 +19,21 @@ import {
 import './App.css';
 
 type Tab = 'home' | 'community' | 'scan' | 'meals' | 'profile';
+const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
+const EMPTY_WEEKLY_REPORTS: Record<string, WeeklyPerformanceReport> = {};
+const EMPTY_IDENTITY_REPORTS: IdentityReportsByMonth = {};
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   useCurrentUser();
-  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
+  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
   const [, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>(
     'home.weeklyReports.v1',
-    {},
+    EMPTY_WEEKLY_REPORTS,
   );
   const [, setIdentityReports] = useLocalStorageState<IdentityReportsByMonth>(
     'home.identityReports.v1',
-    {},
+    EMPTY_IDENTITY_REPORTS,
   );
 
   useEffect(() => {

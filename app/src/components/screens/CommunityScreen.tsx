@@ -61,6 +61,11 @@ const emptyReactions: Record<ReactionKey, number> = {
   insane: 0,
   watching: 0,
 };
+const EMPTY_COMMUNITY_PROFILE: CommunityProfile = {};
+const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
+const EMPTY_WORKOUT_SESSIONS: WorkoutSession[] = [];
+const EMPTY_POSTS: CommunityPost[] = [];
+const EMPTY_MY_REACTIONS: Record<string, ReactionKey | undefined> = {};
 
 function createId(prefix: string) {
   if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
@@ -115,9 +120,14 @@ function scoreForLeaderboard(streak: number, postCount: number, totalCalories: n
   return streak * 100 + postCount * 25 + Math.round(totalCalories / 25);
 }
 
+function normalizeToken(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase();
+}
+
 export default function CommunityScreen() {
-  const { activeUserId } = useCurrentUser();
-  const [activeTab, setActiveTab] = useState<'feed' | 'friends'>('feed');
+  const { users, currentUser, activeUserId, setActiveUserId, createUser } = useCurrentUser();
+  const [activeTab, setActiveTab] = useState<'feed' | 'friends' | 'pods'>('feed');
+  const [newUserName, setNewUserName] = useState('');
   const [showAddPost, setShowAddPost] = useState(false);
   const [postMode, setPostMode] = useState<'photo' | 'text'>('photo');
   const [caption, setCaption] = useState('');
@@ -127,13 +137,13 @@ export default function CommunityScreen() {
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [autoPostEnabled, setAutoPostEnabled] = useLocalStorageState<boolean>('community.autoPostEnabled.v1', true);
 
-  const [profile] = useLocalStorageState<CommunityProfile>('profile', {});
-  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
-  const [workoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', []);
-  const [posts, setPosts] = useLocalStorageState<CommunityPost[]>('community.posts.v1', [], { scope: 'global' });
+  const [profile] = useLocalStorageState<CommunityProfile>('profile', EMPTY_COMMUNITY_PROFILE);
+  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
+  const [workoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', EMPTY_WORKOUT_SESSIONS);
+  const [posts, setPosts] = useLocalStorageState<CommunityPost[]>('community.posts.v1', EMPTY_POSTS, { scope: 'global' });
   const [myReactions, setMyReactions] = useLocalStorageState<Record<string, ReactionKey | undefined>>(
     'community.myReactions.v1',
-    {},
+    EMPTY_MY_REACTIONS,
   );
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -203,10 +213,46 @@ export default function CommunityScreen() {
       .slice(0, 8);
   }, [activeUserId, currentStreak, displayName, posts]);
 
+  const podMemberIds = useMemo(() => {
+    const targetPodSize = 6;
+    const minRelevantMembers = 3;
+    const desiredGoal = normalizeToken(profile.goalStrategy ? profile.goalStrategy.split('_').join(' ') : '');
+    const desiredTraining = normalizeToken(profile.trainingType ? profile.trainingType.split('_').join(' ') : '');
+
+    const recentOthers = posts
+      .filter((post) => post.authorId !== activeUserId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    const relevant = recentOthers.filter((post) => {
+      const goalMatch = Boolean(desiredGoal) && normalizeToken(post.goal) === desiredGoal;
+      const trainingMatch = Boolean(desiredTraining) && normalizeToken(post.trainingStyle) === desiredTraining;
+      return goalMatch || trainingMatch;
+    });
+
+    const picked = new Set<string>();
+
+    for (const post of relevant) {
+      picked.add(post.authorId);
+      if (picked.size >= targetPodSize) break;
+    }
+
+    if (picked.size < minRelevantMembers) {
+      for (const post of recentOthers) {
+        picked.add(post.authorId);
+        if (picked.size >= targetPodSize) break;
+      }
+    }
+
+    return picked;
+  }, [activeUserId, posts, profile.goalStrategy, profile.trainingType]);
+
   const visiblePosts = useMemo(() => {
+    if (activeTab === 'pods') {
+      return posts.filter((post) => post.authorId === activeUserId || podMemberIds.has(post.authorId));
+    }
     if (activeTab === 'friends') return posts.filter((post) => post.authorId !== activeUserId);
     return posts;
-  }, [activeTab, activeUserId, posts]);
+  }, [activeTab, activeUserId, podMemberIds, posts]);
 
   function openAddPostModal() {
     setShowAddPost(true);
@@ -295,6 +341,13 @@ export default function CommunityScreen() {
     }));
   }
 
+  function handleAddFriend() {
+    const nextName = newUserName.trim();
+    if (!nextName) return;
+    createUser(nextName);
+    setNewUserName('');
+  }
+
   return (
     <div className="screen">
       <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4">
@@ -321,6 +374,14 @@ export default function CommunityScreen() {
             >
               Friends
             </button>
+            <button
+              onClick={() => setActiveTab('pods')}
+              className={`pb-2 border-b-2 font-medium ${
+                activeTab === 'pods' ? 'border-white text-white' : 'border-transparent text-white/60'
+              }`}
+            >
+              Pods
+            </button>
           </div>
           <button
             type="button"
@@ -328,6 +389,42 @@ export default function CommunityScreen() {
             className={`social-switch ${autoPostEnabled ? 'social-switch-on' : ''}`}
           >
             Auto post {autoPostEnabled ? 'ON' : 'OFF'}
+          </button>
+        </div>
+      </div>
+
+      <div className="social-section bg-white border-b">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-gray-500 uppercase">Friends</p>
+            <p className="text-sm font-semibold text-gray-800">You: {currentUser.name}</p>
+          </div>
+          <select
+            value={currentUser.id}
+            onChange={(e) => setActiveUserId(e.target.value)}
+            className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-700"
+          >
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={newUserName}
+            onChange={(e) => setNewUserName(e.target.value)}
+            placeholder="New friend name"
+            className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"
+          />
+          <button
+            type="button"
+            onClick={handleAddFriend}
+            className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white"
+          >
+            Add friend
           </button>
         </div>
       </div>
@@ -357,7 +454,11 @@ export default function CommunityScreen() {
 
       <div className="social-section bg-slate-50 border-b">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-          {activeTab === 'feed' ? 'All recent posts' : 'Friend posts only'}
+          {activeTab === 'feed'
+            ? 'All recent posts'
+            : activeTab === 'friends'
+              ? 'Friend posts only'
+              : `Pod posts only (${podMemberIds.size + 1} members incl. you)`}
         </p>
       </div>
 

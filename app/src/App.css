@@ -1,12 +1,20 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
 /* App Container */
 .app-container {
   min-height: 100vh;
+  height: 100dvh;
   background: #f8fafc;
   display: flex;
   flex-direction: column;
   max-width: 430px;
   margin: 0 auto;
   position: relative;
+  overflow: hidden;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.1);
 }
 
@@ -18,9 +26,12 @@
 .main-content {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: 90px;
+  padding-bottom: calc(90px + env(safe-area-inset-bottom));
   scrollbar-width: none;
   -ms-overflow-style: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable both-edges;
 }
 
 .main-content::-webkit-scrollbar {
@@ -40,7 +51,7 @@
   display: flex;
   justify-content: space-around;
   align-items: center;
-  padding: 8px 0 20px;
+  padding: 8px 0 calc(20px + env(safe-area-inset-bottom));
   z-index: 1000;
 }
 

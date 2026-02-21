@@ -13,6 +13,7 @@ export type AppUser = {
 };
 
 const USERS_STORAGE_KEY = 'app.users.v1';
+const EMPTY_USERS: AppUser[] = [];
 
 function createUserId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -28,7 +29,7 @@ function createDefaultUser(): AppUser {
 }
 
 export function useCurrentUser() {
-  const [users, setUsers] = useLocalStorageState<AppUser[]>(USERS_STORAGE_KEY, [], { scope: 'global' });
+  const [users, setUsers] = useLocalStorageState<AppUser[]>(USERS_STORAGE_KEY, EMPTY_USERS, { scope: 'global' });
   const [activeUserId, setActiveUserIdRaw] = useLocalStorageState<string>(
     ACTIVE_USER_ID_STORAGE_KEY,
     DEFAULT_USER_ID,

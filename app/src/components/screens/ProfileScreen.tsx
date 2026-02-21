@@ -136,13 +136,16 @@ const DIET_EXPLORER_OPTIONS: Array<{
   { style: 'flexible_iifym', title: 'Flexible (IIFYM)', description: 'Macro-driven approach with flexible food choices.', bestFor: 'Users who want structure without rigid food rules.' },
   { style: 'structured_meal_plan', title: 'Structured Meal Plan', description: 'Pre-defined meal rhythm with less decision load.', bestFor: 'Routine-driven users who prefer consistency.' },
 ];
+const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
+const EMPTY_WEEKLY_REPORTS: Record<string, WeeklyPerformanceReport> = {};
+const EMPTY_IDENTITY_REPORTS: IdentityReportsByMonth = {};
 
 export default function ProfileScreen() {
-  const { users, currentUser, setActiveUserId, createUser, updateUserName } = useCurrentUser();
+  const { currentUser, updateUserName } = useCurrentUser();
   const [profile, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
-  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
-  const [weeklyReports, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>('home.weeklyReports.v1', {});
-  const [identityReports, setIdentityReports] = useLocalStorageState<IdentityReportsByMonth>('home.identityReports.v1', {});
+  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
+  const [weeklyReports, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>('home.weeklyReports.v1', EMPTY_WEEKLY_REPORTS);
+  const [identityReports, setIdentityReports] = useLocalStorageState<IdentityReportsByMonth>('home.identityReports.v1', EMPTY_IDENTITY_REPORTS);
   const [showBmi, setShowBmi] = useState(false);
   const [showPersonalSettings, setShowPersonalSettings] = useState(false);
   const [showDietExplorer, setShowDietExplorer] = useState(false);
@@ -173,7 +176,6 @@ export default function ProfileScreen() {
   const [draftEventDate, setDraftEventDate] = useState(profile.eventDate ?? '');
   const [draftPsychologyType, setDraftPsychologyType] = useState<PsychologyType>(profile.psychologyType ?? DEFAULT_NUTRITION_PROFILE.psychologyType);
   const [draftSpecialPhase, setDraftSpecialPhase] = useState<SpecialPhase>(profile.specialPhase ?? DEFAULT_NUTRITION_PROFILE.specialPhase);
-  const [newUserName, setNewUserName] = useState('');
   const [darkMode, setDarkMode] = useLocalStorageState<boolean>('darkMode', false);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -404,11 +406,6 @@ export default function ProfileScreen() {
     }));
     updateUserName(currentUser.id, nextName);
     setShowPersonalSettings(false);
-  };
-
-  const handleCreateUser = () => {
-    createUser(newUserName);
-    setNewUserName('');
   };
 
   const applyDietStyle = (style: DietStyle) => {
@@ -900,38 +897,6 @@ export default function ProfileScreen() {
             <p className="stat-label dark:text-gray-300">{stat.label}</p>
           </div>
         ))}
-      </div>
-
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Account</p>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Current user: {currentUser.name}</p>
-          </div>
-          <select
-            value={currentUser.id}
-            onChange={(e) => setActiveUserId(e.target.value)}
-            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-100"
-          >
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <input
-            type="text"
-            value={newUserName}
-            onChange={(e) => setNewUserName(e.target.value)}
-            placeholder="New user name"
-            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
-          />
-          <button type="button" onClick={handleCreateUser} className="rounded-lg bg-orange-500 text-white px-3 py-2 text-sm font-medium">
-            Add user
-          </button>
-        </div>
       </div>
 
       <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">

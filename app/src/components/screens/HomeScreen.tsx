@@ -127,6 +127,12 @@ type HomeProfile = {
 const RING_RADIUS = 90;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const SWIPE_THRESHOLD = 45;
+const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
+const EMPTY_HOME_PROFILE: HomeProfile = {};
+const EMPTY_LOG_EVENTS: LogEvent[] = [];
+const EMPTY_SAVED_MEAL_TEMPLATES: SavedMealTemplate[] = [];
+const EMPTY_WORKOUT_SESSIONS: WorkoutSession[] = [];
+const EMPTY_DATE_FLAGS: Record<string, true> = {};
 
 const mealTemplates: MealTemplate[] = [
   {
@@ -196,6 +202,12 @@ function getRingColor(caloriesRemaining: number) {
   return '#22c55e';
 }
 
+function getWeeklyBarColor(fillRatio: number) {
+  const clamped = Math.max(0, Math.min(fillRatio, 1));
+  const hue = Math.round(clamped * 120);
+  return `hsl(${hue}, 78%, 46%)`;
+}
+
 function isWithinCalorieRange(log: DayLog) {
   const consumed = Object.values(log.meals)
     .flat()
@@ -254,20 +266,20 @@ function groupFoodsByName(items: FoodEntry[]) {
 }
 
 export default function HomeScreen() {
-  const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
-  const [profilePrefs] = useLocalStorageState<HomeProfile>('profile', {});
+  const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
+  const [profilePrefs] = useLocalStorageState<HomeProfile>('profile', EMPTY_HOME_PROFILE);
   const [lastLoggedFood, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
-  const [logEvents, setLogEvents] = useLocalStorageState<LogEvent[]>('home.logEvents.v1', []);
-  const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', []);
-  const [workoutSessions, setWorkoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', []);
+  const [logEvents, setLogEvents] = useLocalStorageState<LogEvent[]>('home.logEvents.v1', EMPTY_LOG_EVENTS);
+  const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', EMPTY_SAVED_MEAL_TEMPLATES);
+  const [workoutSessions, setWorkoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', EMPTY_WORKOUT_SESSIONS);
   const [lazyMode, setLazyMode] = useLocalStorageState<boolean>('home.lazyMode.v1', false);
   const [goalPopupDismissedByDate, setGoalPopupDismissedByDate] = useLocalStorageState<Record<string, true>>(
     'home.goalPopupDismissedByDate.v1',
-    {},
+    EMPTY_DATE_FLAGS,
   );
   const [goalPopupShownByDate, setGoalPopupShownByDate] = useLocalStorageState<Record<string, true>>(
     'home.goalPopupShownByDate.v1',
-    {},
+    EMPTY_DATE_FLAGS,
   );
   const [today, setToday] = useState<Date>(() => startOfDay(new Date()));
   const [dayOffset, setDayOffset] = useState(0);
@@ -1151,7 +1163,7 @@ export default function HomeScreen() {
               {weeklyData.map((day) => {
                 const ratio = Math.min(day.consumed / Math.max(optimizedTargetKcal, 1), 1.15);
                 const fillHeight = Math.max(10, Math.round(ratio * 64));
-                const barColor = day.remaining < 0 ? '#ef4444' : day.remaining < 250 ? '#f97316' : '#22c55e';
+                const barColor = getWeeklyBarColor(ratio);
                 return (
                   <div key={day.key} className="flex flex-1 justify-center">
                     <div
@@ -1545,33 +1557,6 @@ export default function HomeScreen() {
           <p className="text-xs text-cyan-700">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
         </div>
 
-        <div className="grid grid-cols-3 gap-2 mt-3">
-          <button
-            type="button"
-            onClick={() => addWater(250, 'water:quick:250')}
-            className="w-full p-2 text-xs rounded-lg bg-cyan-50 text-cyan-700"
-            disabled={isPastSelectedDay}
-          >
-            +250 ml
-          </button>
-          <button
-            type="button"
-            onClick={() => addWater(500, 'water:quick:500')}
-            className="w-full p-2 text-xs rounded-lg bg-cyan-50 text-cyan-700"
-            disabled={isPastSelectedDay}
-          >
-            +500 ml
-          </button>
-          <button
-            type="button"
-            onClick={() => addWater(waterMeterMl, 'water:meter:add')}
-            className="w-full p-2 text-xs rounded-lg bg-cyan-600 text-white"
-            disabled={isPastSelectedDay}
-          >
-            +{waterMeterMl} ml
-          </button>
-        </div>
-
         <div className="mt-3 rounded-lg bg-cyan-50 p-3">
           <div className="flex items-center justify-between text-xs text-cyan-700 mb-2">
             <span>Vannmeter</span>
@@ -1591,6 +1576,16 @@ export default function HomeScreen() {
             <span>0 ml</span>
             <span>500 ml</span>
             <span>1000 ml</span>
+          </div>
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => addWater(waterMeterMl, 'water:meter:add')}
+              className="w-full p-2 text-xs rounded-lg bg-cyan-600 text-white disabled:bg-cyan-300"
+              disabled={isPastSelectedDay || waterMeterMl <= 0}
+            >
+              Fyll glass
+            </button>
           </div>
         </div>
 
