@@ -574,7 +574,7 @@ export default function ProfileScreen() {
     { id: 'help', icon: HelpCircle, label: 'Hjelp og stotte', value: '' },
   ];
 
-  const initials = profile.name
+  const initials = (typeof profile.name === 'string' ? profile.name : '')
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
@@ -594,7 +594,11 @@ export default function ProfileScreen() {
       : 'Stabil';
 
   const formatDateKey = (dateKey: string) => {
+    if (typeof dateKey !== 'string') return dateFormatter.format(new Date());
     const [year, month, day] = dateKey.split('-').map(Number);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return dateFormatter.format(new Date());
+    }
     return dateFormatter.format(new Date(year, month - 1, day));
   };
 
@@ -744,8 +748,8 @@ export default function ProfileScreen() {
     return 'bg-gradient-to-r from-slate-500 to-gray-600 text-white border-slate-300';
   };
 
-  const goalStrategyLabel = (profile.goalStrategy ?? DEFAULT_NUTRITION_PROFILE.goalStrategy).split('_').join(' ');
-  const dietStyleLabel = (profile.dietStyle ?? DEFAULT_NUTRITION_PROFILE.dietStyle).split('_').join(' ');
+  const goalStrategyLabel = String(profile.goalStrategy ?? DEFAULT_NUTRITION_PROFILE.goalStrategy ?? '').split('_').join(' ');
+  const dietStyleLabel = String(profile.dietStyle ?? DEFAULT_NUTRITION_PROFILE.dietStyle ?? '').split('_').join(' ');
   const settingsTierLabel = profile.settingsTier ?? DEFAULT_NUTRITION_PROFILE.settingsTier;
   const xpRingProgress = monthlyIdentity.level.progressPct;
 

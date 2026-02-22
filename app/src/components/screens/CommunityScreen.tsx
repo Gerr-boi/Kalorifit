@@ -524,7 +524,7 @@ export default function CommunityScreen() {
                   <span className="social-pill">{post.identityBadge}</span>
                   {(post.equippedBadgeIds ?? []).slice(0, 3).map((badgeId) => (
                     <span key={`${post.id}-${badgeId}`} className={`text-[11px] px-2 py-0.5 rounded-full border ${badgeStyleById(badgeId)}`}>
-                      {badgeId.split('_').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ')}
+                      {String(badgeId ?? '').split('_').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ')}
                     </span>
                   ))}
                 </div>

@@ -181,7 +181,11 @@ const fullDateFormat = new Intl.DateTimeFormat('nb-NO', {
 });
 
 function formatDateKey(dateKey: string) {
+  if (typeof dateKey !== 'string') return fullDateFormat.format(new Date());
   const [year, month, day] = dateKey.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return fullDateFormat.format(new Date());
+  }
   return fullDateFormat.format(new Date(year, month - 1, day));
 }
 
