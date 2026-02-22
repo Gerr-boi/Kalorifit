@@ -3,6 +3,7 @@ import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, 
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import {
+  addDays,
   calculateDailyDisciplineScore,
   createEmptyDayLog,
   ensureWeeklyReportForSunday,
@@ -41,6 +42,30 @@ import {
 } from '../../lib/nutritionPlanner';
 
 type BmiEntry = { date: string; bmi: number; weightKg: number; heightCm: number };
+type HealthEntry = {
+  date: string;
+  waistCm: number | null;
+  sleepHours: number | null;
+  restingHr: number | null;
+  stressLevel: number | null;
+  steps: number | null;
+};
+type TrophyBadge = {
+  id:
+    | 'beta_tester'
+    | 'developer'
+    | 'og'
+    | 'dedicated'
+    | 'consistency_pro'
+    | 'streak_master'
+    | 'hydration_hero'
+    | 'active_mover'
+    | 'challenge_hunter'
+    | 'logging_legend';
+  label: string;
+  description: string;
+  unlocked: boolean;
+};
 
 type Profile = {
   name: string;
@@ -71,6 +96,7 @@ type Profile = {
   psychologyType: PsychologyType;
   specialPhase: SpecialPhase;
   bmiHistory: BmiEntry[];
+  healthHistory: HealthEntry[];
   profileImageDataUrl?: string | null;
   notificationsEnabled: boolean;
   privacyMode: 'Standard' | 'Privat';
@@ -78,6 +104,8 @@ type Profile = {
   socialAnonymousPosting: boolean;
   socialHideWeightNumbers: boolean;
   socialHideBodyPhotos: boolean;
+  allergies: string[];
+  equippedBadgeIds: TrophyBadge['id'][];
 };
 
 const DEFAULT_PROFILE: Profile = {
@@ -109,6 +137,7 @@ const DEFAULT_PROFILE: Profile = {
   psychologyType: DEFAULT_NUTRITION_PROFILE.psychologyType,
   specialPhase: DEFAULT_NUTRITION_PROFILE.specialPhase,
   bmiHistory: [],
+  healthHistory: [],
   profileImageDataUrl: null,
   notificationsEnabled: true,
   privacyMode: 'Standard',
@@ -116,6 +145,8 @@ const DEFAULT_PROFILE: Profile = {
   socialAnonymousPosting: false,
   socialHideWeightNumbers: false,
   socialHideBodyPhotos: false,
+  allergies: [],
+  equippedBadgeIds: [],
 };
 
 const DIET_EXPLORER_OPTIONS: Array<{
@@ -150,6 +181,7 @@ export default function ProfileScreen() {
   const [showPersonalSettings, setShowPersonalSettings] = useState(false);
   const [showDietExplorer, setShowDietExplorer] = useState(false);
   const [showIdentity, setShowIdentity] = useState(false);
+  const [showJourney, setShowJourney] = useState(false);
   const [heightCm, setHeightCm] = useState<string>(String(profile.heightCm));
   const [weightKg, setWeightKg] = useState<string>(String(profile.weightKg));
   const [draftName, setDraftName] = useState(profile.name);
@@ -176,8 +208,15 @@ export default function ProfileScreen() {
   const [draftEventDate, setDraftEventDate] = useState(profile.eventDate ?? '');
   const [draftPsychologyType, setDraftPsychologyType] = useState<PsychologyType>(profile.psychologyType ?? DEFAULT_NUTRITION_PROFILE.psychologyType);
   const [draftSpecialPhase, setDraftSpecialPhase] = useState<SpecialPhase>(profile.specialPhase ?? DEFAULT_NUTRITION_PROFILE.specialPhase);
+  const [draftEquippedBadgeIds, setDraftEquippedBadgeIds] = useState<TrophyBadge['id'][]>(profile.equippedBadgeIds ?? []);
   const [darkMode, setDarkMode] = useLocalStorageState<boolean>('darkMode', false);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+  const [allergyInput, setAllergyInput] = useState('');
+  const [waistCmInput, setWaistCmInput] = useState('');
+  const [sleepHoursInput, setSleepHoursInput] = useState('');
+  const [restingHrInput, setRestingHrInput] = useState('');
+  const [stressLevelInput, setStressLevelInput] = useState('');
+  const [stepsInput, setStepsInput] = useState('');
 
   const toNumber = (s: string) => {
     const n = Number(String(s).replace(',', '.'));
@@ -199,8 +238,12 @@ export default function ProfileScreen() {
     return 'Fedme';
   };
 
-  const latestMeasurement = profile.bmiHistory[0] ?? null;
-  const previousMeasurement = profile.bmiHistory[1] ?? null;
+  const bmiHistory = Array.isArray(profile.bmiHistory) ? profile.bmiHistory : [];
+  const healthHistory = Array.isArray(profile.healthHistory) ? profile.healthHistory : [];
+  const latestMeasurement = bmiHistory[0] ?? null;
+  const previousMeasurement = bmiHistory[1] ?? null;
+  const latestHealth = healthHistory[0] ?? null;
+  const previousHealth = healthHistory[1] ?? null;
   const weightDeltaFromLast =
     latestMeasurement && previousMeasurement
       ? Number((latestMeasurement.weightKg - previousMeasurement.weightKg).toFixed(1))
@@ -213,6 +256,13 @@ export default function ProfileScreen() {
     const max = 24.9 * hM * hM;
     return { min: Number(min.toFixed(1)), max: Number(max.toFixed(1)) };
   })();
+
+  const toOptionalNumber = (value: string) => {
+    const raw = value.trim();
+    if (!raw) return null;
+    const parsed = Number(raw.replace(',', '.'));
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
   useEffect(() => {
     setProfile((prev) => {
@@ -235,11 +285,24 @@ export default function ProfileScreen() {
       (sum, log) => sum + Object.values(log.meals).flat().reduce((daySum, food) => daySum + food.kcal, 0),
       0,
     );
+    const numberFormatter = new Intl.NumberFormat('nb-NO');
 
     return [
-      { label: 'Dager', value: String(activeDays), color: 'text-orange-500' },
-      { label: 'Maltider', value: String(mealsLogged), color: 'text-blue-500' },
-      { label: 'Kalorier', value: `${Math.round(caloriesLogged / 1000)}k`, color: 'text-green-500' },
+      {
+        label: 'Aktive dager',
+        value: numberFormatter.format(activeDays),
+        color: 'text-orange-500',
+      },
+      {
+        label: 'Maltider logget',
+        value: numberFormatter.format(mealsLogged),
+        color: 'text-blue-500',
+      },
+      {
+        label: 'Kalorier logget',
+        value: numberFormatter.format(caloriesLogged),
+        color: 'text-green-500',
+      },
     ];
   }, [logsByDate]);
 
@@ -341,6 +404,7 @@ export default function ProfileScreen() {
     setDraftEventDate(profile.eventDate ?? '');
     setDraftPsychologyType(profile.psychologyType ?? DEFAULT_NUTRITION_PROFILE.psychologyType);
     setDraftSpecialPhase(profile.specialPhase ?? DEFAULT_NUTRITION_PROFILE.specialPhase);
+    setDraftEquippedBadgeIds(profile.equippedBadgeIds ?? []);
     setShowPersonalSettings(true);
   };
 
@@ -403,6 +467,7 @@ export default function ProfileScreen() {
       eventDate: normalized.eventDate,
       psychologyType: normalized.psychologyType,
       specialPhase: normalized.specialPhase,
+      equippedBadgeIds: draftEquippedBadgeIds,
     }));
     updateUserName(currentUser.id, nextName);
     setShowPersonalSettings(false);
@@ -444,21 +509,67 @@ export default function ProfileScreen() {
       heightCm: Number(hCm.toFixed(1)),
     };
 
+    const healthEntry: HealthEntry = {
+      date: entry.date,
+      waistCm: toOptionalNumber(waistCmInput),
+      sleepHours: toOptionalNumber(sleepHoursInput),
+      restingHr: toOptionalNumber(restingHrInput),
+      stressLevel: toOptionalNumber(stressLevelInput),
+      steps: toOptionalNumber(stepsInput),
+    };
+    const hasHealthData =
+      healthEntry.waistCm !== null ||
+      healthEntry.sleepHours !== null ||
+      healthEntry.restingHr !== null ||
+      healthEntry.stressLevel !== null ||
+      healthEntry.steps !== null;
+
     setProfile((prev) => ({
       ...prev,
       heightCm: entry.heightCm,
       weightKg: entry.weightKg,
-      bmiHistory: [entry, ...prev.bmiHistory].slice(0, 20),
+      bmiHistory: [entry, ...(Array.isArray(prev.bmiHistory) ? prev.bmiHistory : [])].slice(0, 20),
+      healthHistory: hasHealthData ? [healthEntry, ...(Array.isArray(prev.healthHistory) ? prev.healthHistory : [])].slice(0, 30) : (Array.isArray(prev.healthHistory) ? prev.healthHistory : []),
     }));
 
     setShowBmi(false);
   };
 
+  const addAllergy = (rawValue: string) => {
+    const normalized = rawValue.trim().toLowerCase();
+    if (!normalized) return;
+    setProfile((prev) => ({
+      ...prev,
+      allergies: Array.from(new Set([...(prev.allergies ?? []), normalized])),
+    }));
+    setAllergyInput('');
+  };
+
+  const removeAllergy = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    setProfile((prev) => ({
+      ...prev,
+      allergies: (prev.allergies ?? []).filter((item) => item.toLowerCase() !== normalized),
+    }));
+  };
+
+  useEffect(() => {
+    if (!showBmi) return;
+    const latest = (Array.isArray(profile.healthHistory) ? profile.healthHistory : [])[0];
+    setWaistCmInput(latest?.waistCm != null ? String(latest.waistCm) : '');
+    setSleepHoursInput(latest?.sleepHours != null ? String(latest.sleepHours) : '');
+    setRestingHrInput(latest?.restingHr != null ? String(latest.restingHr) : '');
+    setStressLevelInput(latest?.stressLevel != null ? String(latest.stressLevel) : '');
+    setStepsInput(latest?.steps != null ? String(latest.steps) : '');
+  }, [profile.healthHistory, showBmi]);
+
   const getMenuItems = () => [
+    { id: 'personal', icon: Settings, label: 'Personlig info', value: '' },
     { id: 'notifications', icon: Bell, label: 'Varsler', value: profile.notificationsEnabled ? 'Pa' : 'Av' },
     { id: 'privacy', icon: Shield, label: 'Personvern', value: profile.privacyMode },
     { id: 'darkmode', icon: Moon, label: 'Mork modus', value: darkMode ? 'Pa' : 'Av' },
     { id: 'language', icon: Globe, label: 'Sprak', value: profile.language },
+    { id: 'journey', icon: Trophy, label: 'Your journey', value: '' },
     { id: 'bmi', icon: Activity, label: 'Mine malinger', value: '' },
     { id: 'help', icon: HelpCircle, label: 'Hjelp og stotte', value: '' },
   ];
@@ -487,12 +598,150 @@ export default function ProfileScreen() {
     return dateFormatter.format(new Date(year, month - 1, day));
   };
 
+  const journeyWeightSeries = useMemo(() => {
+    const source = (Array.isArray(profile.bmiHistory) ? profile.bmiHistory : [])
+      .filter((entry) => Number.isFinite(entry.weightKg))
+      .slice()
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .slice(-12)
+      .map((entry) => ({ date: entry.date, value: Number(entry.weightKg) }));
+    if (source.length > 0) return source;
+    return [{ date: toDateKey(startOfDay(new Date())), value: Number(profile.weightKg) }];
+  }, [profile.bmiHistory, profile.weightKg]);
+
+  const journeyDisciplineSeries = useMemo(() => {
+    return Array.from({ length: 14 }, (_, idx) => {
+      const date = addDays(today, -(13 - idx));
+      const key = toDateKey(date);
+      const score = calculateDailyDisciplineScore(logsByDate[key] ?? createEmptyDayLog()).score;
+      return { dateKey: key, score };
+    });
+  }, [logsByDate, today]);
+
+  const weightDeltaJourney = useMemo(() => {
+    if (journeyWeightSeries.length < 2) return null;
+    const first = journeyWeightSeries[0].value;
+    const last = journeyWeightSeries[journeyWeightSeries.length - 1].value;
+    return Number((last - first).toFixed(1));
+  }, [journeyWeightSeries]);
+
   const titleDescriptions: Record<string, string> = {
     'The Grinder': 'High consistency across the month.',
     'The Comeback': 'Strong improvement from early to late month.',
     'The Sharpshooter': 'Precise calorie control with stable execution.',
     'The Iron Discipline': '30+ day discipline streak unlocked.',
     'The Balanced Strategist': 'Balanced performance across calories, protein, water, and activity.',
+  };
+
+  const trophyBadges = useMemo(() => {
+    const memberYear = Number.parseInt(profile.memberSince, 10);
+    const currentYear = new Date().getFullYear();
+    const isDeveloper = /dev|developer|admin|hrger/i.test(`${currentUser.name} ${profile.name}`);
+    const allLogs = Object.values(logsByDate);
+    const mealsLoggedTotal = allLogs.reduce((sum, log) => sum + Object.values(log.meals).flat().length, 0);
+    const hydrationDays = allLogs.filter((log) => log.waterMl >= 1600).length;
+    const workoutDays = allLogs.filter((log) => log.trainingKcal >= 200).length;
+
+    const hasValidMemberYear = Number.isFinite(memberYear);
+    const betaTesterUnlocked = hasValidMemberYear ? memberYear <= currentYear : monthlyIdentity.level.value >= 2;
+    const ogUnlocked = hasValidMemberYear ? memberYear <= currentYear - 1 : monthlyIdentity.level.value >= 6;
+    const dedicatedUnlocked = monthlyIdentity.bestStreakDays >= 14 || monthlyIdentity.consistencyRate >= 75;
+    const consistencyProUnlocked = monthlyIdentity.consistencyRate >= 85;
+    const streakMasterUnlocked = monthlyIdentity.bestStreakDays >= 30;
+    const hydrationHeroUnlocked = hydrationDays >= 20;
+    const activeMoverUnlocked = workoutDays >= 20;
+    const challengeHunterUnlocked = monthlyIdentity.challengeCompletions >= 25;
+    const loggingLegendUnlocked = mealsLoggedTotal >= 300;
+
+    const badges: TrophyBadge[] = [
+      {
+        id: 'beta_tester',
+        label: 'Beta Tester',
+        description: 'Tidlig bruker som var med pa a teste appen.',
+        unlocked: betaTesterUnlocked,
+      },
+      {
+        id: 'developer',
+        label: 'Developer',
+        description: 'Utvikler-rolle for build/test-miljo.',
+        unlocked: isDeveloper,
+      },
+      {
+        id: 'og',
+        label: 'OG',
+        description: 'Tidlig medlem med lang historikk.',
+        unlocked: ogUnlocked,
+      },
+      {
+        id: 'dedicated',
+        label: 'Dedicated',
+        description: 'Hoy konsistens eller sterk streak.',
+        unlocked: dedicatedUnlocked,
+      },
+      {
+        id: 'consistency_pro',
+        label: 'Consistency Pro',
+        description: '85%+ konsistens i maanedsrapport.',
+        unlocked: consistencyProUnlocked,
+      },
+      {
+        id: 'streak_master',
+        label: 'Streak Master',
+        description: '30+ dagers disiplinstreak.',
+        unlocked: streakMasterUnlocked,
+      },
+      {
+        id: 'hydration_hero',
+        label: 'Hydration Hero',
+        description: '20 dager med minst 1600 ml vann logget.',
+        unlocked: hydrationHeroUnlocked,
+      },
+      {
+        id: 'active_mover',
+        label: 'Active Mover',
+        description: '20 treningsdager med 200+ kcal aktivitet.',
+        unlocked: activeMoverUnlocked,
+      },
+      {
+        id: 'challenge_hunter',
+        label: 'Challenge Hunter',
+        description: '25+ fullforte utfordringer i maaneden.',
+        unlocked: challengeHunterUnlocked,
+      },
+      {
+        id: 'logging_legend',
+        label: 'Logging Legend',
+        description: '300+ maltider logget totalt.',
+        unlocked: loggingLegendUnlocked,
+      },
+    ];
+
+    return badges;
+  }, [
+    currentUser.name,
+    logsByDate,
+    monthlyIdentity.bestStreakDays,
+    monthlyIdentity.challengeCompletions,
+    monthlyIdentity.consistencyRate,
+    monthlyIdentity.level.value,
+    profile.memberSince,
+    profile.name,
+  ]);
+
+  const highlightedBadges = trophyBadges.filter((badge) => badge.unlocked).slice(0, 3);
+  const equippedBadges = trophyBadges.filter((badge) => (profile.equippedBadgeIds ?? []).includes(badge.id)).slice(0, 3);
+
+  const badgeStyleById = (id: TrophyBadge['id']) => {
+    if (id === 'developer') return 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white border-indigo-300';
+    if (id === 'og') return 'bg-gradient-to-r from-amber-400 to-orange-500 text-white border-amber-300';
+    if (id === 'beta_tester') return 'bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white border-fuchsia-300';
+    if (id === 'dedicated') return 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-emerald-300';
+    if (id === 'consistency_pro') return 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-blue-300';
+    if (id === 'streak_master') return 'bg-gradient-to-r from-red-500 to-rose-500 text-white border-red-300';
+    if (id === 'hydration_hero') return 'bg-gradient-to-r from-cyan-500 to-sky-500 text-white border-cyan-300';
+    if (id === 'active_mover') return 'bg-gradient-to-r from-lime-500 to-green-500 text-white border-lime-300';
+    if (id === 'challenge_hunter') return 'bg-gradient-to-r from-purple-500 to-violet-500 text-white border-purple-300';
+    return 'bg-gradient-to-r from-slate-500 to-gray-600 text-white border-slate-300';
   };
 
   const goalStrategyLabel = (profile.goalStrategy ?? DEFAULT_NUTRITION_PROFILE.goalStrategy).split('_').join(' ');
@@ -812,6 +1061,40 @@ export default function ProfileScreen() {
                   </div>
                 </div>
               )}
+
+              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
+                <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase mb-2">Equip badges</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Velg opptil 3 badges som vises pa profilen og i feed.</p>
+                <div className="flex flex-wrap gap-2">
+                  {trophyBadges.filter((badge) => badge.unlocked).map((badge) => {
+                    const isEquipped = draftEquippedBadgeIds.includes(badge.id);
+                    const equipLimitReached = draftEquippedBadgeIds.length >= 3 && !isEquipped;
+                    return (
+                      <button
+                        key={badge.id}
+                        type="button"
+                        disabled={equipLimitReached}
+                        onClick={() =>
+                          setDraftEquippedBadgeIds((prev) =>
+                            prev.includes(badge.id)
+                              ? prev.filter((id) => id !== badge.id)
+                              : prev.length < 3
+                                ? [...prev, badge.id]
+                                : prev,
+                          )
+                        }
+                        className={`text-xs px-2.5 py-1 rounded-full border transition-opacity ${
+                          isEquipped
+                            ? `${badgeStyleById(badge.id)}`
+                            : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'
+                        } ${equipLimitReached ? 'opacity-40 cursor-not-allowed' : ''}`}
+                      >
+                        {isEquipped ? 'Equipped: ' : ''}{badge.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -886,6 +1169,15 @@ export default function ProfileScreen() {
           <div className="mt-4">
             <h2 className="text-2xl font-bold mb-1">{profile.name}</h2>
             <p className="text-white/70">Medlem siden {profile.memberSince}</p>
+            {equippedBadges.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {equippedBadges.map((badge) => (
+                  <span key={badge.id} className={`text-[11px] px-2 py-0.5 rounded-full border ${badgeStyleById(badge.id)}`}>
+                    {badge.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -916,14 +1208,61 @@ export default function ProfileScreen() {
             >
               Explore diets
             </button>
-            <button
-              type="button"
-              onClick={openPersonalSettings}
-              className="text-xs rounded-lg bg-orange-100 text-orange-700 px-3 py-1.5"
-            >
-              Endre
-            </button>
           </div>
+        </div>
+        <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase">Allergier</p>
+          <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Filtreres automatisk i Maltider.</p>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input
+            value={allergyInput}
+            onChange={(e) => setAllergyInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addAllergy(allergyInput);
+              }
+            }}
+            placeholder="f.eks. fish, gluten, nuts"
+            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
+          />
+          <button
+            type="button"
+            onClick={() => addAllergy(allergyInput)}
+            className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white"
+            >
+              Legg til
+            </button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {(profile.allergies ?? []).length > 0 ? (
+            (profile.allergies ?? []).map((allergy) => (
+              <button
+                key={allergy}
+                type="button"
+                onClick={() => removeAllergy(allergy)}
+                className="text-xs px-2 py-1 rounded-full bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300"
+                title="Fjern allergi"
+              >
+                {allergy} x
+              </button>
+            ))
+          ) : (
+            <p className="text-xs text-gray-500 dark:text-gray-400">Ingen allergier lagt til.</p>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {['gluten', 'milk', 'egg', 'nuts', 'fish', 'shellfish', 'soy', 'peanuts'].map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => addAllergy(item)}
+              className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+            >
+              + {item}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -936,6 +1275,18 @@ export default function ProfileScreen() {
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Level {monthlyIdentity.level.value} - {monthlyIdentity.level.label}
               </p>
+              {highlightedBadges.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {highlightedBadges.map((badge) => (
+                    <span
+                      key={badge.id}
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-200"
+                    >
+                      {badge.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div className="text-right">
               <p className="text-2xl font-bold text-amber-500">{monthlyIdentity.level.currentXp}</p>
@@ -1092,6 +1443,8 @@ export default function ProfileScreen() {
             key={index}
             onClick={() => {
               if (item.id === 'bmi') setShowBmi(true);
+              if (item.id === 'personal') openPersonalSettings();
+              if (item.id === 'journey') setShowJourney(true);
               if (item.id === 'darkmode') toggleDarkMode();
               if (item.id === 'notifications') toggleNotifications();
               if (item.id === 'privacy') togglePrivacyMode();
@@ -1193,6 +1546,15 @@ export default function ProfileScreen() {
                 <p className="text-base font-semibold text-amber-700 dark:text-amber-100">{monthlyIdentity.primaryTitle}</p>
               </div>
               <p className="text-xs text-amber-700/90 dark:text-amber-200 mt-1">{titleDescriptions[monthlyIdentity.primaryTitle]}</p>
+              {highlightedBadges.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {highlightedBadges.map((badge) => (
+                    <span key={badge.id} className="text-[11px] px-2 py-0.5 rounded-full bg-white/80 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-200">
+                      {badge.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mt-3">
@@ -1257,6 +1619,129 @@ export default function ProfileScreen() {
                     <p className="text-xs text-gray-500 dark:text-gray-400">{titleDescriptions[title]}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mt-3">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Trophy Badges</p>
+              <div className="space-y-2">
+                {trophyBadges.map((badge) => (
+                  <div
+                    key={badge.id}
+                    className={`rounded-lg p-3 border ${
+                      badge.unlocked
+                        ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className={`text-sm font-semibold ${badge.unlocked ? 'text-emerald-700 dark:text-emerald-300' : 'text-gray-800 dark:text-gray-100'}`}>
+                        {badge.label}
+                      </p>
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full ${badge.unlocked ? 'bg-emerald-100 dark:bg-emerald-800/70 text-emerald-700 dark:text-emerald-200' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}>
+                        {badge.unlocked ? 'Unlocked' : 'Locked'}
+                      </span>
+                    </div>
+                    <p className={`text-xs mt-1 ${badge.unlocked ? 'text-emerald-700/90 dark:text-emerald-200' : 'text-gray-500 dark:text-gray-400'}`}>{badge.description}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showJourney && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-xl max-h-[88vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Your journey</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Visual oversikt over progresjonen din</p>
+              </div>
+              <button
+                onClick={() => setShowJourney(false)}
+                className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-600 flex items-center justify-center"
+                title="Lukk"
+              >
+                <X className="w-4 h-4 text-gray-700 dark:text-gray-200" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 text-sm">
+              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-300">Malinger logget</p>
+                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{journeyWeightSeries.length}</p>
+              </div>
+              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-300">Endring vekt</p>
+                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">
+                  {weightDeltaJourney === null ? '--' : `${weightDeltaJourney > 0 ? '+' : ''}${weightDeltaJourney} kg`}
+                </p>
+              </div>
+              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
+                <p className="text-xs text-gray-500 dark:text-gray-300">Snitt disiplin (14d)</p>
+                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">
+                  {Math.round(journeyDisciplineSeries.reduce((sum, p) => sum + p.score, 0) / Math.max(1, journeyDisciplineSeries.length))}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mb-3">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Vekttrend (kg)</p>
+              <svg viewBox="0 0 420 170" className="w-full h-40">
+                {(() => {
+                  const values = journeyWeightSeries.map((point) => point.value);
+                  const min = Math.min(...values);
+                  const max = Math.max(...values);
+                  const range = Math.max(1, max - min);
+                  const coords = journeyWeightSeries.map((point, index) => {
+                    const x = journeyWeightSeries.length === 1 ? 210 : (index / (journeyWeightSeries.length - 1)) * 390 + 15;
+                    const y = 145 - ((point.value - min) / range) * 120;
+                    return { x, y, value: point.value, date: point.date };
+                  });
+                  return (
+                    <>
+                      <line x1="15" y1="145" x2="405" y2="145" stroke="rgba(148,163,184,0.5)" strokeWidth="1" />
+                      <polyline
+                        fill="none"
+                        stroke="#f97316"
+                        strokeWidth="3"
+                        points={coords.map((c) => `${c.x},${c.y}`).join(' ')}
+                      />
+                      {coords.map((c) => (
+                        <g key={`${c.date}-${c.value}`}>
+                          <circle cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
+                        </g>
+                      ))}
+                      <text x="15" y="164" fontSize="10" fill="currentColor" className="text-gray-500 dark:text-gray-300">
+                        {formatDateKey(coords[0]?.date ?? toDateKey(today))}
+                      </text>
+                      <text x="340" y="164" fontSize="10" fill="currentColor" className="text-gray-500 dark:text-gray-300">
+                        {formatDateKey(coords[coords.length - 1]?.date ?? toDateKey(today))}
+                      </text>
+                    </>
+                  );
+                })()}
+              </svg>
+            </div>
+
+            <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Disiplin siste 14 dager</p>
+              <div className="grid grid-cols-14 gap-1 items-end h-28">
+                {journeyDisciplineSeries.map((point) => (
+                  <div key={point.dateKey} className="flex flex-col items-center justify-end h-full">
+                    <div
+                      className="w-full rounded-sm bg-orange-500/85"
+                      style={{ height: `${Math.max(6, Math.round((point.score / 100) * 90))}%` }}
+                      title={`${formatDateKey(point.dateKey)}: ${point.score}`}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 flex justify-between text-[11px] text-gray-500 dark:text-gray-400">
+                <span>{formatDateKey(journeyDisciplineSeries[0]?.dateKey ?? toDateKey(today))}</span>
+                <span>{formatDateKey(journeyDisciplineSeries[journeyDisciplineSeries.length - 1]?.dateKey ?? toDateKey(today))}</span>
               </div>
             </div>
           </div>
@@ -1339,15 +1824,95 @@ export default function ProfileScreen() {
                 )}
               </div>
 
+              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Helse-logging (valgfritt)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400">Midje (cm)</label>
+                    <input
+                      inputMode="decimal"
+                      value={waistCmInput}
+                      onChange={(e) => setWaistCmInput(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="f.eks. 84"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400">Sovn (timer)</label>
+                    <input
+                      inputMode="decimal"
+                      value={sleepHoursInput}
+                      onChange={(e) => setSleepHoursInput(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="f.eks. 7.5"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400">Hvilepuls (bpm)</label>
+                    <input
+                      inputMode="numeric"
+                      value={restingHrInput}
+                      onChange={(e) => setRestingHrInput(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="f.eks. 58"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600 dark:text-gray-400">Stress (1-10)</label>
+                    <input
+                      inputMode="numeric"
+                      value={stressLevelInput}
+                      onChange={(e) => setStressLevelInput(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
+                      placeholder="f.eks. 4"
+                    />
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <label className="text-xs text-gray-600 dark:text-gray-400">Skritt (dag)</label>
+                  <input
+                    inputMode="numeric"
+                    value={stepsInput}
+                    onChange={(e) => setStepsInput(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
+                    placeholder="f.eks. 9000"
+                  />
+                </div>
+              </div>
+
+              {latestHealth && (
+                <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Siste helsepunkt</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <p className="text-gray-600 dark:text-gray-300">Midje: <span className="font-semibold">{latestHealth.waistCm ?? '--'}{latestHealth.waistCm != null ? ' cm' : ''}</span></p>
+                    <p className="text-gray-600 dark:text-gray-300">Sovn: <span className="font-semibold">{latestHealth.sleepHours ?? '--'}{latestHealth.sleepHours != null ? ' t' : ''}</span></p>
+                    <p className="text-gray-600 dark:text-gray-300">Hvilepuls: <span className="font-semibold">{latestHealth.restingHr ?? '--'}{latestHealth.restingHr != null ? ' bpm' : ''}</span></p>
+                    <p className="text-gray-600 dark:text-gray-300">Stress: <span className="font-semibold">{latestHealth.stressLevel ?? '--'}</span></p>
+                    <p className="text-gray-600 dark:text-gray-300 col-span-2">Skritt: <span className="font-semibold">{latestHealth.steps ?? '--'}</span></p>
+                  </div>
+                  {previousHealth && (
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
+                      Trend siden sist:
+                      {' '}
+                      Midje {latestHealth.waistCm != null && previousHealth.waistCm != null ? `${latestHealth.waistCm - previousHealth.waistCm > 0 ? '+' : ''}${(latestHealth.waistCm - previousHealth.waistCm).toFixed(1)} cm` : '--'},
+                      {' '}
+                      Hvilepuls {latestHealth.restingHr != null && previousHealth.restingHr != null ? `${latestHealth.restingHr - previousHealth.restingHr > 0 ? '+' : ''}${(latestHealth.restingHr - previousHealth.restingHr).toFixed(0)} bpm` : '--'},
+                      {' '}
+                      Sovn {latestHealth.sleepHours != null && previousHealth.sleepHours != null ? `${latestHealth.sleepHours - previousHealth.sleepHours > 0 ? '+' : ''}${(latestHealth.sleepHours - previousHealth.sleepHours).toFixed(1)} t` : '--'}.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <p className="text-xs text-gray-500 dark:text-gray-500">
-                Tips: Logg malinger 1-2 ganger i uka pa samme tidspunkt for jevnere trend.
+                Tips: Logg malinger 1-2 ganger i uka pa samme tidspunkt. Kombiner vekt + midje + hvilepuls for bedre helsetrend.
               </p>
 
-              {profile.bmiHistory.length > 0 && (
+              {bmiHistory.length > 0 && (
                 <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Siste malinger</p>
                   <div className="space-y-1">
-                    {profile.bmiHistory.slice(0, 3).map((entry) => (
+                    {bmiHistory.slice(0, 3).map((entry) => (
                       <p key={`${entry.date}-${entry.bmi}`} className="text-xs text-gray-600 dark:text-gray-300">
                         {entry.date}: {entry.weightKg} kg, {entry.heightCm} cm, BMI {entry.bmi}
                       </p>

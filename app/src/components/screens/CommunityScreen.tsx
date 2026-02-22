@@ -14,6 +14,7 @@ type CommunityProfile = {
   socialAnonymousPosting?: boolean;
   socialHideWeightNumbers?: boolean;
   socialHideBodyPhotos?: boolean;
+  equippedBadgeIds?: string[];
 };
 
 type WorkoutSession = {
@@ -34,6 +35,7 @@ type CommunityPost = {
   goal: string;
   trainingStyle: string;
   identityBadge: string;
+  equippedBadgeIds?: string[];
   caption: string;
   imageDataUrl?: string;
   durationMinutes: number;
@@ -122,6 +124,19 @@ function scoreForLeaderboard(streak: number, postCount: number, totalCalories: n
 
 function normalizeToken(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase();
+}
+
+function badgeStyleById(id: string) {
+  if (id === 'developer') return 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white border-indigo-300';
+  if (id === 'og') return 'bg-gradient-to-r from-amber-400 to-orange-500 text-white border-amber-300';
+  if (id === 'beta_tester') return 'bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white border-fuchsia-300';
+  if (id === 'dedicated') return 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-emerald-300';
+  if (id === 'consistency_pro') return 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-blue-300';
+  if (id === 'streak_master') return 'bg-gradient-to-r from-red-500 to-rose-500 text-white border-red-300';
+  if (id === 'hydration_hero') return 'bg-gradient-to-r from-cyan-500 to-sky-500 text-white border-cyan-300';
+  if (id === 'active_mover') return 'bg-gradient-to-r from-lime-500 to-green-500 text-white border-lime-300';
+  if (id === 'challenge_hunter') return 'bg-gradient-to-r from-purple-500 to-violet-500 text-white border-purple-300';
+  return 'bg-gradient-to-r from-slate-500 to-gray-600 text-white border-slate-300';
 }
 
 export default function CommunityScreen() {
@@ -303,6 +318,7 @@ export default function CommunityScreen() {
       goal,
       trainingStyle,
       identityBadge: streak >= 21 ? 'Iron Discipline' : streak >= 7 ? 'Consistency Builder' : 'Starting Strong',
+      equippedBadgeIds: Array.isArray(profile.equippedBadgeIds) ? profile.equippedBadgeIds.slice(0, 3) : [],
       caption: caption.trim(),
       imageDataUrl: postMode === 'photo' ? (imageDataUrl ?? undefined) : undefined,
       durationMinutes: Number.isFinite(nextDuration) && nextDuration > 0 ? nextDuration : 30,
@@ -349,7 +365,7 @@ export default function CommunityScreen() {
   }
 
   return (
-    <div className="screen">
+    <div className="screen dark:bg-gray-900">
       <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4">
         <div className="flex justify-between items-center mb-3">
           <h1 className="text-xl font-bold">Community</h1>
@@ -393,16 +409,16 @@ export default function CommunityScreen() {
         </div>
       </div>
 
-      <div className="social-section bg-white border-b">
+      <div className="social-section bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-xs text-gray-500 uppercase">Friends</p>
-            <p className="text-sm font-semibold text-gray-800">You: {currentUser.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Friends</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">You: {currentUser.name}</p>
           </div>
           <select
             value={currentUser.id}
             onChange={(e) => setActiveUserId(e.target.value)}
-            className="rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-700"
+            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-200"
           >
             {users.map((user) => (
               <option key={user.id} value={user.id}>
@@ -417,7 +433,7 @@ export default function CommunityScreen() {
             value={newUserName}
             onChange={(e) => setNewUserName(e.target.value)}
             placeholder="New friend name"
-            className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800"
+            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
           />
           <button
             type="button"
@@ -429,10 +445,10 @@ export default function CommunityScreen() {
         </div>
       </div>
 
-      <div className="social-section bg-white border-b">
+      <div className="social-section bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center gap-2 mb-3">
           <Trophy className="w-5 h-5 text-yellow-500" />
-          <h2 className="font-semibold text-gray-800">Weekly leaderboard</h2>
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">Weekly leaderboard</h2>
         </div>
         <div className="space-y-2">
           {leaderboard.map((entry, index) => (
@@ -448,12 +464,12 @@ export default function CommunityScreen() {
               {index === 0 ? <span className="social-pill social-pill-success">Leader</span> : null}
             </div>
           ))}
-          {leaderboard.length === 0 ? <p className="text-sm text-gray-500">No activity yet. Be the first to lead.</p> : null}
+          {leaderboard.length === 0 ? <p className="text-sm text-gray-500 dark:text-gray-400">No activity yet. Be the first to lead.</p> : null}
         </div>
       </div>
 
-      <div className="social-section bg-slate-50 border-b">
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+      <div className="social-section bg-slate-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+        <p className="text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase tracking-wide">
           {activeTab === 'feed'
             ? 'All recent posts'
             : activeTab === 'friends'
@@ -478,12 +494,12 @@ export default function CommunityScreen() {
                   </div>
                 )}
                 <div className="flex-1">
-                  <h3 className="font-semibold text-gray-800">{post.authorName}</h3>
-                  <p className="text-xs text-gray-500">
+                  <h3 className="font-semibold text-gray-800 dark:text-gray-100">{post.authorName}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     {post.goal} | {post.trainingStyle} | {post.level} | {relativeTimeFrom(post.createdAt)}
                   </p>
                 </div>
-                <button className="text-gray-400">
+                <button className="text-gray-400 dark:text-gray-500">
                   <UserPlus className="w-5 h-5" />
                 </button>
               </div>
@@ -506,10 +522,15 @@ export default function CommunityScreen() {
                 <p className="workout-pr">PR: {post.prHighlight}</p>
                 <div className="flex flex-wrap gap-2 mt-2">
                   <span className="social-pill">{post.identityBadge}</span>
+                  {(post.equippedBadgeIds ?? []).slice(0, 3).map((badgeId) => (
+                    <span key={`${post.id}-${badgeId}`} className={`text-[11px] px-2 py-0.5 rounded-full border ${badgeStyleById(badgeId)}`}>
+                      {badgeId.split('_').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ')}
+                    </span>
+                  ))}
                 </div>
               </div>
 
-              {post.caption ? <p className="text-gray-700 mt-3">{post.caption}</p> : null}
+              {post.caption ? <p className="text-gray-700 dark:text-gray-300 mt-3">{post.caption}</p> : null}
               {showImage ? <img src={post.imageDataUrl} alt="Post" className="w-full h-64 object-cover rounded-2xl mt-3" /> : null}
 
               <div className="reaction-row">
@@ -532,7 +553,7 @@ export default function CommunityScreen() {
         })}
 
         {visiblePosts.length === 0 ? (
-          <div className="social-section text-center text-gray-500">
+          <div className="social-section text-center text-gray-500 dark:text-gray-400">
             <p className="text-sm">No posts yet.</p>
             <p className="text-xs mt-1">Tap Add Post to publish your first workout.</p>
           </div>
@@ -553,10 +574,10 @@ export default function CommunityScreen() {
 
       {showAddPost ? (
         <div className="fixed inset-0 z-[1400] bg-black/40 flex items-end justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl mb-16 sm:mb-0">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-2xl mb-16 sm:mb-0 border border-transparent dark:border-gray-700">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-800">Add post</h3>
-              <button type="button" onClick={closeAddPostModal} className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Add post</h3>
+              <button type="button" onClick={closeAddPostModal} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-200 flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -565,14 +586,14 @@ export default function CommunityScreen() {
               <button
                 type="button"
                 onClick={() => setPostMode('photo')}
-                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'photo' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-700'}`}
+                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'photo' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}`}
               >
                 Photo mode
               </button>
               <button
                 type="button"
                 onClick={() => setPostMode('text')}
-                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'text' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-700'}`}
+                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'text' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}`}
               >
                 Text mode
               </button>
@@ -580,7 +601,7 @@ export default function CommunityScreen() {
 
             {postMode === 'photo' ? (
               <div className="mb-3">
-                <button type="button" onClick={pickImage} className="w-full rounded-lg border border-dashed border-orange-300 px-3 py-3 text-sm text-orange-700 flex items-center justify-center gap-2">
+                <button type="button" onClick={pickImage} className="w-full rounded-lg border border-dashed border-orange-300 dark:border-orange-700 px-3 py-3 text-sm text-orange-700 dark:text-orange-300 flex items-center justify-center gap-2">
                   <ImagePlus className="w-4 h-4" />
                   {imageDataUrl ? 'Change photo' : 'Choose photo'}
                 </button>
@@ -594,7 +615,7 @@ export default function CommunityScreen() {
               onChange={(e) => setCaption(e.target.value)}
               placeholder="Write a short update"
               rows={3}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm mb-3"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-3"
             />
 
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -603,14 +624,14 @@ export default function CommunityScreen() {
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="Duration (min)"
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
               />
               <input
                 inputMode="numeric"
                 value={calories}
                 onChange={(e) => setCalories(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="Calories"
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
               />
             </div>
 
@@ -618,11 +639,11 @@ export default function CommunityScreen() {
               value={prHighlight}
               onChange={(e) => setPrHighlight(e.target.value)}
               placeholder="PR highlight"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm mb-4"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-4"
             />
 
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={closeAddPostModal} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700">
+              <button type="button" onClick={closeAddPostModal} className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
                 Cancel
               </button>
               <button type="button" onClick={createPost} className="px-4 py-2 rounded-lg bg-orange-500 text-white">

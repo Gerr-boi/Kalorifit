@@ -76,8 +76,16 @@
             return;
           }
 
+          let hasReloadedForController = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (hasReloadedForController) return;
+            hasReloadedForController = true;
+            window.location.reload();
+          });
+
           navigator.serviceWorker.register('/sw.js')
             .then((registration) => {
+              registration.update().catch(() => undefined);
               console.log('SW registered:', registration);
             })
             .catch((error) => {

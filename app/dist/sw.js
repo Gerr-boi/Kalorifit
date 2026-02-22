@@ -1,53 +1,59 @@
-const CACHE_NAME = 'kalorifit-v1';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/icon-192x192.png',
-  '/icon-512x512.png'
-];
+const CACHE_NAME = 'kalorifit-v2';
+const urlsToCache = ['/index.html', '/manifest.json', '/icon-192x192.png', '/icon-512x512.png'];
 
-// Install event
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Cache opened');
-        return cache.addAll(urlsToCache);
-      })
-      .catch((err) => {
-        console.log('Cache failed:', err);
-      })
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.addAll(urlsToCache))
+      .catch(() => undefined),
   );
   self.skipWaiting();
 });
 
-// Fetch event
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) return;
+
   event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        if (response) {
-          return response;
+    (async () => {
+      try {
+        const networkResponse = await fetch(event.request);
+        if (networkResponse.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(event.request, networkResponse.clone());
         }
-        return fetch(event.request);
-      })
+        return networkResponse;
+      } catch (error) {
+        const cache = await caches.open(CACHE_NAME);
+        const cachedResponse = await cache.match(event.request);
+        if (cachedResponse) return cachedResponse;
+
+        if (event.request.mode === 'navigate') {
+          const shell = await cache.match('/index.html');
+          if (shell) return shell;
+        }
+
+        throw error;
+      }
+    })(),
   );
 });
 
-// Activate event
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
+    caches.keys().then((cacheNames) =>
+      Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
             return caches.delete(cacheName);
           }
-        })
-      );
-    })
+          return Promise.resolve(false);
+        }),
+      ),
+    ),
   );
   self.clients.claim();
 });

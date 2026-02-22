@@ -57,7 +57,7 @@ type MealTemplate = {
 
 type LogEvent = {
   id: string;
-  type: 'meal' | 'water' | 'workout' | 'macro' | 'repeat' | 'streak-protect';
+  type: 'meal' | 'water' | 'workout' | 'macro' | 'repeat';
   actionId: string;
   mealId?: MealId;
   kcal?: number;
@@ -133,6 +133,7 @@ const EMPTY_LOG_EVENTS: LogEvent[] = [];
 const EMPTY_SAVED_MEAL_TEMPLATES: SavedMealTemplate[] = [];
 const EMPTY_WORKOUT_SESSIONS: WorkoutSession[] = [];
 const EMPTY_DATE_FLAGS: Record<string, true> = {};
+const CONSISTENCY_DROP_INSIGHT = 'Consistency dropped this week. Use a simpler logging mode temporarily.';
 
 const mealTemplates: MealTemplate[] = [
   {
@@ -178,6 +179,11 @@ const fullDateFormat = new Intl.DateTimeFormat('nb-NO', {
   month: 'long',
   year: 'numeric',
 });
+
+function formatDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return fullDateFormat.format(new Date(year, month - 1, day));
+}
 
 function createFoodId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -265,6 +271,43 @@ function groupFoodsByName(items: FoodEntry[]) {
   return Array.from(grouped.values());
 }
 
+function localizeAdjustmentReason(reason: string) {
+  if (reason.startsWith('Weight is not dropping. Applying -')) return 'Vekten star stille. Daglig mal er senket litt.';
+  if (reason.startsWith('Weight is dropping too fast. Adding +')) return 'Vekten gar ned for raskt. Daglig mal er okt litt.';
+  if (reason === 'Weight trend is in healthy fat-loss range.') return 'Vekttrenden er i et sunt fettap-omrade.';
+  if (reason.startsWith('Weight gain is too slow. Applying +')) return 'Vektokningen gar for sakte. Daglig mal er okt litt.';
+  if (reason.startsWith('Weight gain is too fast. Applying -')) return 'Vektokningen gar for raskt. Daglig mal er senket litt.';
+  if (reason === 'Weight trend is in healthy muscle-gain range.') return 'Vekttrenden er i et sunt muskelbyggings-omrade.';
+  if (reason.startsWith('Drift detected. Adjusting by')) return 'Trenden driver fra malet. Planen er justert.';
+  if (reason === 'Trend is stable.') return 'Trenden er stabil.';
+  if (reason === 'Standard mode uses static target.') return 'Standardmodus bruker et fast kalorimal.';
+  return reason;
+}
+
+function localizeProjectionText(text: string) {
+  if (text.startsWith('Open projection: ~')) {
+    const value = text.replace('Open projection: ~', '').replace('kg/week', 'kg/uke');
+    return `Estimert utvikling: ${value}`;
+  }
+  return text;
+}
+
+function localizeBehaviorInsight(insight: string) {
+  if (insight === 'Weekend calorie intake is higher than weekdays. Consider a weekend buffer.') {
+    return 'Helgene ligger hoyere i kalorier enn ukedagene. Vurder en liten helgebuffer.';
+  }
+  if (insight === 'You under-eat protein on Sundays compared with your target.') {
+    return 'Protein pa sondager er under malet ditt.';
+  }
+  if (insight === 'Calories often spike after 8 PM. Plan a protein-forward evening meal.') {
+    return 'Kaloriene blir ofte hoye sent pa kvelden. Planlegg et proteinrikt kveldsmaltid.';
+  }
+  if (insight === 'Consistency dropped this week. Use a simpler logging mode temporarily.') {
+    return 'Loggflyten har falt denne uken. Velg enklere logging noen dager.';
+  }
+  return insight;
+}
+
 export default function HomeScreen() {
   const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
   const [profilePrefs] = useLocalStorageState<HomeProfile>('profile', EMPTY_HOME_PROFILE);
@@ -299,6 +342,7 @@ export default function HomeScreen() {
   const [workoutExerciseName, setWorkoutExerciseName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [waterMeterMl, setWaterMeterMl] = useState(250);
+  const [nutritionBoxExpanded, setNutritionBoxExpanded] = useState(false);
   const swipeStartXRef = useRef<number | null>(null);
   const ringLastTapAtRef = useRef(0);
   const mealSwipeStartXRef = useRef<Record<MealId, number | null>>({
@@ -401,6 +445,14 @@ export default function HomeScreen() {
   const strokeDashoffset = RING_CIRCUMFERENCE - progressRatio * RING_CIRCUMFERENCE;
   const ringColor = getRingColor(caloriesRemaining);
   const discipline = useMemo(() => calculateDailyDisciplineScore(dayLog), [dayLog]);
+  const consistencyDropInsight = useMemo(
+    () => smartDietPlan.behaviorInsights.find((insight) => insight === CONSISTENCY_DROP_INSIGHT) ?? null,
+    [smartDietPlan.behaviorInsights],
+  );
+  const otherBehaviorInsights = useMemo(
+    () => smartDietPlan.behaviorInsights.filter((insight) => insight !== CONSISTENCY_DROP_INSIGHT),
+    [smartDietPlan.behaviorInsights],
+  );
 
   const weeklyData = useMemo(() => {
     const weekStart = startOfWeekMonday(selectedDate);
@@ -445,8 +497,6 @@ export default function HomeScreen() {
     }).length;
     return Math.round((passes / weeklyData.length) * 100);
   }, [logsByDate, weeklyData]);
-
-  const dayHasAnyLog = consumed > 0 || dayLog.waterMl > 0 || dayLog.trainingKcal > 0;
 
   const historicalMealStats = useMemo(() => {
     const mealIds: MealId[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
@@ -991,12 +1041,6 @@ export default function HomeScreen() {
     if (action === 'repeat-day-yesterday') repeatWholeDayFromDate(toDateKey(addDays(selectedDate, -1)), 'repeat:yesterday');
     if (action === 'repeat-last-monday') repeatWholeDayFromDate(getLastMondayKey(), 'repeat:last-monday');
     if (action === 'repeat-frequent') repeatWholeDayFromDate(mostFrequentDayKey, 'repeat:frequent-day');
-    if (action === 'streak-protect') {
-      const previousDay = cloneDayLog(dayLog);
-      addFoodToMeal('snacks', { id: 'streak-0', name: 'Streak protect check-in', kcal: 0, protein: 0, carbs: 0, fat: 0 }, 'quick:streak-protect');
-      setUndoAction({ label: 'Streak protect', undo: () => setDayLog(selectedDateKey, previousDay) });
-      recordEvent({ type: 'streak-protect', actionId: 'quick:streak-protect' });
-    }
     setShowQuickAddMenu(false);
   };
 
@@ -1161,17 +1205,20 @@ export default function HomeScreen() {
             <p className="text-[11px] uppercase text-white/75 mb-2">Ukesoversikt</p>
             <div className="flex items-end justify-between gap-1 h-28">
               {weeklyData.map((day) => {
-                const ratio = Math.min(day.consumed / Math.max(optimizedTargetKcal, 1), 1.15);
-                const fillHeight = Math.max(10, Math.round(ratio * 64));
+                const dayTarget = Math.max(1, optimizedTargetKcal + (logsByDate[day.key]?.trainingKcal ?? 0));
+                const ratioRaw = day.consumed / dayTarget;
+                const ratio = Math.max(0, Math.min(ratioRaw, 1));
+                const fillHeight = day.consumed > 0 ? Math.max(6, Math.round(ratio * 100)) : 0;
                 const barColor = getWeeklyBarColor(ratio);
                 return (
                   <div key={day.key} className="flex flex-1 justify-center">
                     <div
                       className={`w-4 h-24 rounded-full bg-white/20 p-[2px] flex flex-col ${day.isSelected ? 'ring-2 ring-white' : day.isToday ? 'ring-1 ring-white/60' : ''}`}
+                      title={`${formatDateKey(day.key)}: ${Math.round(ratioRaw * 100)}% av mal`}
                     >
                       <div
                         className="w-full rounded-full mt-auto transition-all"
-                        style={{ height: `${Math.min(fillHeight, 70)}px`, backgroundColor: barColor }}
+                        style={{ height: `${fillHeight}%`, backgroundColor: barColor }}
                       />
                     </div>
                   </div>
@@ -1233,22 +1280,47 @@ export default function HomeScreen() {
         </div>
 
         <div className="mt-3 rounded-xl bg-white/10 p-3">
-          <p className="text-[11px] text-white/70">Optimized target: {smartDietPlan.optimizedTargetKcal} kcal ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} fra basis)</p>
-          <p className="text-[11px] text-white/70 mt-1">BMR {smartDietPlan.bmr} | TDEE {smartDietPlan.tdee} | Basis {smartDietPlan.baseTargetKcal}</p>
-          <p className="text-[11px] text-white/70 mt-1">{smartDietPlan.adjustmentReason}</p>
-          <p className="text-[11px] text-white/70 mt-1">{smartDietPlan.projectedProgressText}</p>
-          {smartDietPlan.macros && (
-            <p className="text-[11px] text-white/70 mt-1">
-              Makro-mal: P {smartDietPlan.macros.proteinG}g | F {smartDietPlan.macros.fatG}g | K {smartDietPlan.macros.carbsG}g
+          <button
+            type="button"
+            onClick={() => setNutritionBoxExpanded((prev) => !prev)}
+            className="w-full text-left flex items-start justify-between gap-3"
+          >
+            <p className="text-[11px] text-white/85">
+              Dagens kalorimal: {smartDietPlan.optimizedTargetKcal} kcal
+              {' '}
+              ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} vs grunnmal)
             </p>
+            <span className="text-[11px] text-white/80 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
+          </button>
+
+          {nutritionBoxExpanded && (
+            <>
+              <p className="text-[11px] text-white/70 mt-2">
+                Grunnmal: {smartDietPlan.baseTargetKcal} | Vedlikehold: {smartDietPlan.tdee} | Hvileforbrenning: {smartDietPlan.bmr}
+              </p>
+              <p className="text-[11px] text-white/70 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
+              <p className="text-[11px] text-white/70 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
+              {smartDietPlan.macros && (
+                <p className="text-[11px] text-white/70 mt-1">
+                  Dagsmal makro: Protein {smartDietPlan.macros.proteinG} g | Fett {smartDietPlan.macros.fatG} g | Karbo {smartDietPlan.macros.carbsG} g
+                </p>
+              )}
+            </>
           )}
         </div>
 
-        {smartDietPlan.behaviorInsights.length > 0 && (
+        {consistencyDropInsight && (
+          <div className="mt-2 flex items-start gap-2 px-1">
+            <span className="text-base leading-none" aria-hidden>💬</span>
+            <p className="text-[11px] text-white/90">{localizeBehaviorInsight(consistencyDropInsight)}</p>
+          </div>
+        )}
+
+        {otherBehaviorInsights.length > 0 && (
           <div className="mt-2 rounded-xl bg-white/10 p-3">
-            {smartDietPlan.behaviorInsights.map((insight) => (
+            {otherBehaviorInsights.map((insight) => (
               <p key={insight} className="text-[11px] text-white/80">
-                {insight}
+                {localizeBehaviorInsight(insight)}
               </p>
             ))}
           </div>
@@ -1589,15 +1661,6 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        {!dayHasAnyLog && isTodaySelected && (
-          <button
-            type="button"
-            onClick={() => handleQuickAdd('streak-protect')}
-            className="w-full mt-3 p-3 text-xs rounded-lg bg-violet-50 text-violet-700"
-          >
-            Quick Save 0 kcal to protect streak
-          </button>
-        )}
       </div>
 
       {isPastSelectedDay && (

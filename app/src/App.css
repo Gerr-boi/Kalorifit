@@ -496,6 +496,59 @@ body,
   border-color: #4b5563;
 }
 
+.dark .social-switch {
+  background: #1f2937;
+  color: #e5e7eb;
+}
+
+.dark .social-switch-on {
+  background: #111827;
+  color: #fdba74;
+}
+
+.dark .social-pill-success {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(16, 185, 129, 0.45);
+  color: #a7f3d0;
+}
+
+.dark .challenge-title {
+  color: #f3f4f6;
+}
+
+.dark .challenge-meta {
+  color: #9ca3af;
+}
+
+.dark .workout-card {
+  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+  border-color: #374151;
+}
+
+.dark .workout-label {
+  color: #9ca3af;
+}
+
+.dark .workout-value {
+  color: #f3f4f6;
+}
+
+.dark .workout-pr {
+  color: #fdba74;
+}
+
+.dark .reaction-chip {
+  background: #1f2937;
+  border-color: #374151;
+  color: #d1d5db;
+}
+
+.dark .reaction-chip-active {
+  background: rgba(249, 115, 22, 0.2);
+  border-color: #fb923c;
+  color: #fdba74;
+}
+
 @media (max-width: 380px) {
   .privacy-grid {
     grid-template-columns: 1fr;

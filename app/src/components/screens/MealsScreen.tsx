@@ -3,10 +3,7 @@ import { BookOpen, Clock, Flame, Sparkles, Star, Users } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { addDays, createEmptyDayLog, startOfDay, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
 import { normalizeNutritionProfile, type DietStyle, type GoalCategory, type GoalStrategy } from '../../lib/nutritionPlanner';
-
-type SmartSortId = 'recommended' | 'goal' | 'post_workout' | 'evening' | 'gut' | 'high_energy' | 'anti_inflammatory';
-type NutritionTagId = 'gut_health' | 'high_protein' | 'low_inflammation' | 'brain_fuel' | 'hormone_support' | 'fiber_focus' | 'recovery';
-type MealSlot = 'alle' | 'frokost' | 'lunsj' | 'middag' | 'snacks';
+import { mealRecipes, type MealRecipe, type MealSlot, type NutritionTagId, type SmartSortId } from '../../data/mealRecipes';
 
 type ProfilePrefs = {
   goalCategory?: GoalCategory;
@@ -17,34 +14,6 @@ type ProfilePrefs = {
   specialPhase?: 'normal' | 'reverse_diet' | 'recovery' | 'smart_auto';
   allergies?: string[];
   intolerances?: string[];
-};
-
-type Recipe = {
-  id: string;
-  title: string;
-  image: string;
-  calories: number;
-  time: string;
-  rating: number;
-  reviews: number;
-  source: string;
-  servings: number;
-  mealSlots: Array<Exclude<MealSlot, 'alle'>>;
-  tags: NutritionTagId[];
-  sortContexts: SmartSortId[];
-  dietStyles: DietStyle[];
-  goalCategories: GoalCategory[];
-  goalStrategies: GoalStrategy[];
-  containsAllergens: string[];
-  signals: {
-    fiber: number;
-    fermented: boolean;
-    antiInflammatory: boolean;
-    highProtein: boolean;
-    eveningFriendly: boolean;
-    highEnergy: boolean;
-    magnesiumRich: boolean;
-  };
 };
 
 const smartSortOptions: Array<{ id: SmartSortId; label: string }> = [
@@ -116,122 +85,7 @@ const tagInfo: Record<NutritionTagId, { label: string; explanation: string; arti
   },
 };
 
-const recipes: Recipe[] = [
-  {
-    id: 'r1',
-    title: 'Kimchi bowl med laks og ris',
-    image: 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=700&h=420&fit=crop',
-    calories: 540,
-    time: '20 min',
-    rating: 4.8,
-    reviews: 510,
-    source: 'Coop Mega',
-    servings: 2,
-    mealSlots: ['lunsj', 'middag'],
-    tags: ['gut_health', 'recovery', 'low_inflammation'],
-    sortContexts: ['recommended', 'post_workout', 'gut', 'anti_inflammatory'],
-    dietStyles: ['standard_balanced', 'mediterranean', 'high_protein', 'high_carb_performance'],
-    goalCategories: ['health', 'muscle_gain', 'performance', 'recomp'],
-    goalStrategies: ['gut_health', 'strength_focus', 'hybrid_athlete', 'blood_markers'],
-    containsAllergens: ['fish'],
-    signals: { fiber: 5, fermented: true, antiInflammatory: true, highProtein: true, eveningFriendly: false, highEnergy: true, magnesiumRich: false },
-  },
-  {
-    id: 'r2',
-    title: 'Linsegryte med rotgronnsaker',
-    image: 'https://images.unsplash.com/photo-1547592166-23acbe346499?w=700&h=420&fit=crop',
-    calories: 410,
-    time: '35 min',
-    rating: 4.5,
-    reviews: 280,
-    source: 'REMA 1000',
-    servings: 3,
-    mealSlots: ['lunsj', 'middag'],
-    tags: ['gut_health', 'fiber_focus', 'hormone_support'],
-    sortContexts: ['recommended', 'gut', 'anti_inflammatory', 'evening'],
-    dietStyles: ['vegan', 'vegetarian', 'mediterranean', 'standard_balanced'],
-    goalCategories: ['health', 'fat_loss', 'recomp'],
-    goalStrategies: ['gut_health', 'blood_markers', 'hormonal_balance', 'fat_reduction_no_scale'],
-    containsAllergens: [],
-    signals: { fiber: 11, fermented: false, antiInflammatory: true, highProtein: false, eveningFriendly: true, highEnergy: false, magnesiumRich: true },
-  },
-  {
-    id: 'r3',
-    title: 'Kyllingwrap med avocado og spinat',
-    image: 'https://images.unsplash.com/photo-1552332386-f8dd00dc2f85?w=700&h=420&fit=crop',
-    calories: 460,
-    time: '15 min',
-    rating: 4.6,
-    reviews: 441,
-    source: 'KIWI',
-    servings: 2,
-    mealSlots: ['lunsj'],
-    tags: ['high_protein', 'brain_fuel', 'recovery'],
-    sortContexts: ['recommended', 'goal', 'post_workout', 'high_energy'],
-    dietStyles: ['high_protein', 'standard_balanced', 'flexible_iifym', 'high_carb_performance'],
-    goalCategories: ['muscle_gain', 'recomp', 'performance', 'fat_loss'],
-    goalStrategies: ['strength_focus', 'standard_bulk', 'hybrid_athlete', 'high_protein_maintenance'],
-    containsAllergens: ['gluten'],
-    signals: { fiber: 6, fermented: false, antiInflammatory: false, highProtein: true, eveningFriendly: false, highEnergy: true, magnesiumRich: true },
-  },
-  {
-    id: 'r4',
-    title: 'Ovnslaks med asparges og quinoa',
-    image: 'https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=700&h=420&fit=crop',
-    calories: 500,
-    time: '24 min',
-    rating: 4.9,
-    reviews: 903,
-    source: 'Meny',
-    servings: 2,
-    mealSlots: ['middag'],
-    tags: ['high_protein', 'low_inflammation', 'brain_fuel'],
-    sortContexts: ['recommended', 'goal', 'anti_inflammatory', 'post_workout'],
-    dietStyles: ['mediterranean', 'high_protein', 'standard_balanced', 'keto'],
-    goalCategories: ['performance', 'muscle_gain', 'health', 'recomp'],
-    goalStrategies: ['strength_focus', 'endurance_focus', 'blood_markers', 'hybrid_athlete'],
-    containsAllergens: ['fish'],
-    signals: { fiber: 4, fermented: false, antiInflammatory: true, highProtein: true, eveningFriendly: true, highEnergy: false, magnesiumRich: false },
-  },
-  {
-    id: 'r5',
-    title: 'Overnight oats med chia og kefir',
-    image: 'https://images.unsplash.com/photo-1517673132405-a56a62b18caf?w=700&h=420&fit=crop',
-    calories: 370,
-    time: '10 min',
-    rating: 4.6,
-    reviews: 260,
-    source: 'REMA 1000',
-    servings: 1,
-    mealSlots: ['frokost'],
-    tags: ['gut_health', 'fiber_focus', 'brain_fuel'],
-    sortContexts: ['recommended', 'gut', 'high_energy'],
-    dietStyles: ['standard_balanced', 'vegetarian', 'mediterranean', 'high_carb_performance'],
-    goalCategories: ['health', 'performance', 'fat_loss'],
-    goalStrategies: ['gut_health', 'stable_energy', 'endurance_focus'],
-    containsAllergens: ['milk'],
-    signals: { fiber: 9, fermented: true, antiInflammatory: true, highProtein: false, eveningFriendly: false, highEnergy: true, magnesiumRich: true },
-  },
-  {
-    id: 'r6',
-    title: 'Kylling, ris og kimchi recovery bowl',
-    image: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=700&h=420&fit=crop',
-    calories: 560,
-    time: '22 min',
-    rating: 4.8,
-    reviews: 478,
-    source: 'KIWI',
-    servings: 2,
-    mealSlots: ['lunsj', 'middag'],
-    tags: ['recovery', 'high_protein', 'gut_health'],
-    sortContexts: ['post_workout', 'recommended', 'high_energy', 'gut'],
-    dietStyles: ['high_protein', 'standard_balanced', 'high_carb_performance', 'flexible_iifym'],
-    goalCategories: ['muscle_gain', 'performance', 'recomp'],
-    goalStrategies: ['strength_focus', 'hybrid_athlete', 'endurance_focus'],
-    containsAllergens: [],
-    signals: { fiber: 4, fermented: true, antiInflammatory: false, highProtein: true, eveningFriendly: true, highEnergy: true, magnesiumRich: false },
-  },
-];
+const recipes = mealRecipes;
 
 function sumDaySignals(log: DayLog) {
   const items = Object.values(log.meals).flat();
@@ -256,6 +110,7 @@ export default function MealsScreen() {
   const [activeSort, setActiveSort] = useState<SmartSortId>('recommended');
   const [activeMealFilter, setActiveMealFilter] = useState<MealSlot>('alle');
   const [activeTag, setActiveTag] = useState<NutritionTagId | null>(null);
+  const [selectedRecipe, setSelectedRecipe] = useState<MealRecipe | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [diaryFeedback, setDiaryFeedback] = useState<string | null>(null);
 
@@ -332,7 +187,7 @@ export default function MealsScreen() {
     : 'Sortering og forslag er justert etter malet ditt og dagens signaler.';
 
   const recommendationBlocks = useMemo(() => {
-    const blocks: Array<{ id: string; title: string; desc: string; match: (recipe: Recipe) => boolean }> = [];
+    const blocks: Array<{ id: string; title: string; desc: string; match: (recipe: MealRecipe) => boolean }> = [];
     if (hardWorkoutToday) blocks.push({ id: 'recovery', title: 'Restitusjonsmaltider i dag', desc: 'Basert pa hard treningsdag.', match: (r) => r.tags.includes('recovery') || r.signals.highProtein });
     if (poorSleepProxy) blocks.push({ id: 'energy', title: 'Energi-stottende maltider', desc: 'Jevn energi ved lav restitusjon.', match: (r) => r.signals.highEnergy || r.signals.magnesiumRich });
     if (stressProxy) blocks.push({ id: 'calming', title: 'Magnesiumrike valg', desc: 'Nyttig ved hoy belastning.', match: (r) => r.signals.magnesiumRich || r.signals.antiInflammatory });
@@ -343,14 +198,18 @@ export default function MealsScreen() {
 
   const filteredRecipes = useMemo(() => {
     const blocked = new Set([...(profilePrefs.allergies ?? []), ...(profilePrefs.intolerances ?? [])].map((v) => v.toLowerCase()));
+    const profileDietFilter = profile.dietStyle === 'vegan' ? 'vegan' : profile.dietStyle === 'vegetarian' ? 'vegetarian' : 'alle';
+
     const eligible = recipes.filter((recipe) => {
       if (recipe.containsAllergens.some((a) => blocked.has(a.toLowerCase()))) return false;
       if (activeMealFilter !== 'alle' && !recipe.mealSlots.includes(activeMealFilter)) return false;
+      if (profileDietFilter === 'vegan' && !recipe.dietStyles.includes('vegan')) return false;
+      if (profileDietFilter === 'vegetarian' && !(recipe.dietStyles.includes('vegetarian') || recipe.dietStyles.includes('vegan'))) return false;
       return true;
     });
     const scoped = showFavoritesOnly ? eligible.filter((recipe) => favorites.has(recipe.id)) : eligible;
     return [...scoped].sort((a, b) => {
-      const score = (r: Recipe) => {
+      const score = (r: MealRecipe) => {
         let s = r.rating;
         if (r.sortContexts.includes(activeSort)) s += 7;
         if (r.dietStyles.includes(profile.dietStyle)) s += 5;
@@ -379,6 +238,10 @@ export default function MealsScreen() {
   const blocksWithItems = useMemo(() => recommendationBlocks.map((block) => ({ ...block, items: filteredRecipes.filter(block.match).slice(0, 3) })), [filteredRecipes, recommendationBlocks]);
   const activeSortLabel = smartSortOptions.find((item) => item.id === activeSort)?.label ?? 'Anbefalt for deg';
   const mealFilterLabel = activeMealFilter === 'alle' ? 'For deg' : activeMealFilter[0].toUpperCase() + activeMealFilter.slice(1);
+  const selectedMacros = selectedRecipe ? estimateMacros(selectedRecipe) : null;
+  const selectedMicros = selectedRecipe ? estimateMicros(selectedRecipe) : null;
+  const selectedIngredients = selectedRecipe ? getRecipeIngredients(selectedRecipe) : [];
+  const selectedSteps = selectedRecipe ? getRecipeSteps(selectedRecipe) : [];
 
   function toMealId(slot: Exclude<MealSlot, 'alle'>): MealId {
     if (slot === 'frokost') return 'breakfast';
@@ -387,7 +250,7 @@ export default function MealsScreen() {
     return 'snacks';
   }
 
-  function getTargetMealId(recipe: Recipe): MealId {
+  function getTargetMealId(recipe: MealRecipe): MealId {
     if (activeMealFilter !== 'alle') return toMealId(activeMealFilter);
     const hour = new Date().getHours();
     if (hour < 11 && recipe.mealSlots.includes('frokost')) return 'breakfast';
@@ -397,7 +260,7 @@ export default function MealsScreen() {
     return toMealId(firstSlot);
   }
 
-  function estimateMacros(recipe: Recipe) {
+  function estimateMacros(recipe: MealRecipe) {
     const kcal = Math.max(0, recipe.calories);
     let proteinRatio = 0.2;
     let carbsRatio = 0.5;
@@ -419,7 +282,92 @@ export default function MealsScreen() {
     };
   }
 
-  function addRecipeToDiary(recipe: Recipe) {
+  function estimateMicros(recipe: MealRecipe) {
+    const fiber = Math.max(1, recipe.signals.fiber);
+    const omega3 = recipe.containsAllergens.includes('fish') ? 1.6 : recipe.signals.antiInflammatory ? 0.5 : 0.1;
+    const magnesium = (recipe.signals.magnesiumRich ? 140 : 75) + fiber * 6;
+    const iron = 2.5 + fiber * 0.35 + (recipe.signals.highProtein ? 1.8 : 0.6);
+    const potassium = (recipe.signals.highEnergy ? 700 : 480) + (recipe.signals.antiInflammatory ? 120 : 0);
+    const vitaminC = (recipe.signals.antiInflammatory ? 32 : 18) + (recipe.signals.fiber >= 7 ? 10 : 0);
+    return {
+      fiberG: Math.round(fiber * 10) / 10,
+      omega3G: Math.round(omega3 * 10) / 10,
+      magnesiumMg: Math.round(magnesium),
+      ironMg: Math.round(iron * 10) / 10,
+      potassiumMg: Math.round(potassium),
+      vitaminCMg: Math.round(vitaminC),
+    };
+  }
+
+  function getRecipeIngredients(recipe: MealRecipe) {
+    const lowerTitle = recipe.title.toLowerCase();
+    const slotDefaults: Record<Exclude<MealSlot, 'alle'>, string[]> = {
+      frokost: ['Havregryn 40 g', 'Baer 100 g'],
+      lunsj: ['Blandet salat 80 g', 'Olivenolje 1 ss'],
+      middag: ['Sesonggronnsaker 150 g', 'Urter og krydder'],
+      snacks: ['Frukt 1 stk', 'Nodder 20 g'],
+    };
+    const keywordIngredients: Array<[string, string]> = [
+      ['kimchi', 'Kimchi 60 g'],
+      ['laks', 'Laks 150 g'],
+      ['kylling', 'Kyllingfilet 150 g'],
+      ['kalkun', 'Kalkun 150 g'],
+      ['tofu', 'Tofu 180 g'],
+      ['linse', 'Linser 140 g kokt'],
+      ['kiker', 'Kikerter 120 g kokt'],
+      ['bonn', 'Bonner 120 g kokt'],
+      ['ris', 'Kokt ris 150 g'],
+      ['quinoa', 'Quinoa 140 g kokt'],
+      ['avocado', 'Avokado 1/2 stk'],
+      ['spinat', 'Spinat 70 g'],
+      ['broccoli', 'Brokkoli 120 g'],
+      ['kefir', 'Kefir 2 dl'],
+      ['yoghurt', 'Gresk yoghurt 170 g'],
+      ['egg', 'Egg 2 stk'],
+      ['omelett', 'Egg 2 stk'],
+      ['wrap', 'Fullkornstortilla 1 stk'],
+      ['pasta', 'Fullkornspasta 90 g ukokt'],
+      ['soba', 'Sobanudler 80 g ukokt'],
+      ['feta', 'Feta 40 g'],
+      ['biff', 'Mager biff 140 g'],
+      ['tunfisk', 'Tunfisk 150 g'],
+      ['reker', 'Reker 150 g'],
+    ];
+    const inferred = keywordIngredients.filter(([k]) => lowerTitle.includes(k)).map(([, v]) => v);
+    const slot = recipe.mealSlots[0] ?? 'lunsj';
+    const combined = [...inferred, ...slotDefaults[slot], 'Sitron/eddik + salt og pepper'];
+    return Array.from(new Set(combined)).slice(0, 8);
+  }
+
+  function getRecipeSteps(recipe: MealRecipe) {
+    const slot = recipe.mealSlots[0] ?? 'lunsj';
+    const base: Record<Exclude<MealSlot, 'alle'>, string[]> = {
+      frokost: [
+        'Bland hovedingrediensene i en bolle.',
+        'Topp med frukt/baer og litt nodder eller frø.',
+        'Server med en proteinkilde for bedre metthet.',
+      ],
+      lunsj: [
+        'Stek eller varm opp proteinkilden.',
+        'Sett sammen med gronnsaker og karbohydratkilde.',
+        'Smak til med syre, urter og litt sunt fett.',
+      ],
+      middag: [
+        'Forvarm panne eller ovn og klargjor alle ingredienser.',
+        'Tilbered protein, deretter gronnsaker til de er møre.',
+        'Server med valgfri karbohydratkilde og frisk topping.',
+      ],
+      snacks: [
+        'Kutt og porsjoner ingrediensene.',
+        'Kombiner en rask proteinkilde med frukt/gront.',
+        'Smak til og server med en gang.',
+      ],
+    };
+    if (recipe.signals.fermented) return [...base[slot], 'Legg til fermentert topping rett for servering.'];
+    return base[slot];
+  }
+
+  function addRecipeToDiary(recipe: MealRecipe) {
     const mealId = getTargetMealId(recipe);
     const macros = estimateMacros(recipe);
     const entry: FoodEntry = {
@@ -468,17 +416,17 @@ export default function MealsScreen() {
         </div>
       </div>
 
-      <div className="sticky top-0 bg-white z-20 border-b">
+      <div className="sticky top-0 bg-white dark:bg-gray-900 z-20 border-b border-gray-200 dark:border-gray-700">
         <div className="scroll-container py-3">
           {(['alle', 'frokost', 'lunsj', 'middag', 'snacks'] as const).map((slot) => (
-            <button key={slot} onClick={() => setActiveMealFilter(slot)} className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeMealFilter === slot ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-100 text-gray-600'}`}>
+            <button key={slot} onClick={() => setActiveMealFilter(slot)} className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeMealFilter === slot ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
               {slot === 'alle' ? 'For deg' : slot[0].toUpperCase() + slot.slice(1)}
             </button>
           ))}
         </div>
         <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto">
           {smartSortOptions.map((option) => (
-            <button key={option.id} onClick={() => setActiveSort(option.id)} className={`text-xs px-3 py-1.5 rounded-full border whitespace-nowrap ${activeSort === option.id ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200'}`}>
+            <button key={option.id} onClick={() => setActiveSort(option.id)} className={`text-xs px-3 py-1.5 rounded-full border whitespace-nowrap ${activeSort === option.id ? 'bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700'}`}>
               {option.label}
             </button>
           ))}
@@ -492,26 +440,43 @@ export default function MealsScreen() {
               key={block.id}
               className={`rounded-2xl border p-3 ${
                 idx % 2 === 0
-                  ? 'bg-gradient-to-br from-slate-50 to-white border-slate-100'
-                  : 'bg-gradient-to-br from-orange-50 to-white border-orange-100'
+                  ? 'bg-gradient-to-br from-slate-50 to-white border-slate-100 dark:from-gray-800 dark:to-gray-800 dark:border-gray-700'
+                  : 'bg-gradient-to-br from-orange-50 to-white border-orange-100 dark:from-gray-800 dark:to-gray-800 dark:border-gray-700'
               }`}
             >
-              <p className="text-sm font-semibold text-slate-800">{block.title}</p>
-              <p className="text-xs text-slate-500 mb-2">{block.desc}</p>
+              <p className="text-sm font-semibold text-slate-800 dark:text-gray-100">{block.title}</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400 mb-2">{block.desc}</p>
               <div className="grid grid-cols-1 gap-2">
                 {block.items.map((recipe) => (
-                  <button
+                  <div
                     key={recipe.id}
-                    type="button"
-                    onClick={() => addRecipeToDiary(recipe)}
-                    className="w-full text-left flex items-center gap-3 bg-white rounded-xl p-2 border border-slate-100 hover:bg-slate-50 transition-colors"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedRecipe(recipe)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedRecipe(recipe);
+                      }
+                    }}
+                    className="w-full text-left flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-2 border border-slate-100 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
                   >
                     <img src={recipe.image} alt={recipe.title} className="w-16 h-16 rounded-lg object-cover" />
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{recipe.title}</p>
-                      <p className="text-xs text-gray-500">{recipe.calories} kcal - {recipe.time} - trykk for a logge</p>
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{recipe.title}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{recipe.calories} kcal - {recipe.time} - trykk for detaljer</p>
                     </div>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        addRecipeToDiary(recipe);
+                      }}
+                      className="ml-auto shrink-0 rounded-lg bg-orange-500 text-white text-xs font-medium px-3 py-1.5"
+                    >
+                      Legg til
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -520,10 +485,10 @@ export default function MealsScreen() {
       )}
 
       <div className="px-4 py-2 flex items-center justify-between">
-        <p className="text-sm text-gray-500">{filteredRecipes.length} oppskrifter i smart visning</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{filteredRecipes.length} oppskrifter i smart visning</p>
         <button
           onClick={() => setShowFavoritesOnly((prev) => !prev)}
-          className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${showFavoritesOnly ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white border-gray-200 text-gray-600'}`}
+          className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${showFavoritesOnly ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'}`}
         >
           {showFavoritesOnly ? 'Viser favoritter' : 'Kun favoritter'}
         </button>
@@ -531,9 +496,9 @@ export default function MealsScreen() {
 
       <div className="space-y-4 pb-28">
         {filteredRecipes.length === 0 && (
-          <div className="mx-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
-            <p className="text-sm font-semibold text-slate-700">Ingen oppskrifter matcher akkurat na</p>
-            <p className="mt-1 text-xs text-slate-500">Bytt maltype, sortering eller skru av filter for favoritter.</p>
+          <div className="mx-4 rounded-2xl border border-dashed border-slate-300 dark:border-gray-700 bg-slate-50 dark:bg-gray-800 p-5 text-center">
+            <p className="text-sm font-semibold text-slate-700 dark:text-gray-100">Ingen oppskrifter matcher akkurat na</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-gray-400">Bytt maltype, sortering eller skru av filter for favoritter.</p>
           </div>
         )}
         {filteredRecipes.map((recipe) => {
@@ -546,7 +511,7 @@ export default function MealsScreen() {
             activeSort === 'evening' && recipe.signals.eveningFriendly ? 'Kveldvennlig' : null,
           ].filter(Boolean).slice(0, 3) as string[];
           return (
-            <div key={recipe.id} className="recipe-card cursor-pointer" onClick={() => addRecipeToDiary(recipe)}>
+            <div key={recipe.id} className="recipe-card cursor-pointer" onClick={() => setSelectedRecipe(recipe)}>
               <div className="relative">
                 <img src={recipe.image} alt={recipe.title} className="recipe-image" />
                 <button
@@ -554,7 +519,7 @@ export default function MealsScreen() {
                     event.stopPropagation();
                     setFavorites((prev) => (prev.has(recipe.id) ? new Set([...prev].filter((id) => id !== recipe.id)) : new Set(prev).add(recipe.id)));
                   }}
-                  className="absolute top-3 right-3 w-10 h-10 bg-white/90 backdrop-blur rounded-full flex items-center justify-center shadow-md"
+                  className="absolute top-3 right-3 w-10 h-10 bg-white/90 dark:bg-gray-800/90 backdrop-blur rounded-full flex items-center justify-center shadow-md"
                 >
                   <Star className={`w-5 h-5 ${favorites.has(recipe.id) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}`} />
                 </button>
@@ -564,17 +529,17 @@ export default function MealsScreen() {
               </div>
 
               <div className="recipe-content">
-                <h3 className="font-semibold text-gray-800 text-base mb-2 line-clamp-2">{recipe.title}</h3>
-                <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
+                <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-base mb-2 line-clamp-2">{recipe.title}</h3>
+                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mb-3">
                   <div className="flex items-center gap-1"><Flame className="w-3.5 h-3.5 text-orange-500" /><span>{recipe.calories} kcal</span></div>
                   <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /><span>{recipe.time}</span></div>
                   <div className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /><span>{recipe.servings} pers</span></div>
                 </div>
-                <div className="rounded-xl bg-slate-50 border border-slate-100 p-2 mb-3">
-                  <p className="text-[11px] text-slate-600 mb-1">Hvorfor anbefalt:</p>
+                <div className="rounded-xl bg-slate-50 dark:bg-gray-800 border border-slate-100 dark:border-gray-700 p-2 mb-3">
+                  <p className="text-[11px] text-slate-600 dark:text-gray-300 mb-1">Hvorfor anbefalt:</p>
                   <div className="flex flex-wrap gap-1">
                     {(recommendationReasons.length > 0 ? recommendationReasons : ['Variasjon i planen']).map((reason) => (
-                      <span key={reason} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-slate-200 text-slate-600">
+                      <span key={reason} className="text-[11px] px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300">
                         {reason}
                       </span>
                     ))}
@@ -582,22 +547,32 @@ export default function MealsScreen() {
                 </div>
                 <div className="flex flex-wrap gap-1.5 mb-3">
                   {recipe.tags.map((tag) => (
-                    <button key={tag} className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full" onClick={(event) => { event.stopPropagation(); setActiveTag(tag); }}>
+                    <button key={tag} className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full" onClick={(event) => { event.stopPropagation(); setActiveTag(tag); }}>
                       {tagInfo[tag].label}
                     </button>
                   ))}
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-500">Klar pa {recipe.time}</div>
-                  <div className="flex items-center gap-1 text-orange-500"><Star className="w-4 h-4 fill-current" /><span className="text-sm font-medium">{recipe.rating}</span><span className="text-xs text-gray-400">({recipe.reviews})</span></div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Klar pa {recipe.time}</div>
+                  <div className="flex items-center gap-1 text-orange-500"><Star className="w-4 h-4 fill-current" /><span className="text-sm font-medium">{recipe.rating}</span><span className="text-xs text-gray-400 dark:text-gray-500">({recipe.reviews})</span></div>
                 </div>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedRecipe(recipe);
+                  }}
+                  className="mt-3 w-full rounded-lg bg-slate-800 text-white text-sm font-medium py-2"
+                >
+                  Se detaljer
+                </button>
                 <button
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
                     addRecipeToDiary(recipe);
                   }}
-                  className="mt-3 w-full rounded-lg bg-orange-500 text-white text-sm font-medium py-2"
+                  className="mt-2 w-full rounded-lg bg-orange-500 text-white text-sm font-medium py-2"
                 >
                   Legg til i dagbok
                 </button>
@@ -609,21 +584,114 @@ export default function MealsScreen() {
 
       {activeTag && (
         <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-xl">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-xl border border-transparent dark:border-gray-700">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-gray-800">{tagInfo[activeTag].label}</p>
-                <p className="text-xs text-gray-500 mt-1">{tagInfo[activeTag].explanation}</p>
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{tagInfo[activeTag].label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{tagInfo[activeTag].explanation}</p>
               </div>
-              <button onClick={() => setActiveTag(null)} className="w-8 h-8 rounded-full bg-gray-100 text-gray-700">x</button>
+              <button onClick={() => setActiveTag(null)} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">x</button>
             </div>
-            <div className="mt-4 rounded-xl border border-gray-100 p-3">
-              <p className="text-xs uppercase tracking-wide text-gray-400">Article</p>
+            <div className="mt-4 rounded-xl border border-gray-100 dark:border-gray-700 p-3">
+              <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">Article</p>
               <a href={tagInfo[activeTag].url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-2 text-sm text-orange-600"><BookOpen className="w-4 h-4" />{tagInfo[activeTag].article}</a>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
-              <div className="rounded-xl bg-emerald-50 text-emerald-700 p-3">Supplement: {tagInfo[activeTag].supplement}</div>
-              <div className="rounded-xl bg-blue-50 text-blue-700 p-3">Training advice: {tagInfo[activeTag].training}</div>
+              <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 p-3">Supplement: {tagInfo[activeTag].supplement}</div>
+              <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-3">Training advice: {tagInfo[activeTag].training}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedRecipe && (
+        <div className="fixed inset-0 z-50 bg-black/45 flex items-end sm:items-center justify-center p-3 sm:p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 shadow-2xl border border-transparent dark:border-gray-700">
+            <div className="relative">
+              <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-48 sm:h-56 object-cover" />
+              <button
+                type="button"
+                onClick={() => setSelectedRecipe(null)}
+                className="absolute top-3 right-3 w-9 h-9 rounded-full bg-black/55 text-white"
+              >
+                x
+              </button>
+              <div className="absolute left-3 bottom-3">
+                <span className="inline-flex rounded-full bg-black/55 px-3 py-1 text-xs text-white">{selectedRecipe.source}</span>
+              </div>
+            </div>
+            <div className="p-4 sm:p-5">
+              <h3 className="text-lg sm:text-xl font-semibold text-slate-900 dark:text-gray-100">{selectedRecipe.title}</h3>
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-600 dark:text-gray-400">
+                <span>{selectedRecipe.calories} kcal</span>
+                <span>{selectedRecipe.time}</span>
+                <span>{selectedRecipe.servings} pers</span>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-sm font-semibold text-slate-800 dark:text-gray-100 mb-2">Makro per porsjon</p>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-xl bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300 p-2">Protein: {selectedMacros?.protein ?? 0} g</div>
+                  <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-2">Karbo: {selectedMacros?.carbs ?? 0} g</div>
+                  <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 p-2">Fett: {selectedMacros?.fat ?? 0} g</div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-sm font-semibold text-slate-800 dark:text-gray-100 mb-2">Mikro (estimert) per porsjon</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-xl bg-slate-50 dark:bg-gray-900 p-2 border border-slate-100 dark:border-gray-700 text-slate-700 dark:text-gray-300">Fiber: {selectedMicros?.fiberG ?? 0} g</div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-gray-900 p-2 border border-slate-100 dark:border-gray-700 text-slate-700 dark:text-gray-300">Magnesium: {selectedMicros?.magnesiumMg ?? 0} mg</div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-gray-900 p-2 border border-slate-100 dark:border-gray-700 text-slate-700 dark:text-gray-300">Jern: {selectedMicros?.ironMg ?? 0} mg</div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-gray-900 p-2 border border-slate-100 dark:border-gray-700 text-slate-700 dark:text-gray-300">Kalium: {selectedMicros?.potassiumMg ?? 0} mg</div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-gray-900 p-2 border border-slate-100 dark:border-gray-700 text-slate-700 dark:text-gray-300">Vitamin C: {selectedMicros?.vitaminCMg ?? 0} mg</div>
+                  <div className="rounded-xl bg-slate-50 dark:bg-gray-900 p-2 border border-slate-100 dark:border-gray-700 text-slate-700 dark:text-gray-300">Omega-3: {selectedMicros?.omega3G ?? 0} g</div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-sm font-semibold text-slate-800 dark:text-gray-100 mb-2">Ingredienser</p>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-slate-700 dark:text-gray-300">
+                  {selectedIngredients.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-sm font-semibold text-slate-800 dark:text-gray-100 mb-2">Slik lager du</p>
+                <ol className="list-decimal pl-5 space-y-1 text-sm text-slate-700 dark:text-gray-300">
+                  {selectedSteps.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+
+              {selectedRecipe.containsAllergens.length > 0 && (
+                <div className="mt-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 p-3 text-xs">
+                  Allergener: {selectedRecipe.containsAllergens.join(', ')}
+                </div>
+              )}
+
+              <div className="mt-5 flex flex-col sm:flex-row gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    addRecipeToDiary(selectedRecipe);
+                    setSelectedRecipe(null);
+                  }}
+                  className="flex-1 rounded-lg bg-orange-500 text-white text-sm font-medium py-2.5"
+                >
+                  Legg til i dagbok
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedRecipe(null)}
+                  className="flex-1 rounded-lg bg-slate-100 dark:bg-gray-700 text-slate-700 dark:text-gray-200 text-sm font-medium py-2.5"
+                >
+                  Lukk
+                </button>
+              </div>
             </div>
           </div>
         </div>

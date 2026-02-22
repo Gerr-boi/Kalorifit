@@ -1800,20 +1800,6 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
       )}
       {!scannedFood ? (
         <div className="camera-container">
-          {/* Header */}
-          <div className="absolute top-0 left-0 right-0 z-10 p-4">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2 bg-black/50 rounded-full px-4 py-2">
-                <span className="text-2xl">👩‍🍳</span>
-                <span className="text-white font-medium">26 Day Streak</span>
-                <span className="text-white/60">{'>'}</span>
-              </div>
-              <button className="w-10 h-10 bg-black/50 rounded-full flex items-center justify-center">
-                <span className="text-white text-xl">⚡</span>
-              </button>
-            </div>
-          </div>
-
           {/* Camera Preview */}
           <div className="camera-preview">
             {(mode === 'barcode' || mode === 'photo') && (
