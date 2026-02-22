@@ -26,12 +26,12 @@ body,
 .main-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding-bottom: calc(90px + env(safe-area-inset-bottom));
   scrollbar-width: none;
   -ms-overflow-style: none;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  scrollbar-gutter: stable both-edges;
 }
 
 .main-content::-webkit-scrollbar {
@@ -115,11 +115,13 @@ body,
 /* Screen Styles */
 .screen {
   min-height: 100%;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 /* Header */
 .screen-header {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(145deg, #0f172a 0%, #1e293b 48%, #f97316 100%);
   color: white;
   padding: 20px;
   border-radius: 0 0 24px 24px;
@@ -692,7 +694,7 @@ body,
 
 /* Profile */
 .profile-header {
-  background: linear-gradient(135deg, #f97316 0%, #ea580c 100%);
+  background: linear-gradient(145deg, #0f172a 0%, #1e293b 48%, #f97316 100%);
   color: white;
   padding: 40px 20px 60px;
   text-align: center;

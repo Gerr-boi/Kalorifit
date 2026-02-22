@@ -5,11 +5,13 @@ import {
   ChevronLeft,
   ChevronRight,
   Flame,
+  Pencil,
   Plus,
   ScanLine,
   Apple,
   Egg,
   Sandwich,
+  Trash2,
   UtensilsCrossed,
   Droplets,
   Dumbbell,
@@ -82,6 +84,12 @@ type PendingTemplate = {
   signature: string;
   suggestedName: string;
   items: FoodEntry[];
+};
+
+type LoggedMealEntry = {
+  mealId: MealId;
+  index: number;
+  entry: FoodEntry;
 };
 
 type WorkoutSession = {
@@ -165,6 +173,13 @@ const mealTemplates: MealTemplate[] = [
     recommended: 200,
   },
 ];
+
+const mealLabelById: Record<MealId, string> = {
+  breakfast: 'Frokost',
+  lunch: 'Lunsj',
+  dinner: 'Middag',
+  snacks: 'Snacks',
+};
 
 const collapsedMeals: Record<MealId, boolean> = {
   breakfast: false,
@@ -347,6 +362,15 @@ export default function HomeScreen() {
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [waterMeterMl, setWaterMeterMl] = useState(250);
   const [nutritionBoxExpanded, setNutritionBoxExpanded] = useState(false);
+  const [editingFood, setEditingFood] = useState<{
+    mealId: MealId;
+    entryId: string;
+    name: string;
+    kcal: string;
+    protein: string;
+    carbs: string;
+    fat: string;
+  } | null>(null);
   const swipeStartXRef = useRef<number | null>(null);
   const ringLastTapAtRef = useRef(0);
   const mealSwipeStartXRef = useRef<Record<MealId, number | null>>({
@@ -501,6 +525,23 @@ export default function HomeScreen() {
     }).length;
     return Math.round((passes / weeklyData.length) * 100);
   }, [logsByDate, weeklyData]);
+  const todaysLoggedItems = useMemo<LoggedMealEntry[]>(
+    () =>
+      mealTemplates.flatMap((meal) =>
+        dayLog.meals[meal.id].map((entry, index) => ({
+          mealId: meal.id,
+          index,
+          entry,
+        })),
+      ),
+    [dayLog.meals],
+  );
+  const consistencyBadge = useMemo(() => {
+    if (streak >= 30 || weeklyConsistencyScore >= 85) return { label: 'Maskin', tone: 'bg-emerald-400/25 text-emerald-100 border-emerald-200/40' };
+    if (streak >= 14 || weeklyConsistencyScore >= 70) return { label: 'Dedikert', tone: 'bg-cyan-400/25 text-cyan-100 border-cyan-200/40' };
+    if (streak >= 7 || weeklyConsistencyScore >= 45) return { label: 'Aktiv', tone: 'bg-amber-300/25 text-amber-50 border-amber-200/40' };
+    return { label: 'Nybegynner', tone: 'bg-white/20 text-white border-white/35' };
+  }, [streak, weeklyConsistencyScore]);
 
   const historicalMealStats = useMemo(() => {
     const mealIds: MealId[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
@@ -833,6 +874,95 @@ export default function HomeScreen() {
     reward();
   };
 
+  const openScanTab = (mode: 'photo' | 'barcode') => {
+    window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
+    setScanHint(mode === 'photo' ? 'Aapner skann for bilde-logging.' : 'Aapner skann for strekkode.');
+  };
+
+  const removeFoodFromMeal = (mealId: MealId, entryId: string) => {
+    if (isPastSelectedDay) {
+      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      return;
+    }
+    const previousDay = cloneDayLog(dayLog);
+    const removedEntry = dayLog.meals[mealId].find((item) => item.id === entryId);
+    updateDayLog(selectedDateKey, (current) => ({
+      ...current,
+      meals: {
+        ...current.meals,
+        [mealId]: current.meals[mealId].filter((item) => item.id !== entryId),
+      },
+    }));
+    if (removedEntry) {
+      setUndoAction({
+        label: `${removedEntry.name} fjernet`,
+        undo: () => setDayLog(selectedDateKey, previousDay),
+      });
+    }
+    reward();
+  };
+
+  const openFoodEdit = (mealId: MealId, entry: FoodEntry) => {
+    setEditingFood({
+      mealId,
+      entryId: entry.id,
+      name: entry.name,
+      kcal: String(entry.kcal),
+      protein: String(entry.protein),
+      carbs: String(entry.carbs),
+      fat: String(entry.fat),
+    });
+  };
+
+  const saveFoodEdit = () => {
+    if (!editingFood) return;
+    if (isPastSelectedDay) {
+      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      return;
+    }
+    const parsed = {
+      kcal: Number(editingFood.kcal.replace(',', '.')),
+      protein: Number(editingFood.protein.replace(',', '.')),
+      carbs: Number(editingFood.carbs.replace(',', '.')),
+      fat: Number(editingFood.fat.replace(',', '.')),
+    };
+    if (!editingFood.name.trim()) {
+      setScanHint('Navn mangler.');
+      return;
+    }
+    if ([parsed.kcal, parsed.protein, parsed.carbs, parsed.fat].some((value) => !Number.isFinite(value) || value < 0)) {
+      setScanHint('Bruk gyldige tall (0+).');
+      return;
+    }
+
+    const previousDay = cloneDayLog(dayLog);
+    updateDayLog(selectedDateKey, (current) => ({
+      ...current,
+      meals: {
+        ...current.meals,
+        [editingFood.mealId]: current.meals[editingFood.mealId].map((item) =>
+          item.id === editingFood.entryId
+            ? {
+                ...item,
+                name: editingFood.name.trim(),
+                kcal: Math.round(parsed.kcal),
+                protein: Math.round(parsed.protein),
+                carbs: Math.round(parsed.carbs),
+                fat: Math.round(parsed.fat),
+              }
+            : item,
+        ),
+      },
+    }));
+
+    setUndoAction({
+      label: 'Matpost oppdatert',
+      undo: () => setDayLog(selectedDateKey, previousDay),
+    });
+    setEditingFood(null);
+    reward();
+  };
+
   const addTraining = (kcal: number, actionId = 'workout:quick') => {
     const previousDay = cloneDayLog(dayLog);
     updateDayLog(selectedDateKey, (current) => ({
@@ -1134,27 +1264,32 @@ export default function HomeScreen() {
   }, [actionUsage, adaptiveLunchKcal, frequentProteinShake]);
 
   return (
-    <div className="screen relative pb-32">
+    <div className="screen relative pb-32 overflow-x-hidden">
       <div className="screen-header pb-5">
-        <div className="flex justify-between items-start mb-3">
-          <div className="flex items-center gap-2">
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-2">
             <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
               <Flame className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <span className="text-white/90 text-sm font-medium">{streak} dagers streak</span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-white/90 text-sm font-medium">{streak} dagers streak</span>
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${consistencyBadge.tone}`}>
+                  {consistencyBadge.label}
+                </span>
+              </div>
               <p className="text-white/70 text-xs">Konsistensscore: {weeklyConsistencyScore}%</p>
               <p className="text-white/70 text-xs">Daglig disiplin: {discipline.score}/100</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => setLazyMode((prev) => !prev)}
-              className="h-10 px-3 bg-white/20 rounded-full text-xs font-semibold text-white"
-              title="Lazy mode"
+              className="h-10 px-3 bg-white/20 rounded-full text-xs font-semibold text-white whitespace-nowrap"
+              title="Enkel modus"
             >
-              {lazyMode ? 'Lazy ON' : 'Lazy'}
+              {lazyMode ? 'Enkel ON' : 'Enkel modus'}
             </button>
             <button
               type="button"
@@ -1174,11 +1309,11 @@ export default function HomeScreen() {
           </div>
         )}
 
-        <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
             onClick={onRingTap}
-            className="progress-circle shrink-0"
+            className="progress-circle mx-auto shrink-0 sm:mx-0"
             title="Vis kaloridetaljer"
           >
             <svg width="190" height="190" viewBox="0 0 200 200">
@@ -1205,7 +1340,7 @@ export default function HomeScreen() {
             </div>
           </button>
 
-          <div className="flex-1 rounded-2xl bg-white/10 px-3 py-3">
+          <div className="w-full min-w-0 flex-1 rounded-2xl bg-white/10 px-3 py-3">
             <p className="text-[11px] uppercase text-white/75 mb-2">Ukesoversikt</p>
             <div className="flex items-end justify-between gap-1 h-28">
               {weeklyData.map((day) => {
@@ -1232,8 +1367,8 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        <div className="mt-4 flex items-center justify-center gap-4">
-          <p className="text-white/90 text-sm font-medium">{coachMessage}</p>
+        <div className="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center">
+          <p className="text-white/90 text-sm font-medium text-center sm:text-left">{coachMessage}</p>
           <div className="flex items-end gap-2 rounded-xl bg-white/10 px-3 py-2">
             <div className="relative w-5 h-8 rounded-b-md rounded-t-sm border border-white/70 overflow-hidden bg-white/10">
               <div
@@ -1339,10 +1474,97 @@ export default function HomeScreen() {
         <button type="button" className="text-gray-500 p-2" onClick={goPreviousDay} title="Forrige dag">
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <p className="text-gray-600 font-medium text-center min-w-[220px]">{dateLabel}</p>
+        <p className="text-gray-600 font-medium text-center min-w-0 flex-1 px-2">{dateLabel}</p>
         <button type="button" className="text-gray-500 p-2" onClick={goNextDay} title="Neste dag">
           <ChevronRight className="w-5 h-5" />
         </button>
+      </div>
+
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800">Rask matlogging</h3>
+          <span className="text-[11px] text-gray-500">Ett trykk</span>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => openScanTab('photo')}
+            className="rounded-lg bg-orange-500 text-white text-xs px-3 py-2 flex items-center justify-center gap-1.5 disabled:bg-orange-300"
+            disabled={isPastSelectedDay}
+          >
+            <Camera className="w-3.5 h-3.5" />
+            Ta bilde
+          </button>
+          <button
+            type="button"
+            onClick={() => openScanTab('barcode')}
+            className="rounded-lg border border-orange-200 text-orange-600 text-xs px-3 py-2 flex items-center justify-center gap-1.5 disabled:text-orange-300 disabled:border-orange-100"
+            disabled={isPastSelectedDay}
+          >
+            <ScanLine className="w-3.5 h-3.5" />
+            Strekkode
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickAdd('repeat-last')}
+            className="rounded-lg border border-gray-200 text-gray-700 text-xs px-3 py-2 disabled:text-gray-400 disabled:border-gray-100"
+            disabled={isPastSelectedDay || !lastLoggedFood}
+          >
+            Gjenta sist
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickAdd('kcal-adaptive')}
+            className="rounded-lg border border-gray-200 text-gray-700 text-xs px-3 py-2 disabled:text-gray-400 disabled:border-gray-100"
+            disabled={isPastSelectedDay}
+          >
+            Smart +kcal
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-800">Dagens matlogg</h3>
+          <span className="text-[11px] text-gray-500">{todaysLoggedItems.length} varer</span>
+        </div>
+        {todaysLoggedItems.length === 0 ? (
+          <p className="mt-3 text-xs text-gray-500">Ingen matvarer logget enda i dag.</p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {todaysLoggedItems.map(({ mealId, index, entry }) => (
+              <div key={entry.id} className="rounded-lg border border-gray-100 px-3 py-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase text-gray-400">{mealLabelById[mealId]} #{index + 1}</p>
+                    <p className="text-sm font-medium text-gray-800 truncate">{entry.name}</p>
+                    <p className="text-xs text-gray-500">{entry.kcal} kcal | P {entry.protein} | K {entry.carbs} | F {entry.fat}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openFoodEdit(mealId, entry)}
+                      className="h-8 w-8 rounded-md border border-gray-200 text-gray-500 flex items-center justify-center disabled:text-gray-300 disabled:border-gray-100"
+                      title="Rediger"
+                      disabled={isPastSelectedDay}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeFoodFromMeal(mealId, entry.id)}
+                      className="h-8 w-8 rounded-md border border-red-200 text-red-500 flex items-center justify-center disabled:text-red-300 disabled:border-red-100"
+                      title="Slett"
+                      disabled={isPastSelectedDay}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 pb-24">
@@ -1795,6 +2017,89 @@ export default function HomeScreen() {
                 className="flex-1 rounded-lg bg-orange-500 px-3 py-2 text-sm text-white"
               >
                 Lagre okt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingFood && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-gray-800">Rediger matpost</h3>
+              <button
+                type="button"
+                onClick={() => setEditingFood(null)}
+                className="w-8 h-8 rounded-full bg-gray-100 text-gray-600"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-500">Navn</label>
+                <input
+                  value={editingFood.name}
+                  onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, name: event.target.value } : null))}
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500">Kcal</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.kcal}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, kcal: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Protein</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.protein}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, protein: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Karbo</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.carbs}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, carbs: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Fett</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.fat}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, fat: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingFood(null)}
+                className="flex-1 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-700"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={saveFoodEdit}
+                className="flex-1 rounded-lg bg-orange-500 px-3 py-2 text-sm text-white"
+              >
+                Lagre endringer
               </button>
             </div>
           </div>

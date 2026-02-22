@@ -44,6 +44,16 @@ function App() {
     setIdentityReports((prev) => ensureMonthlyIdentityReport(new Date(), logsByDate, prev));
   }, [logsByDate, setIdentityReports]);
 
+  useEffect(() => {
+    const onNavigate = (event: Event) => {
+      const customEvent = event as CustomEvent<{ tab?: Tab }>;
+      const nextTab = customEvent.detail?.tab;
+      if (nextTab) setActiveTab(nextTab);
+    };
+    window.addEventListener('kalorifit:navigate', onNavigate as EventListener);
+    return () => window.removeEventListener('kalorifit:navigate', onNavigate as EventListener);
+  }, []);
+
   const renderScreen = () => {
     switch (activeTab) {
       case 'home':
