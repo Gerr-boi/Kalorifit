@@ -31,6 +31,7 @@ export type MonthlyIdentityReport = {
   level: {
     value: number;
     label: string;
+    lifetimeXp: number;
     currentXp: number;
     nextLevelXp: number;
     progressPct: number;
@@ -79,22 +80,29 @@ function getNextDateKey(dateKey: string): string {
   return toDateKey(startOfDay(date));
 }
 
-function getLevelFromXp(totalXp: number) {
+function xpRequiredForLevel(level: number): number {
+  const safeLevel = Math.max(1, Math.floor(level));
+  const scaled = 90 + Math.pow(safeLevel - 1, 1.35) * 42 + (safeLevel - 1) * 18;
+  return Math.max(90, round(scaled));
+}
+
+export function getLevelFromXp(totalXp: number) {
   const xp = Math.max(0, totalXp);
   let level = 1;
   let consumed = 0;
 
-  while (xp >= consumed + level * 120) {
-    consumed += level * 120;
+  while (xp >= consumed + xpRequiredForLevel(level)) {
+    consumed += xpRequiredForLevel(level);
     level += 1;
   }
 
   const xpIntoLevel = xp - consumed;
-  const nextLevelXp = level * 120;
+  const nextLevelXp = xpRequiredForLevel(level);
   const progressPct = round((xpIntoLevel / nextLevelXp) * 100);
 
   return {
     level,
+    lifetimeXp: xp,
     xpIntoLevel,
     nextLevelXp,
     progressPct: clamp(progressPct, 0, 100),
@@ -102,9 +110,10 @@ function getLevelFromXp(totalXp: number) {
 }
 
 function getLevelLabel(level: number): string {
-  if (level >= 20) return 'Elite';
-  if (level >= 10) return 'Disciplined';
-  if (level >= 5) return 'Consistent';
+  if (level >= 25) return 'Legend';
+  if (level >= 15) return 'Elite';
+  if (level >= 8) return 'Disciplined';
+  if (level >= 4) return 'Consistent';
   return 'Starter';
 }
 
@@ -200,7 +209,7 @@ export function generateMonthlyIdentityReport(logsByDate: Record<string, DayLog>
     .filter(([dateKey]) => dateKey.startsWith(monthKey))
     .sort(([a], [b]) => (a < b ? -1 : 1));
 
-  const dailyScores = dayEntries.map(([_, log]) => calculateDailyDisciplineScore(log));
+  const dailyScores = dayEntries.map(([, log]) => calculateDailyDisciplineScore(log));
 
   const avgDisciplineScore =
     dailyScores.length > 0
@@ -232,7 +241,7 @@ export function generateMonthlyIdentityReport(logsByDate: Record<string, DayLog>
   const bestStreakDays = getLongestDisciplineStreak(logsByDate, monthDate);
 
   const monthXp = dayEntries.reduce(
-    (acc, [_, log]) => {
+    (acc, [, log]) => {
       const score = calculateDailyDisciplineScore(log);
       const dayXp = getDailyXp(score, log);
       return {
@@ -247,7 +256,7 @@ export function generateMonthlyIdentityReport(logsByDate: Record<string, DayLog>
 
   const lifetimeXp = Object.entries(logsByDate)
     .filter(([dateKey]) => dateKey <= toDateKey(monthDate))
-    .reduce((sum, [_, log]) => {
+    .reduce((sum, [, log]) => {
       const score = calculateDailyDisciplineScore(log);
       const dayXp = getDailyXp(score, log);
       return sum + dayXp.loggingXp + dayXp.goalsXp + dayXp.challengeXp;
@@ -284,6 +293,7 @@ export function generateMonthlyIdentityReport(logsByDate: Record<string, DayLog>
     level: {
       value: level.level,
       label: getLevelLabel(level.level),
+      lifetimeXp: level.lifetimeXp,
       currentXp: level.xpIntoLevel,
       nextLevelXp: level.nextLevelXp,
       progressPct: level.progressPct,

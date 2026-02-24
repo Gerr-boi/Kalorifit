@@ -7,8 +7,9 @@ import { resolveLabelMatvaretabellen } from '../../ai-scanner-logic/matvaretabel
 import type { NutritionResult } from '../../ai-scanner-logic/types';
 import type { MacroNutrients } from '../../ai-scanner-logic/types';
 import { createEmptyDayLog, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
+import { generateMonthlyIdentityReport, getCurrentMonthKey } from '../../lib/identityEngine';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
-import { getScopedStorageKey } from '../../hooks/useLocalStorageState';
+import { emitLocalStorageStateChanged, getActiveUserIdFromStorage, getScopedStorageKey } from '../../hooks/useLocalStorageState';
 import FoodDetectionPanel from '../food/FoodDetectionPanel';
 
 type ScanMode = 'search' | 'photo' | 'barcode';
@@ -66,6 +67,13 @@ type ScanVideoConstraints = {
   facingMode?: { ideal: 'environment' | 'user' };
   deviceId?: { exact: string };
 };
+type LevelUpCelebration = {
+  fromLevel: number;
+  toLevel: number;
+  label: string;
+  currentXp: number;
+  nextLevelXp: number;
+};
 
 declare global {
   interface Window {
@@ -81,10 +89,12 @@ export default function ScanScreen() {
   const MAX_IMAGE_DIMENSION = 1280;
   const JPEG_QUALITY = 0.82;
   const VISUAL_ANCHOR_STORAGE_KEY = 'kalorifit.visual_anchors.v1';
+  const LEGACY_DAILY_LOGS_STORAGE_KEY = 'home.dailyLogs.v2';
+  const LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY = 'home.lastLoggedFood.v1';
+  const LEGACY_IDENTITY_REPORTS_STORAGE_KEY = 'home.identityReports.v1';
+  const SCAN_TARGET_DATE_KEY_STORAGE_KEY = 'kalorifit.scanTargetDateKey.v1';
   const MAX_VISUAL_ANCHORS = 40;
   const visualAnchorStorageKey = getScopedStorageKey(VISUAL_ANCHOR_STORAGE_KEY, 'user', activeUserId);
-  const dailyLogsStorageKey = getScopedStorageKey('home.dailyLogs.v2', 'user', activeUserId);
-  const lastLoggedFoodStorageKey = getScopedStorageKey('home.lastLoggedFood.v1', 'user', activeUserId);
   const [mode, setMode] = useState<ScanMode>('photo');
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState('');
@@ -93,6 +103,7 @@ export default function ScanScreen() {
   const [portionAmount, setPortionAmount] = useState<number>(100);
   const [portionUnit, setPortionUnit] = useState<'g' | 'ml'>('g');
   const [feedback, setFeedback] = useState<{ message: string; kind: 'success' | 'error' | 'info' } | null>(null);
+  const [levelUpCelebration, setLevelUpCelebration] = useState<LevelUpCelebration | null>(null);
   const [showBarcodeEntry, setShowBarcodeEntry] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
   const [manualBarcodeError, setManualBarcodeError] = useState<string | null>(null);
@@ -133,6 +144,8 @@ export default function ScanScreen() {
   const barcodeInFlightRef = useRef(false);
   const lastHandledRef = useRef<{ code: string; at: number } | null>(null);
   const stableCountsRef = useRef(new Map<string, { count: number; lastAt: number }>());
+  const photoStartTokenRef = useRef(0);
+  const liveStartTokenRef = useRef(0);
 
   function getDeviceInfo() {
     const nav = window.navigator;
@@ -297,6 +310,12 @@ export default function ScanScreen() {
     return () => window.clearTimeout(t);
   }, [feedback]);
 
+  useEffect(() => {
+    if (!levelUpCelebration) return;
+    const t = window.setTimeout(() => setLevelUpCelebration(null), 3800);
+    return () => window.clearTimeout(t);
+  }, [levelUpCelebration]);
+
   const handleScan = async () => {
      if (mode === 'photo') {
        await capturePhotoAndAnalyze();
@@ -377,10 +396,23 @@ export default function ScanScreen() {
     };
 
     try {
-      const todayKey = toDateKey(new Date());
-      const raw = window.localStorage.getItem(dailyLogsStorageKey);
-      const parsed = raw ? (JSON.parse(raw) as Record<string, DayLog>) : {};
-      const dayLog = parsed[todayKey] ?? createEmptyDayLog();
+      const now = new Date();
+      const activeUserIdFromStorage = getActiveUserIdFromStorage();
+      const scopedDailyLogsStorageKey = getScopedStorageKey(LEGACY_DAILY_LOGS_STORAGE_KEY, 'user', activeUserIdFromStorage);
+      const scopedLastLoggedFoodStorageKey = getScopedStorageKey(LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY, 'user', activeUserIdFromStorage);
+      const scopedIdentityReportsStorageKey = getScopedStorageKey(LEGACY_IDENTITY_REPORTS_STORAGE_KEY, 'user', activeUserIdFromStorage);
+      const targetDateKeyRaw = window.sessionStorage.getItem(SCAN_TARGET_DATE_KEY_STORAGE_KEY);
+      const targetDateKey = targetDateKeyRaw && /^\d{4}-\d{2}-\d{2}$/.test(targetDateKeyRaw)
+        ? targetDateKeyRaw
+        : toDateKey(now);
+
+      const rawScopedLogs = window.localStorage.getItem(scopedDailyLogsStorageKey);
+      const rawLegacyLogs = window.localStorage.getItem(LEGACY_DAILY_LOGS_STORAGE_KEY);
+      const parsedScopedLogs = rawScopedLogs ? (JSON.parse(rawScopedLogs) as Record<string, DayLog>) : {};
+      const parsedLegacyLogs = rawLegacyLogs ? (JSON.parse(rawLegacyLogs) as Record<string, DayLog>) : {};
+      const parsed = Object.keys(parsedScopedLogs).length > 0 ? parsedScopedLogs : parsedLegacyLogs;
+      const levelBefore = generateMonthlyIdentityReport(parsed, now).level;
+      const dayLog = parsed[targetDateKey] ?? createEmptyDayLog();
       const nextDayLog: DayLog = {
         meals: {
           breakfast: [...(dayLog.meals?.breakfast ?? [])],
@@ -392,8 +424,47 @@ export default function ScanScreen() {
         waterMl: Number(dayLog.waterMl ?? 0),
       };
       nextDayLog.meals[mealId].push(loggedEntry);
-      window.localStorage.setItem(dailyLogsStorageKey, JSON.stringify({ ...parsed, [todayKey]: nextDayLog }));
-      window.localStorage.setItem(lastLoggedFoodStorageKey, JSON.stringify(loggedEntry));
+      const nextLogs = { ...parsed, [targetDateKey]: nextDayLog };
+      try {
+        window.localStorage.setItem(scopedDailyLogsStorageKey, JSON.stringify(nextLogs));
+        window.localStorage.setItem(LEGACY_DAILY_LOGS_STORAGE_KEY, JSON.stringify(nextLogs));
+        window.localStorage.setItem(scopedLastLoggedFoodStorageKey, JSON.stringify(loggedEntry));
+        window.localStorage.setItem(LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY, JSON.stringify(loggedEntry));
+      } catch {
+        // ignore storage sync failures
+      }
+      emitLocalStorageStateChanged(LEGACY_DAILY_LOGS_STORAGE_KEY, { scope: 'user', userId: activeUserIdFromStorage });
+      emitLocalStorageStateChanged(LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY, { scope: 'user', userId: activeUserIdFromStorage });
+
+      const levelAfter = generateMonthlyIdentityReport(nextLogs, now).level;
+      if (levelAfter.value > levelBefore.value) {
+        setLevelUpCelebration({
+          fromLevel: levelBefore.value,
+          toLevel: levelAfter.value,
+          label: levelAfter.label,
+          currentXp: levelAfter.currentXp,
+          nextLevelXp: levelAfter.nextLevelXp,
+        });
+      }
+
+      try {
+        const monthKey = getCurrentMonthKey(now);
+        const rawScopedReports = window.localStorage.getItem(scopedIdentityReportsStorageKey);
+        const rawLegacyReports = window.localStorage.getItem(LEGACY_IDENTITY_REPORTS_STORAGE_KEY);
+        const parsedScopedReports = rawScopedReports ? (JSON.parse(rawScopedReports) as Record<string, unknown>) : {};
+        const parsedLegacyReports = rawLegacyReports ? (JSON.parse(rawLegacyReports) as Record<string, unknown>) : {};
+        const parsedReports = Object.keys(parsedScopedReports).length > 0 ? parsedScopedReports : parsedLegacyReports;
+        const nextReports = {
+          ...parsedReports,
+          [monthKey]: generateMonthlyIdentityReport(nextLogs, now),
+        };
+        window.localStorage.setItem(scopedIdentityReportsStorageKey, JSON.stringify(nextReports));
+        window.localStorage.setItem(LEGACY_IDENTITY_REPORTS_STORAGE_KEY, JSON.stringify(nextReports));
+      } catch {
+        // ignore identity report persistence failures
+      }
+
+      window.sessionStorage.removeItem(SCAN_TARGET_DATE_KEY_STORAGE_KEY);
     } catch (err) {
       console.error('Failed to save scan to daily log:', err);
       showFeedback('Kunne ikke lagre i dagboken. Prøv igjen.', 'error');
@@ -476,6 +547,7 @@ function shouldHandleBarcode(code: string) {
 }
 
 function stopLiveBarcodeScan() {
+  liveStartTokenRef.current += 1;
   liveScanEnabledRef.current = false;
   if (liveRafRef.current !== null) {
     window.cancelAnimationFrame(liveRafRef.current);
@@ -488,6 +560,11 @@ function stopLiveBarcodeScan() {
   }
 
   if (liveVideoRef.current) {
+    try {
+      liveVideoRef.current.pause();
+    } catch {
+      // ignore pause errors
+    }
     liveVideoRef.current.srcObject = null;
   }
 
@@ -503,12 +580,18 @@ function stopLiveBarcodeScan() {
 }
 
 function stopPhotoCamera() {
+  photoStartTokenRef.current += 1;
   if (photoStreamRef.current) {
     photoStreamRef.current.getTracks().forEach((track) => track.stop());
     photoStreamRef.current = null;
   }
 
   if (photoVideoRef.current) {
+    try {
+      photoVideoRef.current.pause();
+    } catch {
+      // ignore pause errors
+    }
     photoVideoRef.current.srcObject = null;
   }
 
@@ -523,6 +606,7 @@ async function startPhotoCamera(preferredDeviceId?: string) {
     return;
   }
 
+  const startToken = ++photoStartTokenRef.current;
   try {
     setPhotoCamError(null);
     setPhotoCamReady(false);
@@ -570,6 +654,11 @@ async function startPhotoCamera(preferredDeviceId?: string) {
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     }
 
+    if (photoStartTokenRef.current !== startToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+
     photoStreamRef.current = stream;
     const activeTrack = stream.getVideoTracks()[0];
     const activeSettings = activeTrack?.getSettings();
@@ -585,9 +674,14 @@ async function startPhotoCamera(preferredDeviceId?: string) {
     }
     video.srcObject = stream;
     await video.play();
+    if (photoStartTokenRef.current !== startToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     setPhotoCamReady(true);
     setPhotoCamActive(true);
   } catch (err) {
+    if (photoStartTokenRef.current !== startToken) return;
     console.error('Failed to start photo camera:', err);
     setPhotoCamError('Kunne ikke starte kamera. Sjekk kameratillatelse.');
     stopPhotoCamera();
@@ -625,6 +719,7 @@ async function startLiveBarcodeScan(preferredDeviceId?: string) {
     return;
   }
 
+  const startToken = ++liveStartTokenRef.current;
   try {
     setLiveScanError(null);
     setLiveScanReady(false);
@@ -680,6 +775,11 @@ async function startLiveBarcodeScan(preferredDeviceId?: string) {
       stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
     }
 
+    if (liveStartTokenRef.current !== startToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+
     liveStreamRef.current = stream;
     const activeTrack = stream.getVideoTracks()[0];
     const activeSettings = activeTrack?.getSettings();
@@ -695,6 +795,10 @@ async function startLiveBarcodeScan(preferredDeviceId?: string) {
     }
     video.srcObject = stream;
     await video.play();
+    if (liveStartTokenRef.current !== startToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
     setLiveScanReady(true);
     if (!liveDetectorRef.current) {
       setLiveScanError('Kamera aktiv. Bruker JS-skanner fallback for desktop/nettleser.');
@@ -717,6 +821,7 @@ async function startLiveBarcodeScan(preferredDeviceId?: string) {
       );
     }
   } catch (err) {
+    if (liveStartTokenRef.current !== startToken) return;
     console.error('Failed to start live barcode scan:', err);
     setLiveScanError('Kunne ikke starte kamera. Sjekk kameratillatelse.');
     stopLiveBarcodeScan();
@@ -1798,6 +1903,43 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
           </div>
         </div>
       )}
+      {levelUpCelebration && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-5 pointer-events-none">
+          <div className="absolute inset-0 bg-black/35 levelup-overlay" />
+          <div className="levelup-card relative w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl pointer-events-auto">
+            <button
+              onClick={() => setLevelUpCelebration(null)}
+              className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-gray-700"
+              aria-label="Close level up popup"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="absolute inset-0 overflow-hidden rounded-2xl pointer-events-none">
+              <span className="levelup-confetti levelup-confetti-a" />
+              <span className="levelup-confetti levelup-confetti-b" />
+              <span className="levelup-confetti levelup-confetti-c" />
+              <span className="levelup-confetti levelup-confetti-d" />
+            </div>
+            <div className="relative text-center">
+              <div className="levelup-badge mx-auto mb-3">LEVEL UP</div>
+              <h3 className="text-xl font-extrabold text-gray-900">Gratulerer!</h3>
+              <p className="text-sm text-gray-600 mt-1">
+                Du gikk fra level {levelUpCelebration.fromLevel} til level {levelUpCelebration.toLevel}
+              </p>
+              <p className="text-sm font-semibold text-orange-600 mt-1">{levelUpCelebration.label}</p>
+              <div className="mt-4 bg-gray-100 rounded-full h-2 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-orange-400 to-amber-500 levelup-progress"
+                  style={{ width: `${Math.max(4, levelUpCelebration.nextLevelXp ? (levelUpCelebration.currentXp / levelUpCelebration.nextLevelXp) * 100 : 0)}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {levelUpCelebration.currentXp}/{levelUpCelebration.nextLevelXp} XP mot neste level
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       {!scannedFood ? (
         <div className="camera-container">
           {/* Camera Preview */}
@@ -2295,6 +2437,57 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
         }
         .animate-live-pulse {
           animation: livePulse 1.8s ease-in-out infinite;
+        }
+        @keyframes levelupOverlay {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes levelupCardIn {
+          0% { transform: translateY(18px) scale(0.92); opacity: 0; }
+          70% { transform: translateY(-3px) scale(1.02); opacity: 1; }
+          100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes levelupBadgePop {
+          0% { transform: scale(0.7) rotate(-8deg); opacity: 0; }
+          65% { transform: scale(1.08) rotate(2deg); opacity: 1; }
+          100% { transform: scale(1) rotate(0); opacity: 1; }
+        }
+        @keyframes levelupConfetti {
+          0% { transform: translateY(-140%) rotate(0deg); opacity: 0; }
+          15% { opacity: 1; }
+          100% { transform: translateY(360%) rotate(240deg); opacity: 0; }
+        }
+        .levelup-overlay {
+          animation: levelupOverlay 180ms ease-out;
+        }
+        .levelup-card {
+          animation: levelupCardIn 360ms cubic-bezier(0.2, 0.9, 0.2, 1);
+        }
+        .levelup-badge {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 999px;
+          padding: 0.45rem 0.9rem;
+          font-size: 0.7rem;
+          letter-spacing: 0.12em;
+          color: #fff;
+          background: linear-gradient(135deg, #fb923c, #f59e0b);
+          animation: levelupBadgePop 430ms ease-out;
+        }
+        .levelup-confetti {
+          position: absolute;
+          width: 10px;
+          height: 16px;
+          border-radius: 2px;
+          animation: levelupConfetti 1.7s ease-out forwards;
+        }
+        .levelup-confetti-a { left: 18%; background: #f97316; animation-delay: 0ms; }
+        .levelup-confetti-b { left: 34%; background: #22c55e; animation-delay: 120ms; }
+        .levelup-confetti-c { left: 62%; background: #0ea5e9; animation-delay: 60ms; }
+        .levelup-confetti-d { left: 78%; background: #eab308; animation-delay: 180ms; }
+        .levelup-progress {
+          transform-origin: left center;
         }
       `}</style>
     </div>

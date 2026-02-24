@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
+  Flame,
   Camera,
   ChevronLeft,
   ChevronRight,
-  Flame,
+  Menu,
   Pencil,
   Plus,
   ScanLine,
@@ -15,6 +16,7 @@ import {
   UtensilsCrossed,
   Droplets,
   Dumbbell,
+  X,
 } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
@@ -142,6 +144,7 @@ const EMPTY_SAVED_MEAL_TEMPLATES: SavedMealTemplate[] = [];
 const EMPTY_WORKOUT_SESSIONS: WorkoutSession[] = [];
 const EMPTY_DATE_FLAGS: Record<string, true> = {};
 const CONSISTENCY_DROP_INSIGHT = 'Consistency dropped this week. Use a simpler logging mode temporarily.';
+const SCAN_TARGET_DATE_KEY_STORAGE_KEY = 'kalorifit.scanTargetDateKey.v1';
 
 const mealTemplates: MealTemplate[] = [
   {
@@ -354,6 +357,8 @@ export default function HomeScreen() {
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate | null>(null);
   const [smartPrompt, setSmartPrompt] = useState<string | null>(null);
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarView, setSidebarView] = useState<'menu' | 'logg' | 'goals' | 'journey'>('menu');
   const [workoutStartedAt, setWorkoutStartedAt] = useState('');
   const [workoutDurationMin, setWorkoutDurationMin] = useState('30');
   const [workoutCalories, setWorkoutCalories] = useState('220');
@@ -506,6 +511,49 @@ export default function HomeScreen() {
   const weeklyAverage = Math.round(
     weeklyData.reduce((sum, day) => sum + day.consumed, 0) / Math.max(weeklyData.length, 1),
   );
+
+  const getRelativeDayLabel = (dateKey: string) => {
+    const date = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return formatDateKey(dateKey);
+    const deltaDays = Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
+    if (deltaDays <= 0) return 'I dag';
+    if (deltaDays === 1) return 'I gar';
+    return `${deltaDays} dager siden`;
+  };
+
+  const historicalMealLog = useMemo(() => {
+    return Object.entries(logsByDate)
+      .filter(([dateKey, dayLog]) => dateKey < todayKey && Object.values(dayLog.meals).flat().length > 0)
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .slice(0, 10)
+      .map(([dateKey, dayLog]) => {
+        const mealSections = (Object.entries(dayLog.meals) as Array<[keyof DayLog['meals'], DayLog['meals'][keyof DayLog['meals']]]>)
+          .filter(([, foods]) => foods.length > 0);
+        const foods = mealSections.flatMap(([, items]) => items);
+        return {
+          dateKey,
+          mealSections,
+          totalFoods: foods.length,
+          totalKcal: foods.reduce((sum, item) => sum + item.kcal, 0),
+          totalProtein: foods.reduce((sum, item) => sum + item.protein, 0),
+        };
+      });
+  }, [logsByDate, todayKey]);
+
+  const journeyWeightSeries = useMemo(() => {
+    const source = (profilePrefs.bmiHistory ?? [])
+      .filter((entry) => Number.isFinite(entry.weightKg))
+      .slice()
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .slice(-12)
+      .map((entry) => ({ date: entry.date, value: Number(entry.weightKg) }));
+    if (source.length > 0) return source;
+    const fallbackWeight = Number(profilePrefs.weightKg);
+    if (Number.isFinite(fallbackWeight)) {
+      return [{ date: todayKey, value: fallbackWeight }];
+    }
+    return [];
+  }, [profilePrefs.bmiHistory, profilePrefs.weightKg, todayKey]);
 
   const streak = useMemo(() => {
     let days = 0;
@@ -689,6 +737,19 @@ export default function HomeScreen() {
 
     return () => window.clearTimeout(timer);
   }, [today]);
+
+  useEffect(() => {
+    const syncToday = () => setToday(startOfDay(new Date()));
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') syncToday();
+    };
+    window.addEventListener('focus', syncToday);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', syncToday);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     const dismissedForSelectedDay = Boolean(goalPopupDismissedByDate[selectedDateKey]);
@@ -875,6 +936,7 @@ export default function HomeScreen() {
   };
 
   const openScanTab = (mode: 'photo' | 'barcode') => {
+    window.sessionStorage.setItem(SCAN_TARGET_DATE_KEY_STORAGE_KEY, selectedDateKey);
     window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
     setScanHint(mode === 'photo' ? 'Aapner skann for bilde-logging.' : 'Aapner skann for strekkode.');
   };
@@ -1265,15 +1327,278 @@ export default function HomeScreen() {
 
   return (
     <div className="screen relative pb-32 overflow-x-hidden">
-      <div className="screen-header pb-5">
-        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {showSidebar && (
+        <div className="fixed inset-0 z-[1200]">
+          <button
+            type="button"
+            aria-label="Lukk meny"
+            className="absolute inset-0 bg-black/35 backdrop-blur-[1px]"
+            onClick={() => setShowSidebar(false)}
+          />
+          <div className="pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-[430px] -translate-x-1/2">
+            <aside className="pointer-events-auto h-full w-80 max-w-[86vw] bg-gradient-to-b from-white to-orange-50 shadow-2xl border-r border-orange-100 p-4 overflow-y-auto">
+              <div className="rounded-2xl bg-white/80 border border-orange-100 p-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex w-9 h-9 items-center justify-center rounded-xl bg-orange-500 text-white">
+                      {sidebarView === 'menu' ? <Menu className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+                    </span>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-orange-500">Hjem</p>
+                      <h3 className="text-base font-semibold text-gray-800">
+                        {sidebarView === 'menu' ? 'Meny' : sidebarView === 'logg' ? 'Logg' : sidebarView === 'goals' ? 'Goal details' : 'Journey'}
+                      </h3>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {sidebarView !== 'menu' && (
+                      <button
+                        type="button"
+                        onClick={() => setSidebarView('menu')}
+                        className="h-8 rounded-full bg-gray-100 px-3 text-xs font-medium text-gray-600"
+                        title="Til meny"
+                      >
+                        Tilbake
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowSidebar(false)}
+                      className="w-8 h-8 rounded-full bg-gray-100 text-gray-600"
+                      title="Lukk"
+                    >
+                      <X className="w-4 h-4 mx-auto" />
+                    </button>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">
+                  {sidebarView === 'menu'
+                    ? 'Rask navigasjon til logg og maelinnsikt.'
+                    : sidebarView === 'logg'
+                      ? 'Hva du spiste i gar og tidligere dager'
+                      : sidebarView === 'goals'
+                        ? 'Detaljert maelstatus fra profilen din'
+                        : 'Vektgraf fra loggede malinger'}
+                </p>
+              </div>
+
+              {sidebarView === 'menu' && (
+                <div className="mt-4 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setSidebarView('logg')}
+                    className="w-full text-left rounded-2xl border border-orange-100 bg-white/90 px-3 py-3 text-sm font-medium text-gray-700 hover:bg-white"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-800">Logg</p>
+                        <p className="text-xs text-gray-500">I gar + tidligere matdager</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarView('goals')}
+                    className="w-full text-left rounded-2xl border border-orange-100 bg-white/90 px-3 py-3 text-sm font-medium text-gray-700 hover:bg-white"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-800">Goal details</p>
+                        <p className="text-xs text-gray-500">Energi, makro, progresjon</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarView('journey')}
+                    className="w-full text-left rounded-2xl border border-orange-100 bg-white/90 px-3 py-3 text-sm font-medium text-gray-700 hover:bg-white"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-800">Journey</p>
+                        <p className="text-xs text-gray-500">Vektgraf og progresjon</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    </div>
+                  </button>
+                </div>
+              )}
+
+              {sidebarView === 'logg' && (
+                <div className="mt-4 space-y-3">
+                  {historicalMealLog.length === 0 ? (
+                    <p className="text-xs text-gray-500">Ingen historisk matlogg enda.</p>
+                  ) : (
+                    historicalMealLog.map((day) => (
+                      <div key={day.dateKey} className="rounded-xl bg-gray-50 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-gray-800">
+                            {formatDateKey(day.dateKey)} ({getRelativeDayLabel(day.dateKey)})
+                          </p>
+                          <p className="text-[11px] text-gray-500">
+                            {day.totalFoods} matvarer | {Math.round(day.totalKcal)} kcal | {Math.round(day.totalProtein)} g protein
+                          </p>
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          {day.mealSections.map(([mealId, foods]) => (
+                            <div key={`${day.dateKey}-${mealId}`} className="rounded-lg bg-white border border-gray-200 p-2">
+                              <p className="text-[11px] font-medium text-gray-500 capitalize mb-1">{mealId}</p>
+                              <div className="space-y-1">
+                                {foods.map((food) => (
+                                  <p key={food.id} className="text-xs text-gray-700">{food.name} - {Math.round(food.kcal)} kcal</p>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {sidebarView === 'goals' && (
+                <div className="mt-4">
+                  <div className="rounded-xl border border-orange-100 bg-white p-3">
+                    <button
+                      type="button"
+                      onClick={() => setNutritionBoxExpanded((prev) => !prev)}
+                      className="w-full text-left flex items-start justify-between gap-3"
+                    >
+                      <p className="text-[11px] text-gray-700">
+                        Dagens kalorimal: {smartDietPlan.optimizedTargetKcal} kcal
+                        {' '}
+                        ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} vs grunnmal)
+                      </p>
+                      <span className="text-[11px] text-gray-500 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
+                    </button>
+
+                    {nutritionBoxExpanded && (
+                      <>
+                        <p className="text-[11px] text-gray-500 mt-2">
+                          Grunnmal: {smartDietPlan.baseTargetKcal} | Vedlikehold: {smartDietPlan.tdee} | Hvileforbrenning: {smartDietPlan.bmr}
+                        </p>
+                        <p className="text-[11px] text-gray-500 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
+                        <p className="text-[11px] text-gray-500 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
+                        {smartDietPlan.macros && (
+                          <p className="text-[11px] text-gray-500 mt-1">
+                            Dagsmal makro: Protein {smartDietPlan.macros.proteinG} g | Fett {smartDietPlan.macros.fatG} g | Karbo {smartDietPlan.macros.carbsG} g
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 text-xs">
+                    <div className="rounded-lg bg-gray-50 p-2">
+                      Goal category: {String(profilePrefs.goalCategory ?? 'fat_loss').split('_').join(' ')}
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-2">
+                      Goal strategy: {String(profilePrefs.goalStrategy ?? 'standard_cut').split('_').join(' ')}
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-2">
+                      Timeline: {String(profilePrefs.timelineType ?? 'maintenance_open').split('_').join(' ')}
+                    </div>
+                    <div className="rounded-lg bg-gray-50 p-2">
+                      Projection: {localizeProjectionText(smartDietPlan.projectedProgressText)}
+                    </div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-orange-50 p-2">BMR: {smartDietPlan.bmr} kcal</div>
+                    <div className="rounded-lg bg-orange-50 p-2">TDEE: {smartDietPlan.tdee} kcal</div>
+                    <div className="rounded-lg bg-orange-50 p-2">Base: {smartDietPlan.baseTargetKcal} kcal</div>
+                    <div className="rounded-lg bg-orange-50 p-2">Optimized: {smartDietPlan.optimizedTargetKcal} kcal</div>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-600">
+                    Ukentlig justering: {smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} kcal
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
+                  {smartDietPlan.macros && (
+                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                      <div className="rounded-lg bg-gray-50 p-2">Protein: {smartDietPlan.macros.proteinG} g</div>
+                      <div className="rounded-lg bg-gray-50 p-2">Karbo: {smartDietPlan.macros.carbsG} g</div>
+                      <div className="rounded-lg bg-gray-50 p-2">Fett: {smartDietPlan.macros.fatG} g</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {sidebarView === 'journey' && (
+                <div className="mt-4">
+                  {journeyWeightSeries.length === 0 ? (
+                    <p className="text-xs text-gray-500">Ingen vektdata enda. Logg en maling for graf.</p>
+                  ) : (
+                    <div className="rounded-xl bg-gray-50 p-3">
+                      <p className="text-xs font-medium text-gray-600 mb-2">Vekttrend (kg)</p>
+                      <svg viewBox="0 0 420 170" className="w-full h-40">
+                        {(() => {
+                          const values = journeyWeightSeries.map((point) => point.value);
+                          const min = Math.min(...values);
+                          const max = Math.max(...values);
+                          const range = Math.max(1, max - min);
+                          const coords = journeyWeightSeries.map((point, index) => {
+                            const x = journeyWeightSeries.length === 1 ? 210 : (index / (journeyWeightSeries.length - 1)) * 390 + 15;
+                            const y = 145 - ((point.value - min) / range) * 120;
+                            return { x, y, value: point.value, date: point.date };
+                          });
+                          return (
+                            <>
+                              <line x1="15" y1="145" x2="405" y2="145" stroke="rgba(148,163,184,0.5)" strokeWidth="1" />
+                              <polyline
+                                fill="none"
+                                stroke="#f97316"
+                                strokeWidth="3"
+                                points={coords.map((c) => `${c.x},${c.y}`).join(' ')}
+                              />
+                              {coords.map((c) => (
+                                <g key={`${c.date}-${c.value}`}>
+                                  <circle cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
+                                </g>
+                              ))}
+                              <text x="15" y="164" fontSize="10" fill="currentColor" className="text-gray-500">
+                                {formatDateKey(coords[0]?.date ?? todayKey)}
+                              </text>
+                              <text x="340" y="164" fontSize="10" fill="currentColor" className="text-gray-500">
+                                {formatDateKey(coords[coords.length - 1]?.date ?? todayKey)}
+                              </text>
+                            </>
+                          );
+                        })()}
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              )}
+            </aside>
+          </div>
+        </div>
+      )}
+
+      <div className="screen-header pt-6 pb-7">
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-2">
-            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
-              <Flame className="w-5 h-5 text-white" />
-            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setShowSidebar((prev) => {
+                  const next = !prev;
+                  if (next) setSidebarView('menu');
+                  return next;
+                })
+              }
+              className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center shrink-0"
+              title="Apne meny"
+            >
+              {showSidebar ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-white" />}
+            </button>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-white/90 text-sm font-medium">{streak} dagers streak</span>
+                <span className="inline-flex items-center gap-1 text-white/90 text-sm font-medium">
+                  <Flame className="w-4 h-4 text-orange-200" />
+                  {streak} dagers streak
+                </span>
                 <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${consistencyBadge.tone}`}>
                   {consistencyBadge.label}
                 </span>
@@ -1418,36 +1743,6 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-white/10 p-3">
-          <button
-            type="button"
-            onClick={() => setNutritionBoxExpanded((prev) => !prev)}
-            className="w-full text-left flex items-start justify-between gap-3"
-          >
-            <p className="text-[11px] text-white/85">
-              Dagens kalorimal: {smartDietPlan.optimizedTargetKcal} kcal
-              {' '}
-              ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} vs grunnmal)
-            </p>
-            <span className="text-[11px] text-white/80 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
-          </button>
-
-          {nutritionBoxExpanded && (
-            <>
-              <p className="text-[11px] text-white/70 mt-2">
-                Grunnmal: {smartDietPlan.baseTargetKcal} | Vedlikehold: {smartDietPlan.tdee} | Hvileforbrenning: {smartDietPlan.bmr}
-              </p>
-              <p className="text-[11px] text-white/70 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
-              <p className="text-[11px] text-white/70 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
-              {smartDietPlan.macros && (
-                <p className="text-[11px] text-white/70 mt-1">
-                  Dagsmal makro: Protein {smartDietPlan.macros.proteinG} g | Fett {smartDietPlan.macros.fatG} g | Karbo {smartDietPlan.macros.carbsG} g
-                </p>
-              )}
-            </>
-          )}
-        </div>
-
         {consistencyDropInsight && (
           <div className="mt-2 flex items-start gap-2 px-1">
             <span className="text-base leading-none" aria-hidden>💬</span>
@@ -1464,6 +1759,7 @@ export default function HomeScreen() {
             ))}
           </div>
         )}
+
       </div>
 
       <div
