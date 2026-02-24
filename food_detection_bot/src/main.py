@@ -10,15 +10,18 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from src.config import get_settings
+from src.core.dish_classifier import create_dish_classifier
 from src.core.detector import create_detector
 from src.core.errors import BotError
 from src.core.image_region import crop_to_bbox, pick_detection_for_crop
 from src.core.product_catalog import ProductCatalog
+from src.core.types import TextDetection
 from src.data_logger import DatasetLogger
 from src.providers.text_provider import create_text_provider
 from src.logging_setup import setup_logging
 from src.schemas import (
     DetectResponse,
+    DishPredictResponse,
     ErrorResponse,
     FeedbackRequest,
     FeedbackResponse,
@@ -48,16 +51,33 @@ def _to_jpeg_bytes(image) -> bytes:
     return buffer.getvalue()
 
 
+def _merge_text_detections(detections: list[TextDetection]) -> list[TextDetection]:
+    best_by_text: dict[str, TextDetection] = {}
+    for item in detections:
+        text = _clean_ocr_text(str(item.text or ''))
+        if not text:
+            continue
+        confidence = float(item.confidence or 0.0)
+        bbox = item.bbox
+        prev = best_by_text.get(text)
+        if prev is None or confidence > prev.confidence:
+            best_by_text[text] = TextDetection(text=text, confidence=confidence, bbox=bbox)
+    return sorted(best_by_text.values(), key=lambda row: row.confidence, reverse=True)
+
+
 @app.on_event('startup')
 def startup_event() -> None:
     detector = create_detector(settings)
+    dish_classifier = create_dish_classifier(settings.dish_classifier_enabled, settings.dish_classifier_model_path)
     text_provider = create_text_provider(settings.text_provider)
     product_catalog = ProductCatalog(settings.product_catalog_path)
     text_status = text_provider.status()
     app.state.detector = detector
+    app.state.dish_classifier = dish_classifier
     app.state.text_provider = text_provider
     app.state.product_catalog = product_catalog
     app.state.text_provider_status = text_status
+    app.state.dish_classifier_status = dish_classifier.status()
     app.state.model_loaded = True
     app.state.dataset_logger = DatasetLogger(settings.dataset_dir)
     model_loaded_at = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -76,6 +96,13 @@ def startup_event() -> None:
         text_status.get('message'),
     )
     logger.info(
+        'Dish classifier initialized enabled=%s available=%s model=%s message=%s',
+        settings.dish_classifier_enabled,
+        app.state.dish_classifier_status.get('available'),
+        dish_classifier.model_id,
+        app.state.dish_classifier_status.get('message'),
+    )
+    logger.info(
         'Model fingerprint model_id=%s model_weights_path=%s model_weights_sha256=%s model_loaded_at=%s',
         detector.model_id,
         model_weights_path,
@@ -89,6 +116,21 @@ def _parse_label_set(raw: str | None) -> set[str]:
     if not raw:
         return set()
     return {token.strip().lower() for token in raw.split(',') if token.strip()}
+
+
+def _is_non_food_detection_label(label: str) -> bool:
+    normalized = (label or '').strip().lower()
+    if not normalized:
+        return True
+    blocked = {
+        'person', 'human', 'man', 'woman', 'boy', 'girl',
+        'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle', 'bike', 'vehicle',
+        'tv', 'television', 'monitor', 'screen', 'laptop', 'computer', 'keyboard', 'mouse',
+        'phone', 'cell phone', 'remote',
+        'chair', 'sofa', 'couch', 'bed', 'table',
+        'book', 'clock', 'vase', 'toothbrush', 'hair drier',
+    }
+    return normalized in blocked
 
 
 @app.exception_handler(BotError)
@@ -147,7 +189,11 @@ async def detect(
     detector = app.state.detector
     product_catalog: ProductCatalog = app.state.product_catalog
     result = detector.detect(img)
-    filtered_detections = [d for d in result.detections if d.confidence >= settings.conf_threshold]
+    filtered_detections = [
+        d
+        for d in result.detections
+        if d.confidence >= settings.conf_threshold and not _is_non_food_detection_label(d.label)
+    ]
     package_detection, package_detection_strategy = pick_detection_for_crop(
         filtered_detections,
         settings.package_class_name,
@@ -165,6 +211,10 @@ async def detect(
     if settings.text_detection_enabled:
         text_provider = app.state.text_provider
         text_detections = text_provider.detect_text(ocr_source)
+        # OCR on full frame can recover brand names when crop misses part of label.
+        if crop_image is not None:
+            text_detections = text_detections + text_provider.detect_text(img)
+        text_detections = _merge_text_detections(text_detections)
 
     ocr_rows = [
         {
@@ -289,6 +339,32 @@ async def detect(
         sorted(response.model_dump().keys()),
     )
     return response
+
+
+@app.post('/predict-dish', response_model=DishPredictResponse)
+async def predict_dish(
+    request: Request,
+    image: UploadFile = File(...),
+    topk: int = Form(default=5),
+):
+    _ = request
+    image_bytes = await image.read()
+    img = load_image_from_bytes(image_bytes, settings.max_image_bytes)
+    dish_classifier = app.state.dish_classifier
+    predictions = dish_classifier.predict(img, top_k=max(1, min(10, int(topk))))
+    return DishPredictResponse(
+        ok=True,
+        model=dish_classifier.model_id,
+        results=[
+            {
+                'label': str(row.get('label') or '').strip(),
+                'confidence': float(row.get('confidence') or 0.0),
+                'source': str(row.get('source') or 'dish_classifier'),
+            }
+            for row in predictions
+            if str(row.get('label') or '').strip()
+        ],
+    )
 
 
 def _safe_json_list(raw_value: str | None) -> list:

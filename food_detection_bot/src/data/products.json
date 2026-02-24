@@ -22,5 +22,45 @@
     "aliases": ["q sjokolademelk", "sjokomelk", "chocolate milk"],
     "barcode": null,
     "keywords": ["kakao", "sjoko", "melk"]
+  },
+  {
+    "id": "urge-original-15l",
+    "brand": "Urge",
+    "product_name": "Original 1.5L",
+    "aliases": ["urge", "urge original", "urge flask", "urge orange soda"],
+    "barcode": null,
+    "keywords": ["orange", "soda", "brus"]
+  },
+  {
+    "id": "urge-intense-zero-15l",
+    "brand": "Urge",
+    "product_name": "Intense Zero 1.5L",
+    "aliases": ["urge zero", "urge intense", "urge intense zero"],
+    "barcode": null,
+    "keywords": ["zero", "sukkerfri", "orange", "soda", "brus"]
+  },
+  {
+    "id": "coca-cola-original-15l",
+    "brand": "Coca-Cola",
+    "product_name": "Original Taste 1.5L",
+    "aliases": ["coca cola", "coca-cola", "cola", "coke", "coca cola original", "coca cola bottle"],
+    "barcode": null,
+    "keywords": ["cola", "soda", "brus", "sukker"]
+  },
+  {
+    "id": "coca-cola-zero-15l",
+    "brand": "Coca-Cola",
+    "product_name": "Zero Sugar 1.5L",
+    "aliases": ["coca cola zero", "coke zero", "cola zero", "coca-cola zero sugar"],
+    "barcode": null,
+    "keywords": ["cola", "soda", "brus", "zero", "sukkerfri"]
+  },
+  {
+    "id": "pepsi-max-15l",
+    "brand": "Pepsi",
+    "product_name": "Max 1.5L",
+    "aliases": ["pepsi max", "pepsi", "pepsi flask", "pepsi bottle"],
+    "barcode": null,
+    "keywords": ["cola", "soda", "brus", "zero", "sukkerfri"]
   }
 ]

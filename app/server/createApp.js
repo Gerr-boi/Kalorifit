@@ -1,13 +1,20 @@
 import express from 'express';
 import multer from 'multer';
+import crypto from 'node:crypto';
 import { FoodDetectionBotProvider } from './providers/foodDetectionBotProvider.js';
 import { DEFAULT_THRESHOLD, normalizeAndFilterFoodItems } from './foodLabelUtils.js';
 
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 const MAX_INFERENCE_TIME_MS = 15_000;
+const MAX_PREDICT_DISH_TIME_MS = 7_000;
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47];
+const PREDICT_DISH_CACHE_TTL_MS = 10 * 60 * 1000;
+const PREDICT_DISH_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const PREDICT_DISH_RATE_LIMIT_PER_IP = 40;
+const PREDICT_DISH_CIRCUIT_FAILURES = 3;
+const PREDICT_DISH_CIRCUIT_OPEN_MS = 30 * 1000;
 
 function createRequestId() {
   return `scan-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
@@ -164,6 +171,12 @@ export function createApp(options = {}) {
   app.use(express.json({ limit: '256kb' }));
   const provider = options.provider ?? new FoodDetectionBotProvider(options.foodDetectionBot ?? {});
   const threshold = typeof options.threshold === 'number' ? options.threshold : DEFAULT_THRESHOLD;
+  const predictDishCache = new Map();
+  const predictDishIpWindow = new Map();
+  const predictDishCircuit = {
+    consecutiveFailures: 0,
+    openUntil: 0,
+  };
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -386,6 +399,128 @@ export function createApp(options = {}) {
     }
   });
 
+  app.post('/api/predict-dish', upload.single('image'), async (req, res) => {
+    const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
+    const topkRaw = Number.parseInt(String(req.body?.topk ?? '5'), 10);
+    const topk = Number.isFinite(topkRaw) ? Math.max(1, Math.min(10, topkRaw)) : 5;
+    const now = Date.now();
+    const requesterIp = req.ip || 'unknown';
+    const requesterDeviceId = String(req.get('x-scan-device-id') || req.body?.deviceId || '').trim();
+    const rateLimitKey = requesterDeviceId || requesterIp;
+
+    try {
+      const ipHits = predictDishIpWindow.get(rateLimitKey) ?? [];
+      const recentHits = ipHits.filter((timestamp) => now - timestamp < PREDICT_DISH_RATE_LIMIT_WINDOW_MS);
+      if (recentHits.length >= PREDICT_DISH_RATE_LIMIT_PER_IP) {
+        return sendError(
+          res,
+          429,
+          scanRequestId,
+          'RATE_LIMITED',
+          'Too many dish prediction requests. Please retry shortly.'
+        );
+      }
+      recentHits.push(now);
+      predictDishIpWindow.set(rateLimitKey, recentHits);
+
+      const file = req.file;
+      if (!file) {
+        return sendError(res, 400, scanRequestId, 'MISSING_IMAGE', 'Missing image upload (field name: image)');
+      }
+      if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
+        return sendError(res, 400, scanRequestId, 'INVALID_FILE_TYPE', 'Invalid file type. Use jpg/png/webp.');
+      }
+      const detectedMimeType = detectImageType(file.buffer);
+      if (!detectedMimeType) {
+        return sendError(res, 400, scanRequestId, 'IMAGE_DECODE_FAILED', 'Could not decode image.');
+      }
+
+      const imageHash = crypto.createHash('sha1').update(file.buffer).digest('hex');
+      const cacheKey = `${imageHash}:${topk}`;
+      const cached = predictDishCache.get(cacheKey);
+      if (cached && now - cached.at <= PREDICT_DISH_CACHE_TTL_MS) {
+        return res.json({
+          ...cached.payload,
+          meta: {
+            ...cached.payload.meta,
+            cacheHit: true,
+            imageHash,
+          },
+        });
+      }
+
+      if (predictDishCircuit.openUntil > now) {
+        return res.json({
+          ok: true,
+          model: null,
+          results: [],
+          meta: {
+            scanRequestId,
+            provider: 'food_detection_bot',
+            circuitOpen: true,
+            imageHash,
+          },
+        });
+      }
+
+      const inferenceAbort = new AbortController();
+      const payload = await withTimeout(
+        provider.predictDish(file.buffer, {
+          signal: inferenceAbort.signal,
+          scanRequestId,
+          mimeType: detectedMimeType,
+          filename: file.originalname,
+          topk,
+        }),
+        MAX_PREDICT_DISH_TIME_MS,
+        inferenceAbort
+      );
+      const rows = Array.isArray(payload?.results) ? payload.results : [];
+      const normalized = rows
+        .map((row) => ({
+          label: typeof row?.label === 'string' ? row.label : '',
+          confidence: typeof row?.confidence === 'number'
+            ? row.confidence
+            : (typeof row?.prob === 'number' ? row.prob : 0),
+        }))
+        .filter((row) => row.label && Number.isFinite(row.confidence))
+        .slice(0, topk);
+
+      predictDishCircuit.consecutiveFailures = 0;
+      predictDishCircuit.openUntil = 0;
+
+      const responsePayload = {
+        ok: true,
+        model: typeof payload?.model === 'string' ? payload.model : null,
+        results: normalized,
+        meta: {
+          scanRequestId,
+          provider: 'food_detection_bot',
+          cacheHit: false,
+          imageHash,
+        },
+      };
+      predictDishCache.set(cacheKey, { at: now, payload: responsePayload });
+      return res.json(responsePayload);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      predictDishCircuit.consecutiveFailures += 1;
+      if (predictDishCircuit.consecutiveFailures >= PREDICT_DISH_CIRCUIT_FAILURES) {
+        predictDishCircuit.openUntil = Date.now() + PREDICT_DISH_CIRCUIT_OPEN_MS;
+      }
+      if (message === 'FOOD_DETECTION_BOT_TIMEOUT' || message === 'INFERENCE_TIMEOUT') {
+        return sendError(res, 504, scanRequestId, 'INFERENCE_TIMEOUT', 'Dish prediction exceeded the time limit.');
+      }
+      return sendError(
+        res,
+        502,
+        scanRequestId,
+        'DISH_PREDICTION_UNAVAILABLE',
+        `Dish prediction unavailable: ${message.slice(0, 240)}`
+      );
+    }
+  });
+
   app.post('/api/scan-feedback', async (req, res) => {
     const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
     const scanLogId = typeof req.body?.scanLogId === 'string' ? req.body.scanLogId.trim() : '';
@@ -401,6 +536,14 @@ export function createApp(options = {}) {
         ...(typeof req.body?.notFood === 'boolean' ? { not_food: req.body.notFood } : {}),
         ...(typeof req.body?.badPhoto === 'boolean' ? { bad_photo: req.body.badPhoto } : {}),
         ...(typeof req.body?.feedbackNotes === 'string' ? { feedback_notes: req.body.feedbackNotes } : {}),
+        ...(req.body?.feedbackContext && typeof req.body.feedbackContext === 'object'
+          ? {
+              feedback_notes: JSON.stringify({
+                notes: typeof req.body?.feedbackNotes === 'string' ? req.body.feedbackNotes : null,
+                context: req.body.feedbackContext,
+              }).slice(0, 4000),
+            }
+          : {}),
       };
       const upstream = await provider.submitFeedback(payload, { scanRequestId });
       return res.json({

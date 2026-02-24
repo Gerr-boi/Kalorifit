@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     fallback_crop_max_area_ratio: float = 0.9
     fallback_crop_min_confidence: float = 0.15
     fallback_crop_preferred_labels: str = ''
+    dish_classifier_enabled: bool = True
+    dish_classifier_top_k: int = 5
+    dish_classifier_model_path: str = 'src/models/food101_efficientnet.pt'
     product_catalog_path: str = 'src/data/products.json'
     enable_scan_logging: bool = True
     enable_package_crop_logging: bool = True

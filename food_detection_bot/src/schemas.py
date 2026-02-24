@@ -37,6 +37,18 @@ class DetectResponse(BaseModel):
     debug: dict | None = None
 
 
+class DishPredictionOut(BaseModel):
+    label: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    source: str | None = None
+
+
+class DishPredictResponse(BaseModel):
+    ok: bool = True
+    model: str | None = None
+    results: list[DishPredictionOut] = []
+
+
 class HealthResponse(BaseModel):
     ok: bool
     version: str
