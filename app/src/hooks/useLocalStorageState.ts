@@ -5,17 +5,10 @@ export type LocalStorageScope = 'user' | 'global';
 export const DEFAULT_USER_ID = 'default';
 export const ACTIVE_USER_ID_STORAGE_KEY = 'app.activeUserId.v1';
 export const USER_SCOPE_CHANGED_EVENT = 'kalorifit:user-changed';
-export const LOCAL_STORAGE_STATE_CHANGED_EVENT = 'kalorifit:local-storage-state-changed';
 
 type LocalStorageStateOptions = {
   scope?: LocalStorageScope;
   userId?: string;
-};
-
-type LocalStorageStateChangedDetail = {
-  baseKey: string;
-  scope: LocalStorageScope;
-  scopedKey: string;
 };
 
 function canUseLocalStorage() {
@@ -36,21 +29,6 @@ export function getScopedStorageKey(baseKey: string, scope: LocalStorageScope = 
 export function emitUserScopeChanged() {
   if (!canUseLocalStorage()) return;
   window.dispatchEvent(new Event(USER_SCOPE_CHANGED_EVENT));
-}
-
-export function emitLocalStorageStateChanged(baseKey: string, options?: LocalStorageStateOptions) {
-  if (!canUseLocalStorage()) return;
-  const scope = options?.scope ?? 'user';
-  const scopedKey = getScopedStorageKey(baseKey, scope, options?.userId);
-  window.dispatchEvent(
-    new CustomEvent<LocalStorageStateChangedDetail>(LOCAL_STORAGE_STATE_CHANGED_EVENT, {
-      detail: {
-        baseKey,
-        scope,
-        scopedKey,
-      },
-    }),
-  );
 }
 
 function parseStoredValue<T>(raw: string | null, initial: T) {
@@ -113,15 +91,6 @@ export function useLocalStorageState<T>(key: string, initial: T, options?: Local
     const onUserScopeChange = () => {
       setStorageKey(getScopedStorageKey(key, scope, explicitUserId));
     };
-    const onLocalStorageStateChanged = (event: Event) => {
-      const customEvent = event as CustomEvent<LocalStorageStateChangedDetail>;
-      const detail = customEvent.detail;
-      if (!detail) return;
-      if (detail.baseKey !== key) return;
-      if (detail.scope !== scope) return;
-      if (detail.scopedKey !== storageKey) return;
-      setValue(readStoredValue(key, initial, { scope, userId: explicitUserId }));
-    };
     const onStorage = (event: StorageEvent) => {
       if (event.key === ACTIVE_USER_ID_STORAGE_KEY) {
         setStorageKey(getScopedStorageKey(key, scope, explicitUserId));
@@ -129,14 +98,12 @@ export function useLocalStorageState<T>(key: string, initial: T, options?: Local
     };
 
     window.addEventListener(USER_SCOPE_CHANGED_EVENT, onUserScopeChange);
-    window.addEventListener(LOCAL_STORAGE_STATE_CHANGED_EVENT, onLocalStorageStateChanged);
     window.addEventListener('storage', onStorage);
     return () => {
       window.removeEventListener(USER_SCOPE_CHANGED_EVENT, onUserScopeChange);
-      window.removeEventListener(LOCAL_STORAGE_STATE_CHANGED_EVENT, onLocalStorageStateChanged);
       window.removeEventListener('storage', onStorage);
     };
-  }, [explicitUserId, initial, key, scope, storageKey]);
+  }, [explicitUserId, key, scope]);
 
   return [value, setValue] as const;
 }
