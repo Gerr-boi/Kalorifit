@@ -63,16 +63,24 @@ const BRAND_RULES: Array<{
     patterns: [
       /\bcoca\b/i,
       /\bco\s*ca\b/i,
+      /\bcoc[ao]\b/i,
+      /\bcocac[0o]la\b/i,
       /\bcola\b/i,
       /\bcoca[\s-]*cola\b/i,
+      /\bcola\s*cola\b/i,
       /\bc0ca\b/i,
       /\bc0la\b/i,
       /\bcoke\b/i,
-      /\bkok(e|a)\b/i,
+      /\bkok(e|a|i)\b/i,
+      /\bco[kx]e\b/i,
+      /\bclassic\b/i,
+      /\boriginal\b/i,
       /\boriginal(\s*taste)?\b/i,
       /\bzero\b/i,
+      /\bzero\s*sugar\b/i,
       /\bsukkerfri\b/i,
       /\buten\s*sukker\b/i,
+      /\bno\s*sugar\b/i,
     ],
     seeds: [
       'coca cola',
@@ -90,12 +98,10 @@ const BRAND_RULES: Array<{
       /\bpepsi\b/i,
       /\bpeps[i1]\b/i,
       /\bpep(si|s1)\b/i,
-      /\bmax\b/i,
-      /\bzero\b/i,
-      /\bsukkerfri\b/i,
-      /\buten\s*sukker\b/i,
+      /\bpep5i\b/i,
+      /\bpepxi\b/i,
     ],
-    seeds: ['pepsi', 'pepsi max', 'pepsi regular', 'pepsi zero', 'pepsi uten sukker'],
+    seeds: ['pepsi', 'pepsi max', 'pepsi regular', 'pepsi zero', 'pepsi zero sugar', 'pepsi uten sukker'],
   },
   {
     canonical: 'monster energy',
@@ -116,8 +122,8 @@ const BRAND_RULES: Array<{
 
 const SHORT_TOKEN_WHITELIST = new Set(['pe', 'co', 'ur']);
 const FRAGMENT_RULES: Array<{ canonical: string; prefixes: string[] }> = [
-  { canonical: 'coca cola', prefixes: ['co', 'coc', 'coca', 'col', 'cola'] },
-  { canonical: 'pepsi', prefixes: ['pe', 'pep', 'peps'] },
+  { canonical: 'coca cola', prefixes: ['co', 'coc', 'coca', 'col', 'cola', 'koke'] },
+  { canonical: 'pepsi', prefixes: ['pep', 'peps', 'pepx'] },
   { canonical: 'urge', prefixes: ['ur', 'urg', 'urge'] },
 ];
 
@@ -466,6 +472,20 @@ function scoreOcrLine(line: string, confidence: number) {
   return (Math.max(0, Math.min(1, confidence)) * 0.55) + (density * 0.25) + (lengthScore * 0.2);
 }
 
+function isLikelyNoisySeedLabel(value: string) {
+  const normalized = normalizeOcrText(value);
+  if (!normalized) return true;
+  const tokens = normalized.split(' ').filter(Boolean);
+  if (!tokens.length) return true;
+  const shortTokens = tokens.filter((token) => token.length <= 2).length;
+  const longTokens = tokens.filter((token) => token.length >= 4).length;
+  const letters = (normalized.match(/[a-z]/g) ?? []).length;
+  if (letters < 3) return true;
+  if (tokens.length >= 2 && shortTokens >= 2 && longTokens === 0) return true;
+  if (/^(?:[a-z0-9]\s+){2,}[a-z0-9]$/i.test(normalized)) return true;
+  return false;
+}
+
 export function getOcrTextStats(rawText: string): OcrTextStats {
   const text = String(rawText ?? '');
   const lettersCount = (text.match(/\p{L}/gu) ?? []).length;
@@ -536,6 +556,7 @@ export function brandBoostFromOcrText(
       if (hasHit(fragmentRule.canonical)) continue;
       const matchedPrefix = fragmentRule.prefixes.find((prefix) => compact.includes(prefix) || windows.has(prefix));
       if (!matchedPrefix) continue;
+      if (fragmentRule.canonical === 'pepsi' && matchedPrefix.length < 4 && !/\bpe[p5]/i.test(text)) continue;
       const score = hasDrinkContext ? 0.55 : 0.48;
       hits.push({ canonical: fragmentRule.canonical, score, matched: [`frag:${matchedPrefix}`] });
     }
@@ -569,6 +590,7 @@ export function brandBoostFromOcrText(
   }
   if (hits.some((hit) => hit.canonical === 'pepsi') && hasZeroHint) {
     append('pepsi zero');
+    append('pepsi zero sugar');
     append('pepsi uten sukker');
   }
   if (hits.some((hit) => hit.canonical === 'coca cola') && hasZeroHint) {
@@ -583,6 +605,7 @@ export function brandBoostFromOcrText(
 export function ocrTextToSeeds(text: string, maxSeeds = 6): Array<{ label: string; confidence: number }> {
   const cleaned = normalizeOcrText(text);
   if (!cleaned) return [];
+  if (isLikelyNoisySeedLabel(cleaned)) return [];
 
   const tokens = cleaned
     .split(' ')
@@ -592,6 +615,7 @@ export function ocrTextToSeeds(text: string, maxSeeds = 6): Array<{ label: strin
   const deduped = new Map<string, { label: string; confidence: number }>();
   for (const phrase of phrases) {
     if (!phrase) continue;
+    if (isLikelyNoisySeedLabel(phrase)) continue;
     const key = phrase.toLowerCase();
     if (!deduped.has(key)) {
       deduped.set(key, { label: phrase, confidence: phrase === cleaned ? 0.52 : 0.38 });
@@ -609,6 +633,7 @@ export function ocrLinesToSeeds(
       const normalized = normalizeOcrText(line.text);
       const normalizedAscii = transliterateNorwegian(normalized);
       if (!normalized || normalized.length < 4) return null;
+      if (isLikelyNoisySeedLabel(normalized)) return null;
       if (NOISE_WORDS.has(normalized) || NOISE_WORDS.has(normalizedAscii)) return null;
       const score = scoreOcrLine(normalized, line.confidence);
       if (score < 0.25) return null;

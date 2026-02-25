@@ -41,3 +41,17 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Python venv/local envs
+.venv/
+.venv311/
+venv/
+__pycache__/
+*.pyc
+
+# Food bot local runtime artifacts
+food_detection_bot/.venv/
+food_detection_bot/.venv311/
+food_detection_bot/venv/
+food_detection_bot/dataset/images/
+food_detection_bot/dataset/records/

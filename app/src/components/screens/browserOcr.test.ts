@@ -53,11 +53,30 @@ describe('browserOcr helpers', () => {
     expect(boosted.boostedSeeds).toContain('coca cola');
   });
 
-  it('rescues weak fragment OCR like "pe på" and "utge"', () => {
-    const pe = brandBoostFromOcrText('pe på', { bestLineScore: 0.41, textCharCount: 8 });
+  it('rescues weak fragment OCR like "pepx" and "utge"', () => {
+    const pe = brandBoostFromOcrText('pepx', { bestLineScore: 0.41, textCharCount: 8 });
     expect(pe.hits.some((hit) => hit.canonical === 'pepsi')).toBe(true);
 
     const urge = brandBoostFromOcrText('utge', { bestLineScore: 0.39, textCharCount: 10 });
     expect(urge.hits.some((hit) => hit.canonical === 'urge')).toBe(true);
+  });
+
+  it('maps cola-family OCR variants and norwegian sugar-free hints', () => {
+    const coke = brandBoostFromOcrText('koki c0la uten sukker');
+    expect(coke.hits.some((hit) => hit.canonical === 'coca cola')).toBe(true);
+    expect(coke.boostedSeeds).toContain('coca cola uten sukker');
+
+    const pepsi = brandBoostFromOcrText('pepxi max zero sugar');
+    expect(pepsi.hits.some((hit) => hit.canonical === 'pepsi')).toBe(true);
+    expect(pepsi.boostedSeeds).toContain('pepsi max');
+    expect(pepsi.boostedSeeds).toContain('pepsi zero sugar');
+  });
+
+  it('rejects noisy OCR seed fragments like "i pas x"', () => {
+    const seeds = ocrLinesToSeeds([{ text: 'i pas x', confidence: 0.92 }], 6);
+    expect(seeds).toEqual([]);
+
+    const textSeeds = brandBoostFromOcrText('i pas x', { bestLineScore: 0.41, textCharCount: 7 });
+    expect(textSeeds.hits.some((hit) => hit.canonical === 'pepsi')).toBe(false);
   });
 });
