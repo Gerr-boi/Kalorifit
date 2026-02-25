@@ -66,16 +66,40 @@ function run() {
     .map((row) => parseFeedbackContext(row?.feedback_notes))
     .filter((ctx) => ctx && typeof ctx === 'object');
 
-  const seedWins = { dish_prediction: 0, vision_prediction: 0, selected_prediction: 0, manual_search: 0 };
+  const seedWins = {
+    dish_prediction: 0,
+    vision_prediction: 0,
+    selected_prediction: 0,
+    ocr_text: 0,
+    ocr_brand: 0,
+    manual_search: 0,
+  };
   let correctionTaps = 0;
+  let highConfidenceWrong = 0;
   let circuitOpen = 0;
+  let ocrRows = 0;
+  let ocrTextGatePassed = 0;
+  let brandBoostApplied = 0;
+  let brandBoostWon = 0;
   const ttfc = [];
 
   for (const ctx of contexts) {
     const seed = String(ctx.seedWinSource ?? '');
     if (seed in seedWins) seedWins[seed] += 1;
     if (ctx.hadCorrectionTap === true) correctionTaps += 1;
+    const chosenScore = typeof ctx.resolverChosenScore === 'number' ? ctx.resolverChosenScore : null;
+    const chosenId = String(ctx.resolverChosenItemId ?? '').trim();
+    const finalId = String(ctx.userFinalItemId ?? ctx.brandBoostUserFinalItemId ?? '').trim();
+    if (ctx.hadCorrectionTap === true && chosenScore !== null && chosenScore >= 0.75 && chosenId && finalId && chosenId !== finalId) {
+      highConfidenceWrong += 1;
+    }
     if (ctx.circuitOpen === true) circuitOpen += 1;
+    if (typeof ctx.ocrTextCharCount === 'number' && Number.isFinite(ctx.ocrTextCharCount)) {
+      ocrRows += 1;
+      if (ctx.ocrTextCharCount >= 8) ocrTextGatePassed += 1;
+    }
+    if (ctx.ocrBrandBoostUsed === true || ctx.brandBoostWasApplied === true) brandBoostApplied += 1;
+    if (ctx.brandBoostWon === true || String(ctx.seedWinSource ?? '') === 'ocr_brand') brandBoostWon += 1;
     if (typeof ctx.timeToFirstCandidateMs === 'number' && Number.isFinite(ctx.timeToFirstCandidateMs)) {
       ttfc.push(Math.max(0, Math.round(ctx.timeToFirstCandidateMs)));
     }
@@ -89,15 +113,31 @@ function run() {
     seedWinRate: {
       dishSeedPct: toPct(seedWins.dish_prediction + seedWins.selected_prediction, totalContext),
       visionSeedPct: toPct(seedWins.vision_prediction, totalContext),
+      ocrTextSeedPct: toPct(seedWins.ocr_text, totalContext),
+      ocrBrandSeedPct: toPct(seedWins.ocr_brand, totalContext),
       manualSearchPct: toPct(seedWins.manual_search, totalContext),
     },
     correctionRatePct: toPct(correctionTaps, totalContext),
+    highConfidenceWrongRatePct: toPct(highConfidenceWrong, totalContext),
+    ocrTextGatePassPct: toPct(ocrTextGatePassed, ocrRows),
+    brandBoostWinRatePct: toPct(brandBoostWon, Math.max(1, brandBoostApplied)),
     timeToFirstCandidateMs: {
       p50: percentile(ttfc, 50),
       p90: percentile(ttfc, 90),
       sampleCount: ttfc.length,
     },
     circuitOpenRatePct: toPct(circuitOpen, totalContext),
+    alerts: [
+      ...(toPct(highConfidenceWrong, totalContext) >= 6
+        ? [{ level: 'warn', key: 'high_confidence_wrong_spike', thresholdPct: 6 }]
+        : []),
+      ...(ocrRows >= 12 && toPct(ocrTextGatePassed, ocrRows) < 35
+        ? [{ level: 'warn', key: 'ocr_text_gate_pass_collapse', thresholdPct: 35 }]
+        : []),
+      ...(brandBoostApplied >= 8 && toPct(brandBoostWon, Math.max(1, brandBoostApplied)) < 12
+        ? [{ level: 'warn', key: 'brand_boost_drift', thresholdPct: 12 }]
+        : []),
+    ],
   };
 
   console.log(JSON.stringify(report, null, 2));

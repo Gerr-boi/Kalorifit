@@ -55,3 +55,10 @@ food_detection_bot/.venv311/
 food_detection_bot/venv/
 food_detection_bot/dataset/images/
 food_detection_bot/dataset/records/
+food_detection_bot/dataset/crops/
+
+# Local recovery/snapshots
+_recovery/
+
+# Local scan telemetry outputs (generated)
+app/server/data/

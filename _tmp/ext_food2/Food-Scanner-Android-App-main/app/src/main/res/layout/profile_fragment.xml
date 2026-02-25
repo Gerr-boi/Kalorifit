@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rl_parent"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+
+    <!--Toolbar-->
+
+    <RelativeLayout
+        android:id="@+id/rl_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?android:attr/actionBarSize"
+        android:background="@color/colorPrimary">
+
+        <com.foodscan.CustomViews.TextViewCustom
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="@string/Profile"
+            android:textColor="@color/white"
+            android:textSize="@dimen/sp16" />
+
+        <ImageView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_centerVertical="true"
+            android:padding="@dimen/dp5" />
+
+        <ImageView
+            android:id="@+id/img_settings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_centerVertical="true"
+            android:padding="@dimen/dp10"
+            android:src="@drawable/img_settings" />
+
+    </RelativeLayout>
+
+
+    <android.support.v4.widget.NestedScrollView
+        android:id="@+id/scroll_nested"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/rl_toolbar">
+
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:descendantFocusability="blocksDescendants">
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+
+                <com.foodscan.CustomViews.TextViewCustom
+                    android:id="@+id/lbl_header"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/dp40"
+                    android:background="@color/light_gray"
+                    android:gravity="center_vertical"
+                    android:paddingLeft="@dimen/dp5"
+                    android:text="@string/PERSONAL"
+                    android:textColor="@color/black"
+                    android:textSize="@dimen/sp12" />
+
+
+                <LinearLayout
+                    android:id="@+id/ll_user"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_below="@+id/lbl_header"
+                    android:background="@color/white"
+                    android:orientation="vertical">
+
+                    <com.foodscan.CustomViews.TextViewCustom
+                        android:id="@+id/txt_username"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/dp10"
+                        android:paddingLeft="@dimen/dp5"
+                        android:text="User Name"
+                        android:textColor="@color/black"
+                        android:textSize="@dimen/sp14" />
+
+
+                    <com.foodscan.CustomViews.TextViewCustom
+                        android:id="@+id/txt_email"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_below="@+id/txt_username"
+                        android:layout_marginBottom="@dimen/dp10"
+                        android:layout_marginTop="@dimen/dp5"
+                        android:paddingLeft="@dimen/dp5"
+                        android:text="User Email"
+                        android:textSize="@dimen/sp14" />
+
+                </LinearLayout>
+
+                <!--Favourite food-->
+
+                <TextView
+                    android:id="@+id/lbl_favfood"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/dp40"
+                    android:layout_below="@+id/ll_user"
+                    android:background="@color/light_gray"
+                    android:gravity="center_vertical"
+                    android:paddingLeft="@dimen/dp5"
+                    android:text="@string/FAVORITE_FOOD"
+                    android:textColor="@color/black"
+                    android:textSize="@dimen/sp12" />
+
+
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:layout_below="@+id/lbl_favfood">
+
+                    <android.support.v7.widget.RecyclerView
+                        android:id="@+id/rv_favourite"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:nestedScrollingEnabled="false"
+                        android:orientation="vertical"
+                        app:layoutManager="android.support.v7.widget.LinearLayoutManager" />
+
+                    <RelativeLayout
+                        android:id="@+id/rl_no_data"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_centerInParent="true"
+                        android:gravity="center"
+                        android:layout_marginTop="@dimen/dp100"
+                        android:visibility="gone">
+
+                        <ImageView
+                            android:id="@+id/img_no_fav"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_centerHorizontal="true"
+                            android:src="@drawable/img_no_favourite" />
+
+                        <TextView
+                            android:id="@+id/txt_no_fav"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_below="@+id/img_no_fav"
+                            android:layout_centerInParent="true"
+                            android:layout_marginTop="@dimen/dp5"
+                            android:fontFamily="sans-serif-condensed"
+                            android:text="No Favourite Yet!"
+                            android:textColor="@color/colorAccent"
+                            android:textSize="@dimen/sp18"
+                            android:textStyle="bold" />
+
+                        <com.foodscan.CustomViews.TextViewCustom
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_below="@+id/txt_no_fav"
+                            android:layout_centerHorizontal="true"
+                            android:gravity="center"
+                            android:text="Once you favourite any food, \nyou will see them here"
+                            android:textSize="@dimen/sp14" />
+
+
+                    </RelativeLayout>
+
+
+                    <ProgressBar
+                        android:id="@+id/load_more_progressbar"
+                        android:layout_width="@dimen/dp30"
+                        android:layout_height="@dimen/dp30"
+                        android:layout_alignParentBottom="true"
+                        android:layout_centerHorizontal="true"
+                        android:visibility="gone" />
+                </RelativeLayout>
+
+
+            </RelativeLayout>
+
+
+        </RelativeLayout>
+    </android.support.v4.widget.NestedScrollView>
+
+
+</RelativeLayout>

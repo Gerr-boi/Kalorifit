@@ -79,4 +79,13 @@ describe('browserOcr helpers', () => {
     const textSeeds = brandBoostFromOcrText('i pas x', { bestLineScore: 0.41, textCharCount: 7 });
     expect(textSeeds.hits.some((hit) => hit.canonical === 'pepsi')).toBe(false);
   });
+
+  it('rescues noisy urge-like OCR variants such as "orbs"', () => {
+    const boosted = brandBoostFromOcrText('å vith orbs i', { bestLineScore: 0.44, textCharCount: 10 });
+    expect(boosted.hits.some((hit) => hit.canonical === 'urge')).toBe(true);
+  });
+  it('avoids urge false positives for order/org-like text without extra cues', () => {
+    const boosted = brandBoostFromOcrText('orderbs i orgs', { bestLineScore: 0.42, textCharCount: 12 });
+    expect(boosted.hits.some((hit) => hit.canonical === 'urge')).toBe(false);
+  });
 });

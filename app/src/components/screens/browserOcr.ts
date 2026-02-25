@@ -115,8 +115,25 @@ const BRAND_RULES: Array<{
   },
   {
     canonical: 'urge',
-    patterns: [/\burge\b/i, /\burg[e3]\b/i, /\butge\b/i, /\burg\b/i],
+    patterns: [
+      /\burge\b/i,
+      /\burg[e3]\b/i,
+      /\butge\b/i,
+      /\burg\b/i,
+      /\b[uvo0][rn][gqb8][e3s]\b/i,
+    ],
     seeds: ['urge', 'urge original', 'urge uten sukker'],
+  },
+  {
+    canonical: 'fanta',
+    patterns: [
+      /\bfanta\b/i,
+      /\bfant[ao]\b/i,
+      /\bfan[t7]a\b/i,
+      /\bfa\s*n?ta\b/i,
+      /\bfa\b/i,
+    ],
+    seeds: ['fanta', 'fanta orange', 'fanta zero'],
   },
 ];
 
@@ -124,7 +141,8 @@ const SHORT_TOKEN_WHITELIST = new Set(['pe', 'co', 'ur']);
 const FRAGMENT_RULES: Array<{ canonical: string; prefixes: string[] }> = [
   { canonical: 'coca cola', prefixes: ['co', 'coc', 'coca', 'col', 'cola', 'koke'] },
   { canonical: 'pepsi', prefixes: ['pep', 'peps', 'pepx'] },
-  { canonical: 'urge', prefixes: ['ur', 'urg', 'urge'] },
+  { canonical: 'urge', prefixes: ['ur', 'urg', 'urge', 'org', 'orb', 'urq'] },
+  { canonical: 'fanta', prefixes: ['fa', 'fan', 'fant', 'fanta', 'fnti'] },
 ];
 
 type BrandBoostOptions = {
@@ -135,9 +153,16 @@ type BrandBoostOptions = {
 export type OcrPreprocessOpts = {
   enableThreshold?: boolean;
   threshold?: number;
+  thresholdMethod?: 'quantile' | 'otsu' | 'adaptive';
   contrast?: number;
   denoise?: boolean;
   autoThresholdQuantile?: number;
+  sharpen?: boolean;
+  colorBoost?: boolean;
+  upscale?: number;
+  adaptiveWindowSize?: number;
+  adaptiveOffset?: number;
+  morphologyOpen?: boolean;
 };
 
 export type OcrPreprocessMode = 'normal' | 'aggressive';
@@ -150,13 +175,22 @@ export type OcrTextStats = {
 const DEFAULT_PREPROCESS_OPTS: Required<OcrPreprocessOpts> = {
   enableThreshold: true,
   threshold: 0,
+  thresholdMethod: 'adaptive',
   contrast: 1.35,
   denoise: false,
   autoThresholdQuantile: 0.55,
+  sharpen: false,
+  colorBoost: true,
+  upscale: 1,
+  adaptiveWindowSize: 17,
+  adaptiveOffset: 7,
+  morphologyOpen: true,
 };
 
 let workerPromise: Promise<OCRWorker> | null = null;
 let currentLang = '';
+let currentPsm = '6';
+let currentCharWhitelist = '';
 
 export function pickOcrLang(locale: string) {
   const l = String(locale ?? '').toLowerCase();
@@ -176,8 +210,11 @@ async function getWorker(locale = 'en-US', langPath = DEFAULT_LANG_PATH): Promis
       await worker.setParameters({
         tessedit_pageseg_mode: '6',
         preserve_interword_spaces: '1',
+        tessedit_char_whitelist: '',
       });
       currentLang = targetLang;
+      currentPsm = '6';
+      currentCharWhitelist = '';
       return worker;
     })();
   }
@@ -187,10 +224,25 @@ async function getWorker(locale = 'en-US', langPath = DEFAULT_LANG_PATH): Promis
     await worker.setParameters({
       tessedit_pageseg_mode: '6',
       preserve_interword_spaces: '1',
+      tessedit_char_whitelist: '',
     });
     currentLang = targetLang;
+    currentPsm = '6';
+    currentCharWhitelist = '';
   }
   return worker;
+}
+
+async function ensureWorkerParams(worker: OCRWorker, psm: '6' | '7' | '8' | '11', charWhitelist = '') {
+  if (currentPsm === psm && currentCharWhitelist === charWhitelist) return;
+  await worker.setParameters({
+    tessedit_pageseg_mode: psm,
+    preserve_interword_spaces: '1',
+    tessedit_char_whitelist: charWhitelist,
+    user_defined_dpi: '300',
+  });
+  currentPsm = psm;
+  currentCharWhitelist = charWhitelist;
 }
 
 async function loadImage(blob: Blob): Promise<HTMLImageElement> {
@@ -245,6 +297,74 @@ function createImageDataSafe(width: number, height: number): ImageData {
   } as ImageData;
 }
 
+function computeOtsuThreshold(gray: Uint8ClampedArray) {
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < gray.length; i += 1) hist[gray[i]] += 1;
+  const total = gray.length;
+  let sum = 0;
+  for (let i = 0; i < 256; i += 1) sum += i * hist[i];
+  let sumB = 0;
+  let wB = 0;
+  let maxBetween = -1;
+  let threshold = 127;
+  for (let i = 0; i < 256; i += 1) {
+    wB += hist[i];
+    if (!wB) continue;
+    const wF = total - wB;
+    if (!wF) break;
+    sumB += i * hist[i];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > maxBetween) {
+      maxBetween = between;
+      threshold = i;
+    }
+  }
+  return threshold;
+}
+
+function applyMorphologyOpenBinary(binary: Uint8ClampedArray, width: number, height: number) {
+  const eroded = new Uint8ClampedArray(binary.length);
+  for (let y = 1; y < height - 1; y += 1) {
+    const row = y * width;
+    for (let x = 1; x < width - 1; x += 1) {
+      const idx = row + x;
+      let keep = 1;
+      for (let dy = -1; dy <= 1 && keep; dy += 1) {
+        const nrow = (y + dy) * width;
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (binary[nrow + x + dx] === 0) {
+            keep = 0;
+            break;
+          }
+        }
+      }
+      eroded[idx] = keep ? 255 : 0;
+    }
+  }
+
+  const dilated = new Uint8ClampedArray(binary.length);
+  for (let y = 1; y < height - 1; y += 1) {
+    const row = y * width;
+    for (let x = 1; x < width - 1; x += 1) {
+      const idx = row + x;
+      let on = 0;
+      for (let dy = -1; dy <= 1 && !on; dy += 1) {
+        const nrow = (y + dy) * width;
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (eroded[nrow + x + dx] > 0) {
+            on = 1;
+            break;
+          }
+        }
+      }
+      dilated[idx] = on ? 255 : 0;
+    }
+  }
+  return dilated;
+}
+
 export function preprocessForOcr(input: ImageData, opts?: OcrPreprocessOpts): ImageData {
   const o = { ...DEFAULT_PREPROCESS_OPTS, ...(opts ?? {}) };
   const { width, height, data } = input;
@@ -258,7 +378,14 @@ export function preprocessForOcr(input: ImageData, opts?: OcrPreprocessOpts): Im
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) | 0;
+    const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) | 0;
+    const maxC = Math.max(r, g, b);
+    const minC = Math.min(r, g, b);
+    const chroma = maxC - minC;
+    const boosted = o.colorBoost
+      ? ((luma * 0.82) + ((255 - chroma) * 0.18))
+      : luma;
+    const y = boosted | 0;
     gray[p] = y;
     if (y < min) min = y;
     if (y > max) max = y;
@@ -286,25 +413,90 @@ export function preprocessForOcr(input: ImageData, opts?: OcrPreprocessOpts): Im
     gray.set(tmp);
   }
 
-  let thr = Math.max(0, Math.min(255, o.threshold));
-  if (o.enableThreshold && thr === 0) {
-    const hist = new Uint32Array(256);
-    for (let p = 0; p < gray.length; p += 1) hist[gray[p]] += 1;
-    const total = gray.length;
-    const quantile = Math.max(0.05, Math.min(0.95, o.autoThresholdQuantile));
-    let acc = 0;
-    for (let i = 0; i < 256; i += 1) {
-      acc += hist[i];
-      if (acc >= total * quantile) {
-        thr = i;
-        break;
+  if (o.sharpen && width >= 3 && height >= 3) {
+    const sharpened = new Uint8ClampedArray(gray.length);
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width;
+      for (let x = 0; x < width; x += 1) {
+        const idx = row + x;
+        const center = gray[idx];
+        const left = gray[row + Math.max(0, x - 1)];
+        const right = gray[row + Math.min(width - 1, x + 1)];
+        const up = gray[Math.max(0, y - 1) * width + x];
+        const down = gray[Math.min(height - 1, y + 1) * width + x];
+        const value = clamp255((center * 5) - left - right - up - down);
+        sharpened[idx] = value;
       }
+    }
+    gray.set(sharpened);
+  }
+
+  let binary: Uint8ClampedArray | null = null;
+  if (o.enableThreshold) {
+    if (o.thresholdMethod === 'adaptive') {
+      const integral = new Float64Array((width + 1) * (height + 1));
+      for (let y = 1; y <= height; y += 1) {
+        let rowSum = 0;
+        for (let x = 1; x <= width; x += 1) {
+          rowSum += gray[(y - 1) * width + (x - 1)];
+          integral[y * (width + 1) + x] = integral[(y - 1) * (width + 1) + x] + rowSum;
+        }
+      }
+      const half = Math.max(2, Math.floor(Math.max(3, o.adaptiveWindowSize) / 2));
+      const offset = Math.max(0, o.adaptiveOffset);
+      binary = new Uint8ClampedArray(gray.length);
+      for (let y = 0; y < height; y += 1) {
+        const y1 = Math.max(0, y - half);
+        const y2 = Math.min(height - 1, y + half);
+        const iy1 = y1;
+        const iy2 = y2 + 1;
+        for (let x = 0; x < width; x += 1) {
+          const x1 = Math.max(0, x - half);
+          const x2 = Math.min(width - 1, x + half);
+          const ix1 = x1;
+          const ix2 = x2 + 1;
+          const area = Math.max(1, (x2 - x1 + 1) * (y2 - y1 + 1));
+          const sum =
+            integral[iy2 * (width + 1) + ix2]
+            - integral[iy1 * (width + 1) + ix2]
+            - integral[iy2 * (width + 1) + ix1]
+            + integral[iy1 * (width + 1) + ix1];
+          const meanLocal = sum / area;
+          binary[y * width + x] = gray[y * width + x] >= (meanLocal - offset) ? 255 : 0;
+        }
+      }
+    } else {
+      let thr = Math.max(0, Math.min(255, o.threshold));
+      if (thr === 0) {
+        if (o.thresholdMethod === 'otsu') {
+          thr = computeOtsuThreshold(gray);
+        } else {
+          const hist = new Uint32Array(256);
+          for (let p = 0; p < gray.length; p += 1) hist[gray[p]] += 1;
+          const total = gray.length;
+          const quantile = Math.max(0.05, Math.min(0.95, o.autoThresholdQuantile));
+          let acc = 0;
+          for (let i = 0; i < 256; i += 1) {
+            acc += hist[i];
+            if (acc >= total * quantile) {
+              thr = i;
+              break;
+            }
+          }
+        }
+      }
+      binary = new Uint8ClampedArray(gray.length);
+      for (let p = 0; p < gray.length; p += 1) {
+        binary[p] = gray[p] >= thr ? 255 : 0;
+      }
+    }
+    if (o.morphologyOpen && binary) {
+      binary = applyMorphologyOpenBinary(binary, width, height);
     }
   }
 
   for (let p = 0, i = 0; p < gray.length; p += 1, i += 4) {
-    const y = gray[p];
-    const v = o.enableThreshold ? (y >= thr ? 255 : 0) : y;
+    const v = o.enableThreshold && binary ? binary[p] : gray[p];
     output[i] = v;
     output[i + 1] = v;
     output[i + 2] = v;
@@ -319,41 +511,60 @@ export function getOcrPreprocessPreset(mode: OcrPreprocessMode): Required<OcrPre
     return {
       enableThreshold: true,
       threshold: 0,
+      thresholdMethod: 'adaptive',
       contrast: 1.6,
       denoise: true,
       autoThresholdQuantile: 0.62,
+      sharpen: true,
+      colorBoost: true,
+      upscale: 1.7,
+      adaptiveWindowSize: 23,
+      adaptiveOffset: 8,
+      morphologyOpen: true,
     };
   }
   return {
     enableThreshold: true,
     threshold: 0,
+    thresholdMethod: 'adaptive',
     contrast: 1.25,
     denoise: false,
     autoThresholdQuantile: 0.55,
+    sharpen: false,
+    colorBoost: true,
+    upscale: 1.35,
+    adaptiveWindowSize: 17,
+    adaptiveOffset: 7,
+    morphologyOpen: true,
   };
 }
 
 export async function preprocessBlobForOcr(input: Blob, opts?: OcrPreprocessOpts): Promise<Blob> {
+  const o = { ...DEFAULT_PREPROCESS_OPTS, ...(opts ?? {}) };
   const img = await loadImage(input);
   const canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
+  const upscale = Math.max(1, Math.min(2, Number.isFinite(o.upscale) ? Number(o.upscale) : 1));
+  canvas.width = Math.max(1, Math.round(img.naturalWidth * upscale));
+  canvas.height = Math.max(1, Math.round(img.naturalHeight * upscale));
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return input;
-  ctx.drawImage(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
   const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const preprocessed = preprocessForOcr(frame, opts);
+  const preprocessed = preprocessForOcr(frame, o);
   ctx.putImageData(preprocessed, 0, 0);
   const out = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
   return out ?? input;
 }
 
-export async function rotateBlobForOcr(input: Blob, degrees: 0 | 90): Promise<Blob> {
+export async function rotateBlobForOcr(input: Blob, degrees: 0 | 90 | 180 | 270): Promise<Blob> {
   if (degrees === 0) return input;
   const img = await loadImage(input);
   const canvas = document.createElement('canvas');
-  canvas.width = img.naturalHeight;
-  canvas.height = img.naturalWidth;
+  const swap = degrees === 90 || degrees === 270;
+  canvas.width = swap ? img.naturalHeight : img.naturalWidth;
+  canvas.height = swap ? img.naturalWidth : img.naturalHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) return input;
   ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -399,9 +610,21 @@ export async function detectLikelyTextInBlob(
   return { looksLikeText, transitionRatio: ratio, transitionCount: transitions };
 }
 
-export async function ocrImageToText(imageBlob: Blob, locale = 'en-US', timeoutMs = 9000): Promise<string> {
+export async function ocrImageToText(
+  imageBlob: Blob,
+  locale = 'en-US',
+  timeoutMs = 9000,
+  options?: { psm?: 6 | 7 | 8 | 11; charWhitelist?: string; rotateAuto?: boolean }
+): Promise<string> {
   const worker = await getWorker(locale);
-  const task = worker.recognize(imageBlob).then((result) => result?.data?.text || '');
+  await ensureWorkerParams(
+    worker,
+    String(options?.psm ?? 6) as '6' | '7' | '8' | '11',
+    options?.charWhitelist ?? ''
+  );
+  const task = worker
+    .recognize(imageBlob, { rotateAuto: options?.rotateAuto === true })
+    .then((result) => result?.data?.text || '');
   const timeout = new Promise<string>((resolve) => {
     window.setTimeout(() => resolve(''), timeoutMs);
   });
@@ -411,11 +634,17 @@ export async function ocrImageToText(imageBlob: Blob, locale = 'en-US', timeoutM
 export async function ocrImageToLines(
   imageBlob: Blob,
   locale = 'en-US',
-  timeoutMs = 9000
+  timeoutMs = 9000,
+  options?: { psm?: 6 | 7 | 8 | 11; charWhitelist?: string; rotateAuto?: boolean }
 ): Promise<Array<{ text: string; confidence: number }>> {
   const worker = await getWorker(locale);
+  await ensureWorkerParams(
+    worker,
+    String(options?.psm ?? 6) as '6' | '7' | '8' | '11',
+    options?.charWhitelist ?? ''
+  );
   const task = worker
-    .recognize(imageBlob, undefined, { text: true, blocks: true })
+    .recognize(imageBlob, { rotateAuto: options?.rotateAuto === true }, { text: true, blocks: true })
     .then((result) => {
       const blocks = result?.data?.blocks ?? [];
       const lines: Array<{ text: string; confidence: number }> = [];
@@ -521,6 +750,9 @@ export function brandBoostFromOcrText(
 ): { hits: BrandBoostHit[]; boostedSeeds: string[] } {
   const text = String(rawText ?? '').toLowerCase();
   const compact = normalizeCompact(rawText);
+  const disqualifyingContext =
+    /(https?:\/\/|www\.|\.com\b|\.no\b)/i.test(text) ||
+    /\b(order\w*|org\w*|organisk|organisasjon)\b/i.test(text);
   const weakOcr = (opts?.bestLineScore ?? 1) < 0.62 && (opts?.textCharCount ?? 999) < 20;
   const hasDrinkContext = /\b(ml|l|liter|sukker|kcal|energi|energy|zero|max)\b/i.test(text);
   const hits: BrandBoostHit[] = [];
@@ -532,6 +764,10 @@ export function brandBoostFromOcrText(
       if (pattern.test(text)) matched.push(pattern.source);
     }
     if (!matched.length) continue;
+    if (rule.canonical === 'urge' && disqualifyingContext) {
+      const hasStrongUrgeToken = /\burge\b/i.test(text) || /\butge\b/i.test(text) || compact.includes('urge');
+      if (!hasStrongUrgeToken) continue;
+    }
     const base = matched.length >= 3 ? 0.9 : matched.length === 2 ? 0.75 : 0.55;
     const score = Math.min(0.95, base + (hasDrinkContext ? 0.05 : 0));
     hits.push({ canonical: rule.canonical, score, matched });
@@ -554,6 +790,7 @@ export function brandBoostFromOcrText(
     const hasHit = (canonical: string) => hits.some((hit) => hit.canonical === canonical);
     for (const fragmentRule of FRAGMENT_RULES) {
       if (hasHit(fragmentRule.canonical)) continue;
+      if (disqualifyingContext && fragmentRule.canonical === 'urge') continue;
       const matchedPrefix = fragmentRule.prefixes.find((prefix) => compact.includes(prefix) || windows.has(prefix));
       if (!matchedPrefix) continue;
       if (fragmentRule.canonical === 'pepsi' && matchedPrefix.length < 4 && !/\bpe[p5]/i.test(text)) continue;

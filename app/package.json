@@ -11,7 +11,11 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "report:scan-weekly": "node scripts/scan-weekly-report.mjs"
+    "report:scan-weekly": "node scripts/scan-weekly-report.mjs",
+    "report:scan-telemetry": "node scripts/scan-telemetry-dashboard.mjs",
+    "report:scan-corrections": "node scripts/scan-correction-rules.mjs",
+    "eval:scan-offline": "node scripts/scan-offline-eval.mjs",
+    "eval:ocr-replay": "node scripts/ocr-replay-eval.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

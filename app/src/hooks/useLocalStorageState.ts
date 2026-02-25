@@ -5,6 +5,7 @@ export type LocalStorageScope = 'user' | 'global';
 export const DEFAULT_USER_ID = 'default';
 export const ACTIVE_USER_ID_STORAGE_KEY = 'app.activeUserId.v1';
 export const USER_SCOPE_CHANGED_EVENT = 'kalorifit:user-changed';
+export const LOCAL_STORAGE_STATE_CHANGED_EVENT = 'kalorifit:local-storage-state-changed';
 
 type LocalStorageStateOptions = {
   scope?: LocalStorageScope;
@@ -29,6 +30,19 @@ export function getScopedStorageKey(baseKey: string, scope: LocalStorageScope = 
 export function emitUserScopeChanged() {
   if (!canUseLocalStorage()) return;
   window.dispatchEvent(new Event(USER_SCOPE_CHANGED_EVENT));
+}
+
+export function emitLocalStorageStateChanged(
+  key: string,
+  options?: { scope?: LocalStorageScope; userId?: string }
+) {
+  if (!canUseLocalStorage()) return;
+  const detail = {
+    key,
+    scope: options?.scope ?? 'user',
+    userId: options?.userId ?? getActiveUserIdFromStorage(),
+  };
+  window.dispatchEvent(new CustomEvent(LOCAL_STORAGE_STATE_CHANGED_EVENT, { detail }));
 }
 
 function parseStoredValue<T>(raw: string | null, initial: T) {

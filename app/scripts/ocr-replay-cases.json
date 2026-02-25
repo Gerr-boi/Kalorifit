@@ -1,0 +1,45 @@
+[
+  {
+    "id": "urge_positive_stable",
+    "expectedCommitted": "urge",
+    "expectedBrand": "urge",
+    "frames": [
+      { "tMs": 0, "detScore": 0.72, "cropScore": 0.68, "ocrConf": 0.48, "rawText": "utge", "greenCue": 0.62, "orangeCue": 0.08, "cooccurrenceCue": 0 },
+      { "tMs": 120, "detScore": 0.77, "cropScore": 0.74, "ocrConf": 0.55, "rawText": "urge", "greenCue": 0.66, "orangeCue": 0.08, "cooccurrenceCue": 1 },
+      { "tMs": 240, "detScore": 0.8, "cropScore": 0.79, "ocrConf": 0.61, "rawText": "urge", "greenCue": 0.69, "orangeCue": 0.09, "cooccurrenceCue": 1 },
+      { "tMs": 360, "detScore": 0.82, "cropScore": 0.82, "ocrConf": 0.64, "rawText": "urge original", "greenCue": 0.7, "orangeCue": 0.08, "cooccurrenceCue": 1 }
+    ]
+  },
+  {
+    "id": "fanta_logo_tiny",
+    "expectedCommitted": "fanta",
+    "expectedBrand": "fanta",
+    "frames": [
+      { "tMs": 0, "detScore": 0.69, "cropScore": 0.51, "ocrConf": 0.37, "rawText": "FA ji", "greenCue": 0.14, "orangeCue": 0.59, "cooccurrenceCue": 0 },
+      { "tMs": 130, "detScore": 0.74, "cropScore": 0.6, "ocrConf": 0.42, "rawText": "fanti", "greenCue": 0.15, "orangeCue": 0.62, "cooccurrenceCue": 0 },
+      { "tMs": 260, "detScore": 0.78, "cropScore": 0.71, "ocrConf": 0.56, "rawText": "fanta", "greenCue": 0.14, "orangeCue": 0.67, "cooccurrenceCue": 0 },
+      { "tMs": 390, "detScore": 0.8, "cropScore": 0.75, "ocrConf": 0.59, "rawText": "fanta", "greenCue": 0.13, "orangeCue": 0.69, "cooccurrenceCue": 0 }
+    ]
+  },
+  {
+    "id": "hard_negative_order_org",
+    "expectedCommitted": "",
+    "expectedBrand": "",
+    "frames": [
+      { "tMs": 0, "detScore": 0.74, "cropScore": 0.7, "ocrConf": 0.58, "rawText": "orderbs i orgs", "greenCue": 0.3, "orangeCue": 0.2, "cooccurrenceCue": 0 },
+      { "tMs": 120, "detScore": 0.75, "cropScore": 0.68, "ocrConf": 0.54, "rawText": "org docs", "greenCue": 0.29, "orangeCue": 0.18, "cooccurrenceCue": 0 },
+      { "tMs": 240, "detScore": 0.77, "cropScore": 0.71, "ocrConf": 0.57, "rawText": "order list", "greenCue": 0.31, "orangeCue": 0.22, "cooccurrenceCue": 0 }
+    ]
+  },
+  {
+    "id": "glare_unstable",
+    "expectedCommitted": "",
+    "expectedBrand": "",
+    "frames": [
+      { "tMs": 0, "detScore": 0.61, "cropScore": 0.2, "ocrConf": 0.21, "rawText": "u r g", "greenCue": 0.39, "orangeCue": 0.08, "cooccurrenceCue": 0, "glareNorm": 0.9, "sharpNorm": 0.16 },
+      { "tMs": 150, "detScore": 0.58, "cropScore": 0.19, "ocrConf": 0.18, "rawText": "76", "greenCue": 0.41, "orangeCue": 0.09, "cooccurrenceCue": 0, "glareNorm": 0.92, "sharpNorm": 0.14 },
+      { "tMs": 300, "detScore": 0.6, "cropScore": 0.24, "ocrConf": 0.26, "rawText": "urc", "greenCue": 0.42, "orangeCue": 0.11, "cooccurrenceCue": 0, "glareNorm": 0.86, "sharpNorm": 0.17 }
+    ]
+  }
+]
+
