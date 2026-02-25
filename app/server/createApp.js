@@ -169,7 +169,15 @@ function normalizeDetectionPayload(rawPayload, threshold) {
 export function createApp(options = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
-  const provider = options.provider ?? new FoodDetectionBotProvider(options.foodDetectionBot ?? {});
+  let provider = options.provider ?? null;
+  let providerInitError = null;
+  if (!provider) {
+    try {
+      provider = new FoodDetectionBotProvider(options.foodDetectionBot ?? {});
+    } catch (err) {
+      providerInitError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
   const threshold = typeof options.threshold === 'number' ? options.threshold : DEFAULT_THRESHOLD;
   const predictDishCache = new Map();
   const predictDishIpWindow = new Map();
@@ -183,6 +191,18 @@ export function createApp(options = {}) {
     limits: { fileSize: MAX_FILE_SIZE_BYTES },
   });
 
+  function sendProviderConfigError(res, scanRequestId) {
+    const rawMessage = providerInitError instanceof Error ? providerInitError.message : 'Provider configuration error.';
+    const message = rawMessage.replace(/^FOOD_DETECTION_BOT_CONFIG_ERROR:\s*/i, '').slice(0, 240);
+    return sendError(
+      res,
+      500,
+      scanRequestId,
+      'FOOD_DETECTION_BOT_CONFIG_ERROR',
+      message || 'Food detection provider is misconfigured.'
+    );
+  }
+
   app.get('/', (_req, res) => {
     res.json({
       ok: true,
@@ -192,9 +212,18 @@ export function createApp(options = {}) {
   });
 
   app.get('/api/health', async (_req, res) => {
-    const providerHealth = typeof provider.health === 'function' ? await provider.health() : null;
+    const providerHealth =
+      providerInitError || typeof provider?.health !== 'function'
+        ? {
+            ok: false,
+            error:
+              providerInitError instanceof Error
+                ? providerInitError.message.replace(/^FOOD_DETECTION_BOT_CONFIG_ERROR:\s*/i, '')
+                : 'Provider unavailable',
+          }
+        : await provider.health();
     res.json({
-      ok: true,
+      ok: !providerInitError,
       provider: 'food_detection_bot',
       bot: providerHealth,
     });
@@ -216,6 +245,10 @@ export function createApp(options = {}) {
     });
 
     try {
+      if (providerInitError) {
+        logStage('PROVIDER_CONFIG_ERROR', { message: providerInitError.message });
+        return sendProviderConfigError(res, scanRequestId);
+      }
       logStage('REQUEST_RECEIVED');
       const file = req.file;
       if (!file) {
@@ -409,6 +442,9 @@ export function createApp(options = {}) {
     const rateLimitKey = requesterDeviceId || requesterIp;
 
     try {
+      if (providerInitError) {
+        return sendProviderConfigError(res, scanRequestId);
+      }
       const ipHits = predictDishIpWindow.get(rateLimitKey) ?? [];
       const recentHits = ipHits.filter((timestamp) => now - timestamp < PREDICT_DISH_RATE_LIMIT_WINDOW_MS);
       if (recentHits.length >= PREDICT_DISH_RATE_LIMIT_PER_IP) {
@@ -529,6 +565,9 @@ export function createApp(options = {}) {
     }
 
     try {
+      if (providerInitError) {
+        return sendProviderConfigError(res, scanRequestId);
+      }
       const payload = {
         scan_log_id: scanLogId,
         ...(typeof req.body?.userConfirmed === 'boolean' ? { user_confirmed: req.body.userConfirmed } : {}),

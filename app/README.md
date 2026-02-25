@@ -42,6 +42,25 @@ npm run dev
 
 Frontend runs via Vite and proxies `/api/*` to the local API server.
 
+## Deploy on Vercel
+
+Your Vercel API route (`/api/detect-food`) cannot reach `127.0.0.1` inside Vercel.
+
+Set this in Vercel Project Settings -> Environment Variables:
+
+```env
+FOOD_DETECTION_BOT_URL=https://<your-public-food-bot-domain>
+# Optional:
+# FOOD_DETECTION_BOT_DETECT_PATH=/detect
+# FOOD_DETECTION_BOT_HEALTH_PATH=/health
+# FOOD_DETECTION_BOT_TIMEOUT_MS=12000
+```
+
+After deployment, verify:
+
+- `GET /api/health` returns `"ok": true`
+- `bot.ok` is `true`
+
 ## API
 
 ### `POST /api/detect-food`

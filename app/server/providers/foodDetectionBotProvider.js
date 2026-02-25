@@ -21,10 +21,36 @@ function toErrorBodySnippet(text, max = 600) {
   return text.replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function isLocalHostname(hostname) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+}
+
+function resolveConfiguredBaseUrl(opts = {}) {
+  const configured = opts.baseUrl ?? process.env.FOOD_DETECTION_BOT_URL ?? DEFAULT_BASE_URL;
+  const inCloudRuntime = Boolean(process.env.VERCEL || process.env.RENDER || process.env.RAILWAY_ENVIRONMENT);
+
+  try {
+    const parsed = new URL(configured);
+    if (inCloudRuntime && isLocalHostname(parsed.hostname)) {
+      throw new Error(
+        `FOOD_DETECTION_BOT_CONFIG_ERROR: FOOD_DETECTION_BOT_URL points to ${parsed.hostname}, which is only reachable locally. Set FOOD_DETECTION_BOT_URL to a public bot endpoint.`
+      );
+    }
+    return configured;
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('FOOD_DETECTION_BOT_CONFIG_ERROR:')) {
+      throw err;
+    }
+    throw new Error(
+      `FOOD_DETECTION_BOT_CONFIG_ERROR: Invalid FOOD_DETECTION_BOT_URL value "${String(configured)}".`
+    );
+  }
+}
+
 export class FoodDetectionBotProvider extends FoodDetectorProvider {
   constructor(opts = {}) {
     super();
-    this.baseUrl = opts.baseUrl ?? process.env.FOOD_DETECTION_BOT_URL ?? DEFAULT_BASE_URL;
+    this.baseUrl = resolveConfiguredBaseUrl(opts);
     this.detectPath = opts.detectPath ?? process.env.FOOD_DETECTION_BOT_DETECT_PATH ?? DEFAULT_DETECT_PATH;
     this.predictDishPath = opts.predictDishPath ?? process.env.FOOD_DETECTION_BOT_PREDICT_DISH_PATH ?? DEFAULT_PREDICT_DISH_PATH;
     this.healthPath = opts.healthPath ?? process.env.FOOD_DETECTION_BOT_HEALTH_PATH ?? DEFAULT_HEALTH_PATH;

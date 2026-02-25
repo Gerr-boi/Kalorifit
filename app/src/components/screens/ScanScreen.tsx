@@ -1,29 +1,28 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Search, Camera, Barcode, X, Check, Loader2 } from 'lucide-react';
 import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
-import { resolveBarcode } from '../../ai-scanner-logic/nutritionResolver';
+import { Barcode, Camera, Check, Loader2, Search, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import { resolveLabelOFFWithCandidates } from '../../ai-scanner-logic/labelResolver';
 import { resolveLabelMatvaretabellen } from '../../ai-scanner-logic/matvaretabellen';
-import type { NutritionResult } from '../../ai-scanner-logic/types';
-import type { MacroNutrients } from '../../ai-scanner-logic/types';
-import { createEmptyDayLog, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
-import { generateMonthlyIdentityReport, getCurrentMonthKey } from '../../lib/identityEngine';
+import { resolveBarcode } from '../../ai-scanner-logic/nutritionResolver';
+import type { MacroNutrients, NutritionResult } from '../../ai-scanner-logic/types';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { emitLocalStorageStateChanged, getActiveUserIdFromStorage, getScopedStorageKey } from '../../hooks/useLocalStorageState';
+import { createEmptyDayLog, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
+import { generateMonthlyIdentityReport, getCurrentMonthKey } from '../../lib/identityEngine';
 import FoodDetectionPanel from '../food/FoodDetectionPanel';
 import {
   brandBoostFromOcrText,
   cropCenterForOCR,
   detectLikelyTextInBlob,
-  getOcrTextStats,
   getOcrPreprocessPreset,
+  getOcrTextStats,
   ocrImageToLines,
   ocrImageToText,
   ocrLinesToSeeds,
   ocrTextToSeeds,
-  type OcrPreprocessMode,
   preprocessBlobForOcr,
   rotateBlobForOcr,
+  type OcrPreprocessMode,
 } from './browserOcr';
 import {
   confidenceBucket,
