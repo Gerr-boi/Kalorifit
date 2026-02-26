@@ -365,6 +365,7 @@ export default function HomeScreen() {
   const [workoutType, setWorkoutType] = useState<WorkoutSession['workoutType']>('Run');
   const [workoutExerciseName, setWorkoutExerciseName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
+  const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
   const [waterMeterMl, setWaterMeterMl] = useState(250);
   const [nutritionBoxExpanded, setNutritionBoxExpanded] = useState(false);
   const [editingFood, setEditingFood] = useState<{
@@ -378,6 +379,7 @@ export default function HomeScreen() {
   } | null>(null);
   const swipeStartXRef = useRef<number | null>(null);
   const ringLastTapAtRef = useRef(0);
+  const trainingFlexTimeoutRef = useRef<number | null>(null);
   const mealSwipeStartXRef = useRef<Record<MealId, number | null>>({
     breakfast: null,
     lunch: null,
@@ -474,6 +476,7 @@ export default function HomeScreen() {
   const netGoal = optimizedTargetKcal + dayLog.trainingKcal;
   const caloriesRemaining = netGoal - consumed;
   const waterProgress = Math.min(dayLog.waterMl / WATER_GOAL_ML, 1);
+  const bottleFillPercent = Math.round(Math.max(4, waterProgress * 100));
   const progressRatio = netGoal <= 0 ? 0 : Math.min(consumed / netGoal, 1);
   const strokeDashoffset = RING_CIRCUMFERENCE - progressRatio * RING_CIRCUMFERENCE;
   const ringColor = getRingColor(caloriesRemaining);
@@ -724,6 +727,18 @@ export default function HomeScreen() {
         .slice(0, 3),
     [selectedDateKey, workoutSessions],
   );
+  const hasTrainingLogged = selectedDayWorkouts.length > 0 || dayLog.trainingKcal > 0;
+
+  const triggerTrainingFlex = () => {
+    if (trainingFlexTimeoutRef.current != null) {
+      window.clearTimeout(trainingFlexTimeoutRef.current);
+    }
+    setIsTrainingFlexing(true);
+    trainingFlexTimeoutRef.current = window.setTimeout(() => {
+      setIsTrainingFlexing(false);
+      trainingFlexTimeoutRef.current = null;
+    }, 1200);
+  };
 
   useEffect(() => {
     const now = new Date();
@@ -737,6 +752,14 @@ export default function HomeScreen() {
 
     return () => window.clearTimeout(timer);
   }, [today]);
+
+  useEffect(() => {
+    return () => {
+      if (trainingFlexTimeoutRef.current != null) {
+        window.clearTimeout(trainingFlexTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const syncToday = () => setToday(startOfDay(new Date()));
@@ -1036,6 +1059,7 @@ export default function HomeScreen() {
       undo: () => setDayLog(selectedDateKey, previousDay),
     });
     recordEvent({ type: 'workout', actionId, kcal });
+    triggerTrainingFlex();
     reward();
   };
 
@@ -2099,6 +2123,22 @@ export default function HomeScreen() {
             Logg detaljert
           </button>
         </div>
+        <div className="mt-3 rounded-xl border border-orange-100 bg-gradient-to-br from-orange-50 via-amber-50 to-orange-100 p-3">
+          <div className="flex items-start gap-4">
+            <div className="shrink-0">
+              <div className="flex h-24 w-20 items-center justify-center rounded-xl bg-white/45">
+                <div className={`flex-arm-emoji ${isTrainingFlexing ? 'training-flex-active' : ''}`} aria-hidden="true">💪</div>
+              </div>
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Dagens trening</p>
+              <p className="text-sm text-orange-900">{dayLog.trainingKcal} kcal logget</p>
+              <p className="mt-1 text-[11px] text-orange-700/80">
+                {hasTrainingLogged ? 'Trykk en treningsokt for flex.' : 'Armen hviler til du logger en okt.'}
+              </p>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-3 gap-2 mt-3">
           <button
             type="button"
@@ -2130,12 +2170,17 @@ export default function HomeScreen() {
             <p className="text-[11px] text-orange-700 mb-1">Dagens okter</p>
             <div className="space-y-1">
               {selectedDayWorkouts.map((session) => (
-                <p key={session.id} className="text-xs text-orange-700 flex justify-between gap-3">
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={triggerTrainingFlex}
+                  className="w-full text-left text-xs text-orange-700 flex justify-between gap-3 rounded-md px-1 py-0.5 hover:bg-orange-100/70"
+                >
                   <span className="truncate">
                     {session.exerciseName} ({session.durationMin} min)
                   </span>
                   <span>{session.caloriesBurned} kcal</span>
-                </p>
+                </button>
               ))}
             </div>
           </div>
@@ -2151,35 +2196,55 @@ export default function HomeScreen() {
           <p className="text-xs text-cyan-700">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
         </div>
 
-        <div className="mt-3 rounded-lg bg-cyan-50 p-3">
-          <div className="flex items-center justify-between text-xs text-cyan-700 mb-2">
-            <span>Vannmeter</span>
-            <span>{waterMeterMl} ml</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            step={50}
-            value={waterMeterMl}
-            onChange={(event) => setWaterMeterMl(Number(event.target.value))}
-            className="w-full accent-cyan-500"
-            disabled={isPastSelectedDay}
-          />
-          <div className="mt-1 flex justify-between text-[11px] text-cyan-600">
-            <span>0 ml</span>
-            <span>500 ml</span>
-            <span>1000 ml</span>
-          </div>
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => addWater(waterMeterMl, 'water:meter:add')}
-              className="w-full p-2 text-xs rounded-lg bg-cyan-600 text-white disabled:bg-cyan-300"
-              disabled={isPastSelectedDay || waterMeterMl <= 0}
-            >
-              Fyll glass
-            </button>
+        <div className="mt-3 rounded-xl bg-gradient-to-br from-cyan-50 via-sky-50 to-cyan-100 p-3 border border-cyan-100">
+          <div className="flex items-start gap-4">
+            <div className="shrink-0">
+              <div className="mx-auto h-4 w-8 rounded-t-lg border-[3px] border-cyan-200 border-b-0 bg-white/80" />
+              <div className="relative h-36 w-16 overflow-hidden rounded-[1.7rem] border-4 border-cyan-200 bg-white/75 shadow-inner">
+                <div
+                  className="absolute inset-x-0 bottom-0 overflow-hidden bg-gradient-to-t from-cyan-500 via-sky-400 to-cyan-300 transition-[height] duration-700 ease-out"
+                  style={{ height: `${bottleFillPercent}%` }}
+                >
+                  <div className="water-bottle-wave water-bottle-wave-back" />
+                  <div className="water-bottle-wave water-bottle-wave-front" />
+                  <div className="absolute inset-x-0 top-0 h-2 bg-white/35 blur-sm" />
+                </div>
+                <div className="absolute inset-x-2.5 top-5 bottom-5 rounded-full border border-white/50 pointer-events-none" />
+              </div>
+              <p className="mt-1 text-center text-[10px] text-cyan-700 font-medium">{bottleFillPercent}%</p>
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between text-xs text-cyan-700 mb-2">
+                <span>Vannmeter</span>
+                <span>{waterMeterMl} ml</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1000}
+                step={50}
+                value={waterMeterMl}
+                onChange={(event) => setWaterMeterMl(Number(event.target.value))}
+                className="w-full accent-cyan-500"
+                disabled={isPastSelectedDay}
+              />
+              <div className="mt-1 flex justify-between text-[11px] text-cyan-600">
+                <span>0 ml</span>
+                <span>500 ml</span>
+                <span>1000 ml</span>
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={() => addWater(waterMeterMl, 'water:meter:add')}
+                  className="w-full p-2 text-xs rounded-lg bg-cyan-600 text-white disabled:bg-cyan-300"
+                  disabled={isPastSelectedDay || waterMeterMl <= 0}
+                >
+                  Fyll glass
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2472,6 +2537,51 @@ export default function HomeScreen() {
       >
         <Plus className={`w-6 h-6 transition-transform ${showQuickAddMenu ? 'rotate-45' : ''}`} />
       </button>
+      <style>{`
+        @keyframes waterBottleWaveMove {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        @keyframes waterBottleWaveBob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(2px); }
+        }
+        .water-bottle-wave {
+          position: absolute;
+          left: -50%;
+          width: 200%;
+          height: 30px;
+          border-radius: 45%;
+          animation: waterBottleWaveMove 3.4s linear infinite;
+        }
+        .water-bottle-wave-back {
+          top: -12px;
+          background: rgba(255, 255, 255, 0.25);
+          animation-duration: 4.1s;
+        }
+        .water-bottle-wave-front {
+          top: -8px;
+          background: rgba(255, 255, 255, 0.38);
+          animation-duration: 2.7s;
+          animation-name: waterBottleWaveMove, waterBottleWaveBob;
+          animation-timing-function: linear, ease-in-out;
+          animation-iteration-count: infinite, infinite;
+        }
+        @keyframes flexArmEmoji {
+          0%, 100% { transform: rotate(-8deg) scale(1); }
+          50% { transform: rotate(0deg) scale(1.14); }
+        }
+        .flex-arm-emoji {
+          font-size: 3rem;
+          line-height: 1;
+          transform: rotate(-8deg) scale(1);
+          transform-origin: 60% 70%;
+          filter: drop-shadow(0 4px 8px rgba(234, 88, 12, 0.22));
+        }
+        .training-flex-active {
+          animation: flexArmEmoji 1.15s ease-in-out infinite;
+        }
+      `}</style>
     </div>
   );
 }
