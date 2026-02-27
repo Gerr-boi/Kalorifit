@@ -393,6 +393,7 @@ export function createApp(options = {}) {
         ...(typeof req.body?.notFood === 'boolean' ? { not_food: req.body.notFood } : {}),
         ...(typeof req.body?.badPhoto === 'boolean' ? { bad_photo: req.body.badPhoto } : {}),
         ...(typeof req.body?.feedbackNotes === 'string' ? { feedback_notes: req.body.feedbackNotes } : {}),
+        ...(req.body?.feedbackContext && typeof req.body.feedbackContext === 'object' ? { feedback_context: req.body.feedbackContext } : {}),
       };
       const upstream = await provider.submitFeedback(payload, { scanRequestId });
       return res.json({

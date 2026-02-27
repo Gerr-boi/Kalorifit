@@ -57,12 +57,16 @@ describe('POST /api/detect-food', () => {
 
 describe('POST /api/scan-feedback', () => {
   it('forwards correction payload to provider', async () => {
+    let receivedPayload = null;
     const provider = {
       detectFood: async () => ({ items: [] }),
-      submitFeedback: async (payload) => ({
+      submitFeedback: async (payload) => {
+        receivedPayload = payload;
+        return {
         ok: true,
         scan_log_id: payload.scan_log_id,
-      }),
+        };
+      },
     };
 
     const app = createApp({ provider, threshold: 0.75 });
@@ -72,10 +76,20 @@ describe('POST /api/scan-feedback', () => {
       userCorrectedTo: 'apple',
       notFood: false,
       badPhoto: true,
+      feedbackContext: {
+        frontVisibilityScore: 0.32,
+        selectedFrameGlare: 0.84,
+        packagingType: 'can',
+      },
     });
 
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(response.body.scan_log_id).toBe('scan-log-555');
+    expect(receivedPayload.feedback_context).toEqual({
+      frontVisibilityScore: 0.32,
+      selectedFrameGlare: 0.84,
+      packagingType: 'can',
+    });
   });
 });

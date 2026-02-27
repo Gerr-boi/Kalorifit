@@ -138,6 +138,46 @@ Included:
 - Integration test: `server/__tests__/detectFoodEndpoint.test.js`
   - endpoint behavior with mocked provider
 
+## Dataset mining
+
+To summarize real-world scan failures and data gaps from `food_detection_bot/dataset/records`, run:
+
+```bash
+npm run report:scan-dataset
+```
+
+This writes `app/server/data/scan-dataset-miner.json` with packaging balance, failure-tag counts, hard negatives, correction pairs, and suggested augmentation priorities.
+
+To emit an augmentation-focused manifest for glare, blur, tilt, and occlusion-style recipes, run:
+
+```bash
+npm run report:scan-augment
+```
+
+To build an active-learning queue from low-confidence, disagreement-heavy, or corrected scans, run:
+
+```bash
+npm run report:scan-active-learning
+```
+
+To export the highest-value scan records into a retraining/labeling manifest, run:
+
+```bash
+npm run report:scan-training-export
+```
+
+To create a triage CSV for quick human review of active-learning items, run:
+
+```bash
+npm run report:scan-triage
+```
+
+After reviewing the CSV and filling the `bucket` column, build a dataset manifest with:
+
+```bash
+npm run report:scan-manifest
+```
+
 ## Security/Privacy notes
 
 - No model keys are used in browser code.

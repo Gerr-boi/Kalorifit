@@ -4,6 +4,7 @@ import time
 import uuid
 import io
 import re
+from typing import Any
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -38,11 +39,41 @@ logger = logging.getLogger('food_detection_bot')
 app = FastAPI(title='Food Detection Bot', version=settings.version)
 started_at = time.time()
 
+OCR_HIGH_VALUE_PACKAGING = {'can', 'bottle', 'carton', 'wrapper', 'pouch'}
+PACKAGING_TYPE_MAP = {
+    'bottle': 'bottle',
+    'wine bottle': 'bottle',
+    'beer bottle': 'bottle',
+    'cup': 'bowl',
+    'bowl': 'bowl',
+    'plate': 'plate',
+    'tray': 'plate',
+    'can': 'can',
+    'soda can': 'can',
+    'carton': 'carton',
+    'box': 'carton',
+    'package': 'wrapper',
+    'packet': 'wrapper',
+    'pouch': 'pouch',
+    'bag': 'pouch',
+    'wrapper': 'wrapper',
+}
+
 
 def _clean_ocr_text(value: str) -> str:
     lowered = value.strip().lower()
-    cleaned = re.sub(r'[^\w\s\-]', ' ', lowered, flags=re.UNICODE)
-    return ' '.join(cleaned.split())
+    lowered = (
+        lowered.replace('æ', 'ae')
+        .replace('ø', 'o')
+        .replace('å', 'a')
+        .replace('0', 'o')
+        .replace('|', 'l')
+    )
+    cleaned = re.sub(r'[^\w\s\-%\.]', ' ', lowered, flags=re.UNICODE)
+    normalized = ' '.join(cleaned.split())
+    for stop_phrase in ('new', 'limited edition', 'limited', 'edition', 'since 1886', 'recycle me'):
+        normalized = normalized.replace(stop_phrase, ' ')
+    return ' '.join(normalized.split())
 
 
 def _to_jpeg_bytes(image) -> bytes:
@@ -63,6 +94,104 @@ def _merge_text_detections(detections: list[TextDetection]) -> list[TextDetectio
         if prev is None or confidence > prev.confidence:
             best_by_text[text] = TextDetection(text=text, confidence=confidence, bbox=bbox)
     return sorted(best_by_text.values(), key=lambda row: row.confidence, reverse=True)
+
+
+def _infer_packaging_type(detections) -> tuple[str | None, dict[str, float]]:
+    scores: dict[str, float] = {}
+    for detection in detections:
+        normalized = PACKAGING_TYPE_MAP.get((detection.label or '').strip().lower())
+        if not normalized:
+            continue
+        scores[normalized] = max(scores.get(normalized, 0.0), float(detection.confidence or 0.0))
+    if not scores:
+        return None, {}
+    packaging_type = max(scores.items(), key=lambda row: row[1])[0]
+    return packaging_type, scores
+
+
+def _crop_center_region(image, width_ratio: float = 0.72, height_ratio: float = 0.68):
+    width, height = image.size
+    crop_width = max(1, int(width * width_ratio))
+    crop_height = max(1, int(height * height_ratio))
+    left = max(0, (width - crop_width) // 2)
+    top = max(0, (height - crop_height) // 2)
+    right = min(width, left + crop_width)
+    bottom = min(height, top + crop_height)
+    return image.crop((left, top, right, bottom))
+
+
+def _prepare_ocr_regions(full_image, crop_image, packaging_type: str | None):
+    regions: list[tuple[str, Any]] = []
+    if crop_image is not None:
+        regions.append(('crop_full', crop_image))
+        if packaging_type in OCR_HIGH_VALUE_PACKAGING:
+            regions.append(('crop_center', _crop_center_region(crop_image)))
+    if full_image is not None and packaging_type in {'can', 'bottle', 'carton'}:
+        regions.append(('frame_center', _crop_center_region(full_image, 0.64, 0.7)))
+    if full_image is not None and not regions:
+        regions.append(('frame_full', full_image))
+    return regions
+
+
+def _extract_structured_ocr_fields(ocr_rows: list[dict], text_detections: list[TextDetection]) -> dict[str, Any]:
+    tokens = [_clean_ocr_text(row.get('text', '')) for row in ocr_rows]
+    blob = ' '.join(token for token in tokens if token)
+    brand = None
+    product_name = None
+    volume_ml = None
+    abv = None
+    kcal = None
+
+    volume_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(ml|l)\b', blob)
+    if volume_match:
+        numeric = float(volume_match.group(1).replace(',', '.'))
+        volume_ml = int(round(numeric * 1000)) if volume_match.group(2) == 'l' else int(round(numeric))
+    abv_match = re.search(r'(\d+(?:[.,]\d+)?)\s*%', blob)
+    if abv_match:
+        abv = float(abv_match.group(1).replace(',', '.'))
+    kcal_match = re.search(r'(\d{1,4})\s*kcal\b', blob)
+    if kcal_match:
+        kcal = int(kcal_match.group(1))
+
+    for det in text_detections:
+        text = _clean_ocr_text(det.text)
+        if not text:
+            continue
+        if brand is None and len(text.split()) <= 2 and det.confidence >= 0.6:
+            brand = text
+        if product_name is None and len(text.split()) <= 4 and det.confidence >= 0.55:
+            product_name = text
+
+    flavor = None
+    for hint in ('zero', 'max', 'original', 'cola', 'orange', 'lemon', 'lime', 'mango', 'berry', 'vanilla'):
+        if hint in blob:
+            flavor = hint if flavor is None else f'{flavor} {hint}'
+
+    sugar_free = None
+    if any(token in blob for token in ('zero', 'sugar free', 'sukkerfri', 'light', 'max')):
+        sugar_free = True
+    elif any(token in blob for token in ('original', 'regular', 'classic')):
+        sugar_free = False
+
+    return {
+        'brand': brand,
+        'product_name': product_name,
+        'flavor': flavor,
+        'volume_ml': volume_ml,
+        'abv': abv,
+        'kcal': kcal,
+        'sugar_free': sugar_free,
+    }
+
+
+def _label_hint_scores(detections) -> dict[str, float]:
+    scores: dict[str, float] = {}
+    for detection in detections:
+        label = _clean_ocr_text(detection.label or '')
+        if not label:
+            continue
+        scores[label] = max(scores.get(label, 0.0), float(detection.confidence or 0.0))
+    return scores
 
 
 @app.on_event('startup')
@@ -194,6 +323,8 @@ async def detect(
         for d in result.detections
         if d.confidence >= settings.conf_threshold and not _is_non_food_detection_label(d.label)
     ]
+    non_food_filtered_count = max(0, len(result.detections) - len(filtered_detections))
+    packaging_type, packaging_scores = _infer_packaging_type(filtered_detections)
     package_detection, package_detection_strategy = pick_detection_for_crop(
         filtered_detections,
         settings.package_class_name,
@@ -208,13 +339,22 @@ async def detect(
 
     text_detections = []
     text_status = getattr(app.state, 'text_provider_status', {'available': False, 'message': 'uninitialized'})
-    if settings.text_detection_enabled:
+    ocr_strategy = 'skipped'
+    ocr_regions_used: list[str] = []
+    if settings.text_detection_enabled and packaging_type in OCR_HIGH_VALUE_PACKAGING:
         text_provider = app.state.text_provider
-        text_detections = text_provider.detect_text(ocr_source)
-        # OCR on full frame can recover brand names when crop misses part of label.
-        if crop_image is not None:
-            text_detections = text_detections + text_provider.detect_text(img)
+        ocr_strategy = 'targeted_packaging'
+        for region_name, region_image in _prepare_ocr_regions(img, crop_image, packaging_type):
+            ocr_regions_used.append(region_name)
+            text_detections.extend(text_provider.detect_text(region_image))
         text_detections = _merge_text_detections(text_detections)
+    elif settings.text_detection_enabled and packaging_type is None and crop_image is not None:
+        text_provider = app.state.text_provider
+        ocr_strategy = 'fallback_crop_only'
+        ocr_regions_used.append('crop_full')
+        text_detections = _merge_text_detections(text_provider.detect_text(ocr_source))
+    elif settings.text_detection_enabled:
+        ocr_strategy = 'skipped_low_value_packaging'
 
     ocr_rows = [
         {
@@ -226,8 +366,27 @@ async def detect(
         if t.text and t.confidence >= settings.text_conf_threshold
     ]
     ocr_tokens = [_clean_ocr_text(row['text']) for row in ocr_rows if _clean_ocr_text(row['text'])]
-    ranked_candidates = product_catalog.rank_candidates(ocr_lines=ocr_tokens, barcode=barcode, top_k=settings.top_k)
-    predicted_product = ranked_candidates[0]['name'] if ranked_candidates else None
+    structured_fields = _extract_structured_ocr_fields(ocr_rows, text_detections)
+    visual_hints = [d.label for d in filtered_detections]
+    visual_scores = _label_hint_scores(filtered_detections)
+    strongest_detection = max(filtered_detections, key=lambda d: d.confidence).label if filtered_detections else None
+    ranked_candidates = product_catalog.rank_candidates(
+        ocr_lines=ocr_tokens,
+        barcode=barcode,
+        top_k=settings.top_k,
+        packaging_type=packaging_type,
+        visual_hints=visual_hints,
+        brand_hint=structured_fields.get('brand') or strongest_detection,
+        structured_fields=structured_fields,
+        visual_score_by_label=visual_scores,
+    )
+    top_candidate = ranked_candidates[0] if ranked_candidates else None
+    candidate_margin = (
+        float(ranked_candidates[0]['confidence']) - float(ranked_candidates[1]['confidence'])
+        if len(ranked_candidates) > 1
+        else float(ranked_candidates[0]['confidence']) if ranked_candidates else 0.0
+    )
+    predicted_product = top_candidate['name'] if top_candidate and top_candidate.get('accepted') else (top_candidate['name'] if top_candidate and top_candidate['confidence'] >= 0.75 else None)
     items = [
         {
             'name': candidate['name'],
@@ -237,6 +396,10 @@ async def detect(
             'product_name': candidate.get('product_name'),
             'product_id': candidate.get('product_id'),
             'reasons': candidate.get('reasons', []),
+            'evidence': candidate.get('evidence'),
+            'packaging': candidate.get('packaging'),
+            'volume_ml': candidate.get('volume_ml'),
+            'accepted': candidate.get('accepted'),
         }
         for candidate in ranked_candidates
     ]
@@ -262,6 +425,21 @@ async def detect(
                 barcode=barcode,
                 predicted_product=predicted_product,
                 predicted_candidates=ranked_candidates,
+                analysis={
+                    'packaging_type': packaging_type,
+                    'ocr_strategy': ocr_strategy,
+                    'top_match_confidence': top_candidate['confidence'] if top_candidate else None,
+                    'top_match_margin': round(candidate_margin, 4) if top_candidate else None,
+                    'top_match_accepted': bool(top_candidate.get('accepted')) if top_candidate else False,
+                    'package_detection_strategy': package_detection_strategy,
+                    'detected_labels': [d.label for d in filtered_detections],
+                    'packaging_scores': packaging_scores,
+                    'structured_ocr_fields': structured_fields,
+                    'candidate_count': len(ranked_candidates),
+                    'detection_count': len(filtered_detections),
+                    'text_detection_count': len(text_detections),
+                    'non_food_filtered_count': non_food_filtered_count,
+                },
                 context={
                     'scan_mode': scan_mode,
                     'device_info': device_info,
@@ -298,6 +476,7 @@ async def detect(
         ],
         barcode_result=barcode,
         predicted_product=predicted_product,
+        packaging_type=packaging_type,
         package_detection=(
             {
                 'label': package_detection.label,
@@ -307,15 +486,44 @@ async def detect(
             if package_detection
             else None
         ),
+        top_match=(
+            {
+                'product_id': top_candidate.get('product_id'),
+                'name': top_candidate.get('name'),
+                'brand': top_candidate.get('brand'),
+                'product_name': top_candidate.get('product_name'),
+                'confidence': top_candidate.get('confidence'),
+                'reasons': top_candidate.get('reasons', []),
+                'evidence': top_candidate.get('evidence'),
+            }
+            if top_candidate
+            else None
+        ),
+        alternatives=[
+            {
+                'product_id': candidate.get('product_id'),
+                'name': candidate.get('name'),
+                'brand': candidate.get('brand'),
+                'product_name': candidate.get('product_name'),
+                'confidence': candidate.get('confidence'),
+                'reasons': candidate.get('reasons', []),
+                'evidence': candidate.get('evidence'),
+            }
+            for candidate in ranked_candidates[1:3]
+        ],
         scan_log_id=scan_log_id,
         debug={
             'api_keys_logged': ['items', 'detections', 'text_detections', 'model', 'latency_ms'],
             'ocr_token_count': len(ocr_tokens),
+            'ocr_strategy': ocr_strategy,
+            'ocr_regions_used': ocr_regions_used,
             'text_provider_available': text_status.get('available'),
             'text_provider_message': text_status.get('message'),
             'catalog_size': product_catalog.size,
             'package_detected': package_detection is not None,
             'package_detection_strategy': package_detection_strategy,
+            'packaging_type': packaging_type,
+            'packaging_scores': packaging_scores,
             'used_crop_for_ocr': crop_image is not None,
             'crop_pick_label': package_detection.label if package_detection else None,
             'crop_pick_confidence': package_detection.confidence if package_detection else None,
@@ -323,6 +531,11 @@ async def detect(
             'fallback_crop_max_area_ratio': settings.fallback_crop_max_area_ratio,
             'fallback_crop_min_confidence': settings.fallback_crop_min_confidence,
             'fallback_crop_preferred_labels': settings.fallback_crop_preferred_labels,
+            'structured_ocr_fields': structured_fields,
+            'top_match_confidence': top_candidate['confidence'] if top_candidate else None,
+            'top_match_margin': round(candidate_margin, 4) if top_candidate else None,
+            'top_match_accepted': bool(top_candidate.get('accepted')) if top_candidate else False,
+            'alternatives': ranked_candidates[1:3],
             'model_weights_path': getattr(app.state, 'model_weights_path', None),
             'model_weights_sha256': getattr(app.state, 'model_weights_sha256', None),
             'model_loaded_at': getattr(app.state, 'model_loaded_at', None),
@@ -405,6 +618,7 @@ async def log_scan(
         barcode=barcode,
         predicted_product=None,
         predicted_candidates=[],
+        analysis=None,
         context={
             'scan_mode': scan_mode,
             'device_info': device_info,
@@ -433,6 +647,7 @@ async def feedback(payload: FeedbackRequest):
             not_food=payload.not_food,
             bad_photo=payload.bad_photo,
             feedback_notes=payload.feedback_notes,
+            feedback_context=payload.feedback_context,
         )
     except FileNotFoundError as exc:
         raise BotError(

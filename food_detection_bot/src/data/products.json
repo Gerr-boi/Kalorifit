@@ -5,7 +5,9 @@
     "product_name": "Byggr\u00f8t",
     "aliases": ["byggr\u00f8t", "fjordland byggr\u00f8t", "bygggr\u00f8t", "byggr ot"],
     "barcode": null,
-    "keywords": ["gr\u00f8t", "havre", "bygg"]
+    "keywords": ["gr\u00f8t", "havre", "bygg"],
+    "packaging": ["bowl"],
+    "family": "porridge"
   },
   {
     "id": "tine-lettmelk-1l",
@@ -13,7 +15,10 @@
     "product_name": "Lettmelk 1L",
     "aliases": ["lettmelk", "tine lettmelk", "lett melk"],
     "barcode": null,
-    "keywords": ["melk", "milk"]
+    "keywords": ["melk", "milk"],
+    "packaging": ["carton"],
+    "volume_ml": 1000,
+    "family": "milk"
   },
   {
     "id": "q-meieriene-sjokolademelk",
@@ -21,7 +26,9 @@
     "product_name": "Sjokolademelk",
     "aliases": ["q sjokolademelk", "sjokomelk", "chocolate milk"],
     "barcode": null,
-    "keywords": ["kakao", "sjoko", "melk"]
+    "keywords": ["kakao", "sjoko", "melk"],
+    "packaging": ["carton"],
+    "family": "milk"
   },
   {
     "id": "urge-original-15l",
@@ -29,7 +36,11 @@
     "product_name": "Original 1.5L",
     "aliases": ["urge", "urge original", "urge flask", "urge orange soda"],
     "barcode": null,
-    "keywords": ["orange", "soda", "brus"]
+    "keywords": ["orange", "soda", "brus"],
+    "packaging": ["bottle"],
+    "volume_ml": 1500,
+    "sugar_free": false,
+    "family": "soft_drink"
   },
   {
     "id": "urge-intense-zero-15l",
@@ -37,7 +48,11 @@
     "product_name": "Intense Zero 1.5L",
     "aliases": ["urge zero", "urge intense", "urge intense zero"],
     "barcode": null,
-    "keywords": ["zero", "sukkerfri", "orange", "soda", "brus"]
+    "keywords": ["zero", "sukkerfri", "orange", "soda", "brus"],
+    "packaging": ["bottle"],
+    "volume_ml": 1500,
+    "sugar_free": true,
+    "family": "soft_drink"
   },
   {
     "id": "coca-cola-original-15l",
@@ -45,7 +60,11 @@
     "product_name": "Original Taste 1.5L",
     "aliases": ["coca cola", "coca-cola", "cola", "coke", "coca cola original", "coca cola bottle"],
     "barcode": null,
-    "keywords": ["cola", "soda", "brus", "sukker"]
+    "keywords": ["cola", "soda", "brus", "sukker"],
+    "packaging": ["bottle", "can"],
+    "volume_ml": 1500,
+    "sugar_free": false,
+    "family": "soft_drink"
   },
   {
     "id": "coca-cola-zero-15l",
@@ -53,7 +72,11 @@
     "product_name": "Zero Sugar 1.5L",
     "aliases": ["coca cola zero", "coke zero", "cola zero", "coca-cola zero sugar"],
     "barcode": null,
-    "keywords": ["cola", "soda", "brus", "zero", "sukkerfri"]
+    "keywords": ["cola", "soda", "brus", "zero", "sukkerfri"],
+    "packaging": ["bottle", "can"],
+    "volume_ml": 1500,
+    "sugar_free": true,
+    "family": "soft_drink"
   },
   {
     "id": "pepsi-max-15l",
@@ -61,6 +84,10 @@
     "product_name": "Max 1.5L",
     "aliases": ["pepsi max", "pepsi", "pepsi flask", "pepsi bottle"],
     "barcode": null,
-    "keywords": ["cola", "soda", "brus", "zero", "sukkerfri"]
+    "keywords": ["cola", "soda", "brus", "zero", "sukkerfri"],
+    "packaging": ["bottle", "can"],
+    "volume_ml": 1500,
+    "sugar_free": true,
+    "family": "soft_drink"
   }
 ]

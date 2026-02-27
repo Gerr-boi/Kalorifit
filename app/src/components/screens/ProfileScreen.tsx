@@ -1,7 +1,7 @@
+import { Activity, ArrowLeft, Bell, ChevronRight, Globe, HelpCircle, LogOut, Moon, Settings, Shield, Trophy, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity, ArrowLeft, Trophy, X } from 'lucide-react';
-import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
   addDays,
   calculateDailyDisciplineScore,
@@ -24,10 +24,10 @@ import {
   DEFAULT_NUTRITION_PROFILE,
   normalizeNutritionProfile,
   type ActivityLevel,
-  type BiologicalSex,
   type BehaviorPreference,
-  type DietStyle,
+  type BiologicalSex,
   type DietMode,
+  type DietStyle,
   type GoalCategory,
   type GoalMode,
   type GoalStrategy,

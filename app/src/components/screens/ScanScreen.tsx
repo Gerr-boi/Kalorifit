@@ -25,10 +25,16 @@ import {
   type OcrPreprocessMode,
 } from './browserOcr';
 import {
+  applyRecentItemBoost,
+  buildBetterShotMessage,
+  computeTemporalTrackingState,
+  computeFrontVisibilityScore,
   confidenceBucket,
   createResolveRunGuard,
   createResolverSessionCache,
   shouldGateWrongButConfident,
+  shouldPromptForBetterShot,
+  shouldSuppressDuplicateRecognition,
   type ResolverSeedSource,
 } from './scanFlowUtils';
 import {
@@ -82,6 +88,15 @@ type OCRExtractionResult = {
   brandBoostHitCount: number;
   brandBoostCanonicals: string[];
   brandBoostUsed: boolean;
+};
+type BurstFrameCapture = {
+  originalBlob: Blob;
+  width: number;
+  height: number;
+  qualityScore: number;
+  sharpScore: number;
+  glareScore: number;
+  brightnessScore: number;
 };
 type AdaptiveRankingRule = {
   canonical: string;
@@ -337,6 +352,16 @@ export default function ScanScreen() {
     adaptiveRankingGeneratedAt: string | null;
     adaptiveRankingApplied: boolean | null;
     adaptiveRankingAdjustedCount: number | null;
+    frontVisibilityScore: number | null;
+    selectedFrameQuality: number | null;
+    selectedFrameSharpness: number | null;
+    selectedFrameGlare: number | null;
+    selectedFrameBrightness: number | null;
+    packagingType: string | null;
+    topMatchConfidence: number | null;
+    topMatchMargin: number | null;
+    ocrStrategy: string | null;
+    shouldPromptRetake: boolean | null;
   }>({
     scanSessionId: null,
     imageHash: null,
@@ -369,10 +394,21 @@ export default function ScanScreen() {
     adaptiveRankingGeneratedAt: null,
     adaptiveRankingApplied: null,
     adaptiveRankingAdjustedCount: null,
+    frontVisibilityScore: null,
+    selectedFrameQuality: null,
+    selectedFrameSharpness: null,
+    selectedFrameGlare: null,
+    selectedFrameBrightness: null,
+    packagingType: null,
+    topMatchConfidence: null,
+    topMatchMargin: null,
+    ocrStrategy: null,
+    shouldPromptRetake: null,
   });
   const resolveRunGuardRef = useRef(createResolveRunGuard());
   const resolverSessionCacheRef = useRef(createResolverSessionCache());
   const addUndoRef = useRef<AddUndoSnapshot | null>(null);
+  const lastResolvedRecognitionRef = useRef<{ name: string; at: number } | null>(null);
 
   function getDeviceInfo() {
     const nav = window.navigator;
@@ -609,6 +645,41 @@ export default function ScanScreen() {
     }
   }
 
+  function loadRecentResolvedNames() {
+    const names: string[] = [];
+    try {
+      const rawLastLogged = window.localStorage.getItem(getScopedStorageKey(LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY, 'user', activeUserId));
+      if (rawLastLogged) {
+        const parsed = JSON.parse(rawLastLogged) as { name?: string };
+        if (typeof parsed?.name === 'string' && parsed.name.trim()) names.push(parsed.name.trim());
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const rawLogs = window.localStorage.getItem(getScopedStorageKey(LEGACY_DAILY_LOGS_STORAGE_KEY, 'user', activeUserId));
+      if (rawLogs) {
+        const parsed = JSON.parse(rawLogs) as Record<string, DayLog>;
+        const keys = Object.keys(parsed).sort().slice(-4);
+        for (const key of keys) {
+          const day = parsed[key];
+          const meals = day?.meals;
+          if (!meals) continue;
+          for (const mealId of ['breakfast', 'lunch', 'dinner', 'snacks'] as const) {
+            for (const entry of meals[mealId] ?? []) {
+              if (typeof entry?.name === 'string' && entry.name.trim()) {
+                names.push(entry.name.trim());
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [...new Set(names)].slice(-10);
+  }
+
   function hammingDistanceHex(a: string, b: string) {
     if (!a || !b || a.length !== b.length) return Number.POSITIVE_INFINITY;
     let dist = 0;
@@ -808,15 +879,16 @@ export default function ScanScreen() {
 
     const sharpNorm = clamp01(lapVar / 6500);
     const contrastNorm = clamp01(stdDev / 78);
+    const brightnessNorm = clamp01(mean / 160);
     const glareRatio = glareCount / Math.max(1, gray.length);
     const glareNorm = clamp01(glareRatio / 0.2);
     const greenRatio = greenDominantCount / Math.max(1, gray.length);
     const greenCue = clamp01(greenRatio / 0.16);
     const orangeRatio = orangeDominantCount / Math.max(1, gray.length);
     const orangeCue = clamp01(orangeRatio / 0.2);
-    const cropScore = clamp01((0.48 * sharpNorm) + (0.42 * contrastNorm) - (0.34 * glareNorm));
+    const cropScore = clamp01((0.42 * sharpNorm) + (0.34 * contrastNorm) + (0.14 * brightnessNorm) - (0.34 * glareNorm));
 
-    return { cropScore, sharpNorm, contrastNorm, glareNorm, greenCue, orangeCue };
+    return { cropScore, sharpNorm, contrastNorm, brightnessNorm, glareNorm, greenCue, orangeCue };
   }
 
   function isLikelyNoisyLiveText(input: string) {
@@ -1661,6 +1733,16 @@ export default function ScanScreen() {
             brandBoostTopCanonical: scanMetricsRef.current.ocrBrandBoostTopCanonical,
             brandBoostResolverChosenItemId: scanMetricsRef.current.resolverChosenItemId,
             brandBoostUserFinalItemId: payload.feedbackContext?.userFinalItemId ?? inferredFinalId,
+            frontVisibilityScore: scanMetricsRef.current.frontVisibilityScore,
+            selectedFrameQuality: scanMetricsRef.current.selectedFrameQuality,
+            selectedFrameSharpness: scanMetricsRef.current.selectedFrameSharpness,
+            selectedFrameGlare: scanMetricsRef.current.selectedFrameGlare,
+            selectedFrameBrightness: scanMetricsRef.current.selectedFrameBrightness,
+            packagingType: scanMetricsRef.current.packagingType,
+            topMatchConfidence: scanMetricsRef.current.topMatchConfidence,
+            topMatchMargin: scanMetricsRef.current.topMatchMargin,
+            ocrStrategy: scanMetricsRef.current.ocrStrategy,
+            shouldPromptRetake: scanMetricsRef.current.shouldPromptRetake,
             adaptiveRankingEnabled: scanMetricsRef.current.adaptiveRankingEnabled,
             adaptiveRankingKillSwitch: scanMetricsRef.current.adaptiveRankingKillSwitch,
             adaptiveRankingGeneratedAt: scanMetricsRef.current.adaptiveRankingGeneratedAt,
@@ -2499,6 +2581,18 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       'laptop',
       'screen',
       'monitor',
+      'detergent',
+      'soap',
+      'shampoo',
+      'conditioner',
+      'cosmetic',
+      'makeup',
+      'perfume',
+      'deodorant',
+      'cleaner',
+      'cleaning spray',
+      'bleach',
+      'disinfectant',
     ];
     if (nonFoodHints.some((hint) => normalized === hint || normalized.includes(hint))) {
       return true;
@@ -2515,6 +2609,18 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     const source = raw as {
       label?: unknown;
       name?: unknown;
+      topMatch?: {
+        name?: unknown;
+        brand?: unknown;
+        productName?: unknown;
+        confidence?: unknown;
+      };
+      alternatives?: Array<{
+        name?: unknown;
+        brand?: unknown;
+        productName?: unknown;
+        confidence?: unknown;
+      }>;
       predictions?: Array<{ label?: unknown; class?: unknown; confidence?: unknown; score?: unknown }>;
       concepts?: Array<{ name?: unknown; value?: unknown }>;
       tags?: Array<{ name?: unknown }>;
@@ -2530,6 +2636,20 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         ? source.confidence
         : (typeof source.score === 'number' ? source.score : 0);
       candidates.push({ label, confidence });
+    }
+
+    const topMatchCandidates = [source.topMatch, ...(source.alternatives ?? [])];
+    for (const candidate of topMatchCandidates) {
+      const confidence = typeof candidate?.confidence === 'number' ? candidate.confidence : 0;
+      const labels = [
+        (candidate?.name ?? '').toString().trim(),
+        `${(candidate?.brand ?? '').toString().trim()} ${(candidate?.productName ?? '').toString().trim()}`.trim(),
+        (candidate?.brand ?? '').toString().trim(),
+        (candidate?.productName ?? '').toString().trim(),
+      ].filter(Boolean);
+      for (const label of labels) {
+        candidates.push({ label, confidence });
+      }
     }
 
     for (const p of source.predictions ?? []) {
@@ -2742,6 +2862,120 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     };
   }
 
+  function delay(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function capturePhotoBurstFrames(video: HTMLVideoElement, frameCount = 3, delayMs = 90): Promise<BurstFrameCapture[]> {
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      throw new Error('Could not capture burst frame.');
+    }
+
+    const frames: BurstFrameCapture[] = [];
+    for (let index = 0; index < frameCount; index += 1) {
+      ctx.drawImage(video, 0, 0, width, height);
+      const frame = ctx.getImageData(0, 0, width, height);
+      const quality = scoreCropQuality(frame);
+      const originalBlob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob((result) => resolve(result), 'image/jpeg', JPEG_QUALITY);
+      });
+      if (originalBlob) {
+        frames.push({
+          originalBlob,
+          width,
+          height,
+          qualityScore: (quality.cropScore * 0.72) + (quality.sharpNorm * 0.18) + ((1 - quality.glareNorm) * 0.1),
+          sharpScore: quality.sharpNorm,
+          glareScore: quality.glareNorm,
+          brightnessScore: quality.brightnessNorm,
+        });
+      }
+      if (index < frameCount - 1) {
+        await delay(delayMs);
+      }
+    }
+    return frames;
+  }
+
+  function mergeBurstPredictions(groups: VisionPrediction[][], boostPerExtraHit = 0.05) {
+    const bestByLabel = new Map<string, { label: string; confidence: number; hits: number }>();
+    for (const group of groups) {
+      const seenThisGroup = new Set<string>();
+      for (const entry of group) {
+        const label = normalizeDishLabel(entry.label);
+        if (!label || isInvalidVisionLabel(label)) continue;
+        const key = label.toLowerCase();
+        const prev = bestByLabel.get(key);
+        if (!prev) {
+          bestByLabel.set(key, { label, confidence: entry.confidence, hits: 1 });
+        } else {
+          prev.confidence = Math.max(prev.confidence, entry.confidence);
+          if (!seenThisGroup.has(key)) {
+            prev.hits += 1;
+          }
+        }
+        seenThisGroup.add(key);
+      }
+    }
+    return [...bestByLabel.values()]
+      .map((entry) => ({
+        label: entry.label,
+        confidence: Math.min(0.98, entry.confidence + (Math.max(0, entry.hits - 1) * boostPerExtraHit)),
+      }))
+      .sort((a, b) => b.confidence - a.confidence)
+      .slice(0, 8);
+  }
+
+  function mergeBurstOcrExtractions(results: OCRExtractionResult[]): OCRExtractionResult {
+    if (!results.length) {
+      return {
+        seeds: [],
+        brandSeeds: [],
+        latencyMs: 0,
+        preprocessTried: [],
+        preprocessChosen: 'normal',
+        rotationTried: [],
+        rotationChosen: 0,
+        runCount: 0,
+        textCharCount: 0,
+        bestLineScore: 0,
+        seedCount: 0,
+        brandBoostHitCount: 0,
+        brandBoostCanonicals: [],
+        brandBoostUsed: false,
+      };
+    }
+    const strongest = [...results].sort((a, b) => b.bestLineScore - a.bestLineScore)[0];
+    const preprocessTried = [...new Set(results.flatMap((row) => row.preprocessTried))];
+    const rotationTried = [...new Set(results.flatMap((row) => row.rotationTried))];
+    const brandBoostCanonicals = [...new Set(results.flatMap((row) => row.brandBoostCanonicals))];
+    const seeds = mergeBurstPredictions(results.map((row) => row.seeds), 0.06);
+    const brandSeeds = mergeBurstPredictions(results.map((row) => row.brandSeeds), 0.08);
+
+    return {
+      seeds,
+      brandSeeds,
+      latencyMs: results.reduce((sum, row) => sum + row.latencyMs, 0),
+      preprocessTried,
+      preprocessChosen: strongest.preprocessChosen,
+      rotationTried,
+      rotationChosen: strongest.rotationChosen,
+      runCount: results.reduce((sum, row) => sum + row.runCount, 0),
+      textCharCount: Math.max(...results.map((row) => row.textCharCount)),
+      bestLineScore: Math.max(...results.map((row) => row.bestLineScore)),
+      seedCount: seeds.length,
+      brandBoostHitCount: results.reduce((sum, row) => sum + row.brandBoostHitCount, 0),
+      brandBoostCanonicals,
+      brandBoostUsed: results.some((row) => row.brandBoostUsed),
+    };
+  }
+
   async function runVisionOnImage(
     url: string,
     trace: ScanTrace,
@@ -2827,6 +3061,19 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           product_name?: string;
           reasons?: string[];
         }>;
+        top_match?: {
+          name?: string;
+          confidence?: number;
+          brand?: string;
+          product_name?: string;
+        };
+        alternatives?: Array<{
+          name?: string;
+          confidence?: number;
+          brand?: string;
+          product_name?: string;
+        }>;
+        packaging_type?: string;
         detections?: Array<{ label?: string; confidence?: number }>;
         text_detections?: Array<{ text?: string; confidence?: number }>;
         predicted_product?: string;
@@ -2926,6 +3173,24 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       const debugData: Record<string, unknown> = parsed?.debug && typeof parsed.debug === 'object'
         ? parsed.debug
         : {};
+      const topMatch = parsed?.top_match && typeof parsed.top_match === 'object'
+        ? {
+            name: String(parsed.top_match.name ?? '').trim(),
+            brand: String(parsed.top_match.brand ?? '').trim(),
+            productName: String(parsed.top_match.product_name ?? '').trim(),
+            confidence: typeof parsed.top_match.confidence === 'number' ? parsed.top_match.confidence : 0,
+          }
+        : null;
+      const alternatives = Array.isArray(parsed?.alternatives)
+        ? parsed.alternatives
+            .map((entry) => ({
+              name: String(entry?.name ?? '').trim(),
+              brand: String(entry?.brand ?? '').trim(),
+              productName: String(entry?.product_name ?? '').trim(),
+              confidence: typeof entry?.confidence === 'number' ? entry.confidence : 0,
+            }))
+            .filter((entry) => entry.name)
+        : [];
       const dishPredictionsRaw = Array.isArray(debugData.dish_predictions)
         ? (debugData.dish_predictions as Array<{ label?: unknown; confidence?: unknown }>)
         : [];
@@ -2957,6 +3222,15 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       const retryGuidance = typeof debugData.retry_guidance === 'string'
         ? debugData.retry_guidance
         : null;
+      const topMatchConfidence = typeof debugData.top_match_confidence === 'number'
+        ? debugData.top_match_confidence
+        : (topMatch?.confidence ?? null);
+      const topMatchMargin = typeof debugData.top_match_margin === 'number'
+        ? debugData.top_match_margin
+        : null;
+      const ocrStrategy = typeof debugData.ocr_strategy === 'string'
+        ? debugData.ocr_strategy
+        : null;
 
       if (labelResolutionState === 'needs_recapture') {
         return {
@@ -2967,6 +3241,12 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           isDummyProvider,
           needsRecapture: true,
           retryGuidance,
+          topMatch,
+          alternatives,
+          topMatchConfidence,
+          topMatchMargin,
+          packagingType: typeof parsed?.packaging_type === 'string' ? parsed.packaging_type : null,
+          ocrStrategy,
         };
       }
       if (!finalPredictions.length) return null;
@@ -2980,6 +3260,12 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         isDummyProvider,
         needsRecapture: false,
         retryGuidance: null,
+        topMatch,
+        alternatives,
+        topMatchConfidence,
+        topMatchMargin,
+        packagingType: typeof parsed?.packaging_type === 'string' ? parsed.packaging_type : null,
+        ocrStrategy,
       };
     } catch (err) {
       if ((externalSignal?.aborted) || (err instanceof DOMException && err.name === 'AbortError')) {
@@ -3269,7 +3555,8 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     url: string,
     trace: ScanTrace,
     blobForVision?: Blob,
-    originalBlobForBarcode?: Blob
+    originalBlobForBarcode?: Blob,
+    options?: { burstFrames?: BurstFrameCapture[] }
   ) => {
     const run = beginResolveRun();
     setIsScanning(true);
@@ -3311,19 +3598,34 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       adaptiveRankingGeneratedAt: null,
       adaptiveRankingApplied: null,
       adaptiveRankingAdjustedCount: null,
+      frontVisibilityScore: null,
+      selectedFrameQuality: null,
+      selectedFrameSharpness: null,
+      selectedFrameGlare: null,
+      selectedFrameBrightness: null,
+      packagingType: null,
+      topMatchConfidence: null,
+      topMatchMargin: null,
+      ocrStrategy: null,
+      shouldPromptRetake: null,
     };
 
     try {
       const sourceBlob = blobForVision ?? await (await fetch(url)).blob();
       const barcodeBlob = originalBlobForBarcode ?? sourceBlob;
+      const burstFrames = options?.burstFrames ?? [];
       const imageHash = await computeDHash(sourceBlob);
       latestImageHashRef.current = imageHash;
       scanMetricsRef.current.imageHash = imageHash;
       resolverSessionCacheRef.current.ensure(imageHash);
       // Barcode-first priority for photo scans.
       setScanStatus('Prøver strekkode...');
-      const prioritizedBarcode = await tryDecodeBarcodeFromBlob(barcodeBlob);
-      if (prioritizedBarcode) {
+      const barcodeSources = burstFrames.length
+        ? [...burstFrames].sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 3).map((frame) => frame.originalBlob)
+        : [barcodeBlob];
+      for (const candidateBlob of barcodeSources) {
+        const prioritizedBarcode = await tryDecodeBarcodeFromBlob(candidateBlob);
+        if (!prioritizedBarcode) continue;
         const resolvedByBarcode = await handleBarcodeDetected(prioritizedBarcode, false);
         if (resolvedByBarcode) {
           noPredictionCountRef.current = 0;
@@ -3332,21 +3634,43 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         }
       }
       setScanStatus('Analyserer bilde...');
-      const ocrSeedPromise = runOCRSeedExtraction(sourceBlob, trace, imageHash, run.signal).then((result) => {
-        scanMetricsRef.current.ocrPreprocessTried = result.preprocessTried;
-        scanMetricsRef.current.ocrPreprocessChosen = result.preprocessChosen;
-        scanMetricsRef.current.ocrTextCharCount = result.textCharCount;
-        scanMetricsRef.current.ocrBestLineScore = result.bestLineScore;
-        scanMetricsRef.current.ocrSeedCount = result.seedCount;
-        scanMetricsRef.current.ocrRotationTried = result.rotationTried;
-        scanMetricsRef.current.ocrRotationChosen = result.rotationChosen;
-        scanMetricsRef.current.ocrRunCount = result.runCount;
-        scanMetricsRef.current.ocrBrandBoostHitCount = result.brandBoostHitCount;
-        scanMetricsRef.current.ocrBrandBoostCanonicals = result.brandBoostCanonicals;
-        scanMetricsRef.current.ocrBrandBoostUsed = result.brandBoostUsed;
-        scanMetricsRef.current.ocrBrandBoostTopCanonical = result.brandBoostCanonicals[0] ?? null;
-        return { ocrSeeds: result.seeds, brandSeeds: result.brandSeeds };
-      });
+      const ocrSeedPromise = (async () => {
+        const ocrSources = burstFrames.length
+          ? [...burstFrames].sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 3).map((frame) => frame.originalBlob)
+          : [sourceBlob];
+        const ocrRuns: OCRExtractionResult[] = [];
+        for (const candidateBlob of ocrSources) {
+          const result = await runOCRSeedExtraction(
+            candidateBlob,
+            trace,
+            burstFrames.length ? null : imageHash,
+            run.signal
+          );
+          ocrRuns.push(result);
+          if (result.seedCount >= 3 && result.bestLineScore >= 0.72) break;
+          if (ocrRuns.length >= 2 && ocrRuns.every((entry) => entry.seedCount === 0)) break;
+        }
+        const merged = mergeBurstOcrExtractions(ocrRuns);
+        scanMetricsRef.current.ocrPreprocessTried = merged.preprocessTried;
+        scanMetricsRef.current.ocrPreprocessChosen = merged.preprocessChosen;
+        scanMetricsRef.current.ocrTextCharCount = merged.textCharCount;
+        scanMetricsRef.current.ocrBestLineScore = merged.bestLineScore;
+        scanMetricsRef.current.ocrSeedCount = merged.seedCount;
+        scanMetricsRef.current.ocrRotationTried = merged.rotationTried;
+        scanMetricsRef.current.ocrRotationChosen = merged.rotationChosen;
+        scanMetricsRef.current.ocrRunCount = merged.runCount;
+        scanMetricsRef.current.ocrBrandBoostHitCount = merged.brandBoostHitCount;
+        scanMetricsRef.current.ocrBrandBoostCanonicals = merged.brandBoostCanonicals;
+        scanMetricsRef.current.ocrBrandBoostUsed = merged.brandBoostUsed;
+        scanMetricsRef.current.ocrBrandBoostTopCanonical = merged.brandBoostCanonicals[0] ?? null;
+        trace.mark('RESULT_PARSED', {
+          stage: 'burst_ocr_ready',
+          burstFrameCount: ocrRuns.length,
+          mergedSeedCount: merged.seedCount,
+          bestLineScore: Number(merged.bestLineScore.toFixed(3)),
+        });
+        return { ocrSeeds: merged.seeds, brandSeeds: merged.brandSeeds };
+      })();
       const dishPredictionPromise = runDishPredictOnImage(url, trace, sourceBlob, imageHash, run.signal).then((result) => {
         if (!isCurrentResolveRun(run.id)) return result.predictions;
         setDishPredictions(result.predictions);
@@ -3371,9 +3695,70 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           isDummyProvider?: unknown;
           needsRecapture?: unknown;
           retryGuidance?: unknown;
+          topMatchConfidence?: unknown;
+          topMatchMargin?: unknown;
+          packagingType?: unknown;
+          ocrStrategy?: unknown;
+          alternatives?: unknown;
         })
         : null;
       const nextScanLogId = typeof rawResultObject?.scanLogId === 'string' ? rawResultObject.scanLogId : null;
+      const topMatchConfidence = typeof rawResultObject?.topMatchConfidence === 'number' ? rawResultObject.topMatchConfidence : null;
+      const topMatchMargin = typeof rawResultObject?.topMatchMargin === 'number' ? rawResultObject.topMatchMargin : null;
+      const packagingType = typeof rawResultObject?.packagingType === 'string' ? rawResultObject.packagingType : null;
+      const ocrStrategy = typeof rawResultObject?.ocrStrategy === 'string' ? rawResultObject.ocrStrategy : null;
+      const alternativeCount = Array.isArray(rawResultObject?.alternatives) ? rawResultObject.alternatives.length : 0;
+      const bestBurstFrame = burstFrames.length
+        ? burstFrames.reduce((best, frame) => (frame.qualityScore > best.qualityScore ? frame : best))
+        : null;
+      const primaryFrameQuality = bestBurstFrame?.qualityScore ?? null;
+      const frontVisibilityScore = computeFrontVisibilityScore({
+        packagingType,
+        frameQuality: primaryFrameQuality,
+        ocrBestLineScore: scanMetricsRef.current.ocrBestLineScore,
+        ocrTextCharCount: scanMetricsRef.current.ocrTextCharCount,
+        topMatchConfidence,
+        topMatchMargin,
+      });
+      const shouldPromptRetake = shouldPromptForBetterShot({
+        frameQuality: primaryFrameQuality,
+        topMatchConfidence,
+        topMatchMargin,
+        alternativeCount,
+        packagingType,
+        ocrStrategy,
+      });
+      scanMetricsRef.current.frontVisibilityScore = frontVisibilityScore;
+      scanMetricsRef.current.packagingType = packagingType;
+      scanMetricsRef.current.topMatchConfidence = topMatchConfidence;
+      scanMetricsRef.current.topMatchMargin = topMatchMargin;
+      scanMetricsRef.current.ocrStrategy = ocrStrategy;
+      scanMetricsRef.current.shouldPromptRetake = shouldPromptRetake;
+      const markResolvedName = (name: string) => {
+        lastResolvedRecognitionRef.current = { name, at: Date.now() };
+      };
+      const shouldSuppressResolvedName = (name: string, outcome: string) => {
+        const nowAt = Date.now();
+        const previous = lastResolvedRecognitionRef.current;
+        if (!shouldSuppressDuplicateRecognition({
+          previousName: previous?.name,
+          nextName: name,
+          previousAt: previous?.at,
+          nowAt,
+          frontVisibilityScore,
+        })) {
+          return false;
+        }
+        noPredictionCountRef.current = 0;
+        setScanState('idle');
+        showFeedback('Same item is still in view, so recognition was skipped until it changes.', 'info');
+        trace.mark('UI_UPDATED', {
+          outcome,
+          suppressedName: name,
+          frontVisibilityScore: Number(frontVisibilityScore.toFixed(3)),
+        });
+        return true;
+      };
       setScanLogId(nextScanLogId);
       if (rawResultObject?.needsRecapture === true) {
         setPredictionOptions([]);
@@ -3402,6 +3787,19 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       const finalPredictions = resolverSeeds.map((entry) => ({ label: entry.label, confidence: entry.confidence }));
 
       setPredictionOptions(finalPredictions.slice(0, 6));
+      if (shouldPromptRetake) {
+        showFeedback(
+          buildBetterShotMessage({
+            packagingType,
+            topMatchMargin,
+            hasBarcodeAlternative: packagingType != null && ['can', 'bottle', 'carton'].includes(packagingType.toLowerCase()),
+            blurScore: bestBurstFrame?.sharpScore ?? null,
+            glareScore: bestBurstFrame?.glareScore ?? null,
+            brightnessScore: bestBurstFrame?.brightnessScore ?? null,
+          }),
+          'info'
+        );
+      }
       trace.mark('RESULT_PARSED', { predictionCount: finalPredictions.length, resolverSeedCount: resolverSeeds.length });
       if (!resolverSeeds.length) {
         setScanStatus('Prøver strekkode...');
@@ -3416,6 +3814,9 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         }
         const visualMatch = await findVisualAnchorMatch(barcodeBlob);
         if (visualMatch) {
+          if (shouldSuppressResolvedName(visualMatch.anchor.name, 'duplicate_visual_anchor_match')) {
+            return;
+          }
           const quality = Math.max(0.45, Math.min(0.9, 1 - visualMatch.distance / 20));
           setScannedFood({
             name: visualMatch.anchor.name,
@@ -3427,6 +3828,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             confidence: Math.round(quality * 100),
             image: url,
           });
+          markResolvedName(visualMatch.anchor.name);
           markFirstCandidateShown();
           trace.mark('UI_UPDATED', {
             outcome: 'visual_anchor_match',
@@ -3437,16 +3839,55 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         }
         noPredictionCountRef.current += 1;
         setScanState('idle');
-        showFeedback('Fant ikke tydelig nok treff i bildet. Prøv et nytt bilde eller bruk strekkode.', 'info');
+        showFeedback(
+          shouldPromptRetake
+            ? buildBetterShotMessage({
+                packagingType,
+                topMatchMargin,
+                hasBarcodeAlternative: true,
+                blurScore: bestBurstFrame?.sharpScore ?? null,
+                glareScore: bestBurstFrame?.glareScore ?? null,
+                brightnessScore: bestBurstFrame?.brightnessScore ?? null,
+              })
+            : 'Fant ikke tydelig nok treff i bildet. Prøv et nytt bilde eller bruk strekkode.',
+          'info'
+        );
         trace.mark('UI_UPDATED', { outcome: 'no_predictions_retry', retryCount: noPredictionCountRef.current });
         return;
       }
       noPredictionCountRef.current = 0;
 
+      if (
+        packagingType &&
+        ['can', 'bottle', 'carton', 'wrapper', 'pouch'].includes(packagingType.toLowerCase()) &&
+        frontVisibilityScore < 0.46
+      ) {
+        setScanState('idle');
+        showFeedback(
+          buildBetterShotMessage({
+            packagingType,
+            topMatchMargin,
+            hasBarcodeAlternative: true,
+            blurScore: bestBurstFrame?.sharpScore ?? null,
+            glareScore: bestBurstFrame?.glareScore ?? null,
+            brightnessScore: bestBurstFrame?.brightnessScore ?? null,
+          }),
+          'info'
+        );
+        trace.mark('UI_UPDATED', {
+          outcome: 'front_of_pack_low_visibility',
+          frontVisibilityScore: Number(frontVisibilityScore.toFixed(3)),
+        });
+        return;
+      }
+
       if (detectChocolateMilkHint(finalPredictions)) {
         setScanStatus('Soker etter sjokolademelk...');
         const direct = await withTimeout(resolveLabelOFFWithCandidates('sjokolademelk', {}, 3), MAX_RESOLVER_WAIT_MS);
         if (!isTimedOut(direct) && direct.best) {
+          if (shouldSuppressResolvedName(direct.best.name, 'duplicate_chocolate_milk_direct_match')) {
+            return;
+          }
           const aiConfidence = Math.max(...finalPredictions.map((p) => p.confidence), 0.55);
           const combined = combineConfidence(aiConfidence, direct.best.confidence);
           setScannedFood({
@@ -3459,6 +3900,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             confidence: Math.round(combined * 100),
             image: url,
           });
+          markResolvedName(direct.best.name);
           resolverSessionCacheRef.current.setBySeed(imageHash, 'sjokolademelk', {
             name: direct.best.name,
             calories: direct.best.per100g?.kcal ?? 0,
@@ -3545,6 +3987,9 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         for (const fallbackSeed of fallbackSeeds) {
           const quickFallback = await withTimeout(resolveLabelOFFWithCandidates(fallbackSeed.label, {}, 1), 4000);
           if (isTimedOut(quickFallback) || !quickFallback.best) continue;
+          if (shouldSuppressResolvedName(quickFallback.best.name, 'duplicate_resolver_quick_fallback')) {
+            return;
+          }
           const predictionHint = resolverSeeds.find((prediction) => prediction.label.trim().toLowerCase() === fallbackSeed.label.toLowerCase());
           const combined = combineConfidence(
             Math.max(0.25, predictionHint?.confidence ?? 0.25),
@@ -3560,6 +4005,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             confidence: Math.round(combined * 100),
             image: url,
           });
+          markResolvedName(quickFallback.best.name);
           resolverSessionCacheRef.current.setBySeed(imageHash, fallbackSeed.label, {
             name: quickFallback.best.name,
             calories: quickFallback.best.per100g?.kcal ?? 0,
@@ -3659,6 +4105,8 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         scanMetricsRef.current.adaptiveRankingAdjustedCount = adjustedCount;
       }
 
+      adjustedRankedResult = applyRecentItemBoost(adjustedRankedResult, loadRecentResolvedNames(), 0.035);
+
       const bestResolved = adjustedRankedResult[0];
       const secondResolved = adjustedRankedResult[1];
       const topSeedConfidence = resolverSeeds[0]?.confidence ?? 0;
@@ -3689,6 +4137,9 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       }
 
       const best = bestResolved.item;
+      if (shouldSuppressResolvedName(best.name, 'duplicate_resolver_success')) {
+        return;
+      }
       const bestRaw = best.raw && typeof best.raw === 'object' ? (best.raw as Record<string, unknown>) : {};
       scanMetricsRef.current.resolverChosenItemId = makeResolvedItemId(best);
       scanMetricsRef.current.resolverChosenScore = bestResolved.combined;
@@ -3712,6 +4163,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         confidence: Math.round(bestResolved.combined * 100),
         image: url,
       });
+      markResolvedName(best.name);
       resolverSessionCacheRef.current.setBest(imageHash, {
         name: best.name,
         calories: best.per100g?.kcal ?? 0,
@@ -3768,45 +4220,45 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       return;
     }
 
-    const width = video.videoWidth || 1280;
-    const height = video.videoHeight || 720;
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      showFeedback('Kunne ikke ta bilde fra kamera.', 'error');
-      trace.mark('UI_UPDATED', { outcome: 'capture_failed' });
-      trace.mark('SCAN_END');
-      return;
-    }
-    ctx.drawImage(video, 0, 0, width, height);
-    stopPhotoCamera();
-
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((b) => resolve(b), 'image/jpeg', JPEG_QUALITY);
-    });
-    if (!blob) {
-      showFeedback('Kunne ikke lagre bildet.', 'error');
-      trace.mark('UI_UPDATED', { outcome: 'capture_blob_failed' });
-      trace.mark('SCAN_END');
-      return;
-    }
-    trace.mark('IMAGE_CAPTURED', {
-      width,
-      height,
-      imageBytes: blob.size,
-    });
-
     try {
-      const preprocessed = await preprocessImage(blob);
+      const burstFrames = await capturePhotoBurstFrames(video, 3, 90);
+      stopPhotoCamera();
+      if (!burstFrames.length) {
+        showFeedback('Kunne ikke lagre bildet.', 'error');
+        trace.mark('UI_UPDATED', { outcome: 'capture_blob_failed' });
+        trace.mark('SCAN_END');
+        return;
+      }
+
+      const selectedFrame = [...burstFrames].sort((a, b) => b.qualityScore - a.qualityScore)[0];
+      scanMetricsRef.current.selectedFrameQuality = selectedFrame.qualityScore;
+      scanMetricsRef.current.selectedFrameSharpness = selectedFrame.sharpScore;
+      scanMetricsRef.current.selectedFrameGlare = selectedFrame.glareScore;
+      scanMetricsRef.current.selectedFrameBrightness = selectedFrame.brightnessScore;
+      trace.mark('IMAGE_CAPTURED', {
+        width: selectedFrame.width,
+        height: selectedFrame.height,
+        imageBytes: selectedFrame.originalBlob.size,
+        burstFrameCount: burstFrames.length,
+        selectedFrameQuality: Number(selectedFrame.qualityScore.toFixed(3)),
+      });
+
+      const preprocessedFrames = await Promise.all(
+        burstFrames.map(async (frame) => ({
+          ...frame,
+          preprocessed: await preprocessImage(frame.originalBlob),
+        }))
+      );
+      const selectedProcessedFrame = [...preprocessedFrames].sort((a, b) => b.qualityScore - a.qualityScore)[0];
+      const preprocessed = selectedProcessedFrame.preprocessed;
       trace.mark('PREPROCESS_DONE', {
-        originalWidth: width,
-        originalHeight: height,
-        originalBytes: blob.size,
+        originalWidth: selectedProcessedFrame.width,
+        originalHeight: selectedProcessedFrame.height,
+        originalBytes: selectedProcessedFrame.originalBlob.size,
         processedWidth: preprocessed.processed.width,
         processedHeight: preprocessed.processed.height,
         processedBytes: preprocessed.processed.bytes,
+        burstFrameCount: preprocessedFrames.length,
       });
 
       if (prevUrlRef.current) {
@@ -3815,7 +4267,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       const imageUrl = URL.createObjectURL(preprocessed.blob);
       prevUrlRef.current = imageUrl;
 
-      await processImageForNutrition(imageUrl, trace, preprocessed.blob, blob);
+      await processImageForNutrition(
+        imageUrl,
+        trace,
+        preprocessed.blob,
+        selectedProcessedFrame.originalBlob,
+        { burstFrames }
+      );
     } catch (err) {
       showFeedback('Kunne ikke forberede bildet. Prøv igjen.', 'error');
       trace.mark('UI_UPDATED', {
@@ -4101,26 +4559,30 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             }
             const iou = rectIoU(prev, nextRect);
             const centerDist = rectCenterDistance(prev, nextRect);
-            const distanceContinuity = 1 - clamp01(centerDist / 0.36);
-            const continuity = clamp01((iou * 0.7) + (distanceContinuity * 0.3));
+            const tracking = computeTemporalTrackingState({
+              iou,
+              centerDist,
+              quality,
+              previousConfidence: (ocrDebugHud?.cropScore ?? quality),
+              nextConfidence: quality,
+            });
 
             // Ignore abrupt low-quality swaps between distant text regions.
-            if (iou < 0.05 && centerDist > 0.43 && quality < 0.78) {
+            if (tracking.suppressSwap) {
               missCount += 1;
               liveTrackContinuitySinceRef.current = null;
               if (committedTrackedText) setCommittedTrackStale(true);
               return prev;
             }
             missCount = 0;
-            if (continuity >= 0.34) {
+            if (tracking.shouldContinue) {
               if (liveTrackContinuitySinceRef.current == null) {
                 liveTrackContinuitySinceRef.current = ts;
               }
             } else {
               liveTrackContinuitySinceRef.current = null;
             }
-            const alpha = clamp01(0.12 + (quality * 0.28) + (continuity * 0.32));
-            const smoothed = smoothRect(prev, nextRect, alpha);
+            const smoothed = smoothRect(prev, nextRect, tracking.alpha);
             ocrTrackingRectRef.current = smoothed;
             if (committedTrackStale) setCommittedTrackStale(false);
             const continuityMs = liveTrackContinuitySinceRef.current != null

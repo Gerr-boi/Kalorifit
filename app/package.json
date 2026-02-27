@@ -13,6 +13,12 @@
     "test": "vitest run",
     "report:scan-weekly": "node scripts/scan-weekly-report.mjs",
     "report:scan-telemetry": "node scripts/scan-telemetry-dashboard.mjs",
+    "report:scan-dataset": "node scripts/scan-dataset-miner.mjs",
+    "report:scan-augment": "node scripts/scan-augmentation-manifest.mjs",
+    "report:scan-active-learning": "node scripts/scan-active-learning-queue.mjs",
+    "report:scan-training-export": "node scripts/scan-training-export.mjs",
+    "report:scan-triage": "node scripts/scan-triage-sheet.mjs",
+    "report:scan-manifest": "node scripts/scan-manifest-from-triage.mjs",
     "report:scan-corrections": "node scripts/scan-correction-rules.mjs",
     "eval:scan-offline": "node scripts/scan-offline-eval.mjs",
     "eval:ocr-replay": "node scripts/ocr-replay-eval.mjs"

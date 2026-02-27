@@ -21,6 +21,20 @@ class ItemOut(BaseModel):
     product_name: str | None = None
     product_id: str | None = None
     reasons: list[str] | None = None
+    evidence: dict | None = None
+    packaging: list[str] | None = None
+    volume_ml: int | None = None
+    accepted: bool | None = None
+
+
+class MatchOut(BaseModel):
+    product_id: str | None = None
+    name: str
+    brand: str | None = None
+    product_name: str | None = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasons: list[str] | None = None
+    evidence: dict | None = None
 
 
 class DetectResponse(BaseModel):
@@ -33,6 +47,9 @@ class DetectResponse(BaseModel):
     barcode_result: str | None = None
     predicted_product: str | None = None
     package_detection: DetectionOut | None = None
+    packaging_type: str | None = None
+    top_match: MatchOut | None = None
+    alternatives: list[MatchOut] = []
     scan_log_id: str | None = None
     debug: dict | None = None
 
@@ -82,6 +99,7 @@ class FeedbackRequest(BaseModel):
     not_food: bool | None = None
     bad_photo: bool | None = None
     feedback_notes: str | None = None
+    feedback_context: dict | None = None
 
 
 class FeedbackResponse(BaseModel):

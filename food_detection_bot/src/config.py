@@ -7,7 +7,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
     provider: str = 'dummy'
+    ensemble_providers: str = 'yolo,max_remote'
+    ensemble_dedup_iou: float = 0.55
     model_id: str = 'yolo11n.pt'
+    max_remote_base_url: str = 'http://127.0.0.1:5000'
+    max_remote_predict_path: str = '/model/predict'
+    max_remote_timeout_ms: int = 12000
+    max_remote_threshold: float | None = None
     conf_threshold: float = 0.35
     top_k: int = 5
     text_detection_enabled: bool = True
