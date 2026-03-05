@@ -1,14 +1,21 @@
 import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
-import { Barcode, Camera, Check, Loader2, Search, X } from 'lucide-react';
+import { Barcode, Camera, Check, ImagePlus, Loader2, Search, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
-import { resolveLabelOFFWithCandidates } from '../../ai-scanner-logic/labelResolver';
-import { resolveLabelMatvaretabellen } from '../../ai-scanner-logic/matvaretabellen';
+import { resolveLabelAcrossDatasets } from '../../ai-scanner-logic/datasetResolver';
 import { resolveBarcode } from '../../ai-scanner-logic/nutritionResolver';
 import type { MacroNutrients, NutritionResult } from '../../ai-scanner-logic/types';
+import { useAdaptiveRankingRules } from '../../hooks/useAdaptiveRankingRules';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { emitLocalStorageStateChanged, getActiveUserIdFromStorage, getScopedStorageKey } from '../../hooks/useLocalStorageState';
+import { useScanFeedback } from '../../hooks/useScanFeedback';
 import { createEmptyDayLog, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
 import { generateMonthlyIdentityReport, getCurrentMonthKey } from '../../lib/identityEngine';
+import {
+  detectFoodOnImage,
+  predictDishOnImage,
+  type AdaptiveRankingSnapshot,
+} from '../../lib/scanApi';
+import { createInitialScanMetrics } from '../../lib/scanMetrics';
 import FoodDetectionPanel from '../food/FoodDetectionPanel';
 import {
   brandBoostFromOcrText,
@@ -25,10 +32,18 @@ import {
   type OcrPreprocessMode,
 } from './browserOcr';
 import {
+  fuseSamples,
+  sampleWeight,
+  shouldCommitFusedText,
+  textSimilarity,
+  type OcrSample,
+  type TrackOcrState,
+} from './ocrFusion';
+import {
   applyRecentItemBoost,
   buildBetterShotMessage,
-  computeTemporalTrackingState,
   computeFrontVisibilityScore,
+  computeTemporalTrackingState,
   confidenceBucket,
   createResolveRunGuard,
   createResolverSessionCache,
@@ -37,14 +52,6 @@ import {
   shouldSuppressDuplicateRecognition,
   type ResolverSeedSource,
 } from './scanFlowUtils';
-import {
-  fuseSamples,
-  sampleWeight,
-  shouldCommitFusedText,
-  textSimilarity,
-  type OcrSample,
-  type TrackOcrState,
-} from './ocrFusion';
 
 type ScanMode = 'search' | 'photo' | 'barcode';
 
@@ -98,67 +105,6 @@ type BurstFrameCapture = {
   glareScore: number;
   brightnessScore: number;
 };
-type AdaptiveRankingRule = {
-  canonical: string;
-  itemId: string;
-  penalty?: number;
-  boost?: number;
-};
-type AdaptiveRankingSnapshot = {
-  enabled: boolean;
-  killSwitch: boolean;
-  generatedAt: string | null;
-  maxPenaltyPerBrand: number;
-  maxBoostPerBrand: number;
-  doNotPrefer: AdaptiveRankingRule[];
-  boosts: AdaptiveRankingRule[];
-};
-type ScanFeedbackPayload = {
-  userConfirmed?: boolean;
-  userCorrectedTo?: string | null;
-  notFood?: boolean;
-  badPhoto?: boolean;
-  feedbackNotes?: string;
-  feedbackContext?: {
-    imageHash?: string | null;
-    scanSessionId?: string | null;
-    topPredictions?: Array<{ label: string; prob: number }>;
-    selectedPrediction?: string | null;
-    resolverChosenItemId?: string | null;
-    resolverChosenScore?: number | null;
-    resolverChosenConfidence?: number | null;
-    userFinalItemId?: string | null;
-    predictLatencyMs?: number | null;
-    resolveLatencyMs?: number | null;
-    resolverSuccessSeedIndex?: number | null;
-    resolverSuccessSeedSource?: ResolverSeedSource | null;
-    seedWinSource?: ResolverSeedSource | 'manual_search' | null;
-    hadCorrectionTap?: boolean;
-    timeToFirstCandidateMs?: number | null;
-    circuitOpen?: boolean;
-    ocrPreprocessTried?: OcrPreprocessMode[];
-    ocrPreprocessChosen?: OcrPreprocessMode | null;
-    ocrTextCharCount?: number | null;
-    ocrBestLineScore?: number | null;
-    ocrSeedCount?: number | null;
-    ocrRotationTried?: number[];
-    ocrRotationChosen?: number | null;
-    ocrRunCount?: number | null;
-    ocrBrandBoostHitCount?: number | null;
-    ocrBrandBoostCanonicals?: string[];
-    ocrBrandBoostUsed?: boolean | null;
-    brandBoostWasApplied?: boolean | null;
-    brandBoostWon?: boolean | null;
-    brandBoostTopCanonical?: string | null;
-    brandBoostResolverChosenItemId?: string | null;
-    brandBoostUserFinalItemId?: string | null;
-    adaptiveRankingEnabled?: boolean | null;
-    adaptiveRankingKillSwitch?: boolean | null;
-    adaptiveRankingGeneratedAt?: string | null;
-    adaptiveRankingApplied?: boolean | null;
-    adaptiveRankingAdjustedCount?: number | null;
-  };
-};
 type LabelResolveOutcome = 'matched' | 'candidates' | 'no_match' | 'error';
 type ScanTraceStage =
   | 'SCAN_START'
@@ -201,6 +147,11 @@ type AddUndoSnapshot = {
   rawLegacyReports: string | null;
   targetDateKeyRaw: string | null;
 };
+type BotHealthState = {
+  status: 'checking' | 'ok' | 'offline';
+  message: string | null;
+  checkedAt: number | null;
+};
 
 declare global {
   interface Window {
@@ -221,10 +172,11 @@ export default function ScanScreen() {
   const LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY = 'home.lastLoggedFood.v1';
   const LEGACY_IDENTITY_REPORTS_STORAGE_KEY = 'home.identityReports.v1';
   const SCAN_TARGET_DATE_KEY_STORAGE_KEY = 'kalorifit.scanTargetDateKey.v1';
-  const SCAN_DEVICE_ID_STORAGE_KEY = 'kalorifit.scanDeviceId.v1';
   const SCAN_BRAND_AVOID_STORAGE_KEY = 'kalorifit.scan.brand_avoid.v1';
+  const RECENT_CAPTURE_STORAGE_KEY = 'kalorifit.scan.recentCapture.v1';
   const MAX_VISUAL_ANCHORS = 40;
   const visualAnchorStorageKey = getScopedStorageKey(VISUAL_ANCHOR_STORAGE_KEY, 'user', activeUserId);
+  const recentCaptureStorageKey = getScopedStorageKey(RECENT_CAPTURE_STORAGE_KEY, 'user', activeUserId);
   const [mode, setMode] = useState<ScanMode>('photo');
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState('');
@@ -248,6 +200,7 @@ export default function ScanScreen() {
   const [correctionBadPhoto, setCorrectionBadPhoto] = useState(false);
   const [submittingCorrection, setSubmittingCorrection] = useState(false);
   const [submittingConfirm, setSubmittingConfirm] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [scanState, setScanState] = useState<'idle' | 'needs_manual_label' | 'no_match'>('idle');
   const [manualLabel, setManualLabel] = useState<string>('');
   const [manualError, setManualError] = useState<string | null>(null);
@@ -283,6 +236,13 @@ export default function ScanScreen() {
   const [liveScanActive, setLiveScanActive] = useState(false);
   const [liveScanReady, setLiveScanReady] = useState(false);
   const [liveScanError, setLiveScanError] = useState<string | null>(null);
+  const [recentCapturePreview, setRecentCapturePreview] = useState<string | null>(null);
+  const [recentCaptureDataUrl, setRecentCaptureDataUrl] = useState<string | null>(null);
+  const [botHealth, setBotHealth] = useState<BotHealthState>({
+    status: 'checking',
+    message: null,
+    checkedAt: null,
+  });
   const photoVideoRef = useRef<HTMLVideoElement | null>(null);
   const photoStreamRef = useRef<MediaStream | null>(null);
   const liveVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -320,91 +280,7 @@ export default function ScanScreen() {
   const ocrUnavailableHintedRef = useRef(false);
   const ocrWeakHintedRef = useRef(false);
   const adaptiveRankingRef = useRef<AdaptiveRankingSnapshot | null>(null);
-  const scanMetricsRef = useRef<{
-    scanSessionId: string | null;
-    imageHash: string | null;
-    scanStartedAtMs: number | null;
-    predictLatencyMs: number | null;
-    resolveLatencyMs: number | null;
-    resolverChosenItemId: string | null;
-    resolverChosenScore: number | null;
-    resolverChosenConfidence: number | null;
-    resolverSuccessSeedIndex: number | null;
-    resolverSuccessSeedSource: ResolverSeedSource | null;
-    timeToFirstCandidateMs: number | null;
-    hadCorrectionTap: boolean;
-    manualSearchUsed: boolean;
-    circuitOpen: boolean;
-    ocrPreprocessTried: OcrPreprocessMode[];
-    ocrPreprocessChosen: OcrPreprocessMode | null;
-    ocrTextCharCount: number | null;
-    ocrBestLineScore: number | null;
-    ocrSeedCount: number | null;
-    ocrRotationTried: number[];
-    ocrRotationChosen: number | null;
-    ocrRunCount: number | null;
-    ocrBrandBoostHitCount: number | null;
-    ocrBrandBoostCanonicals: string[];
-    ocrBrandBoostUsed: boolean | null;
-    ocrBrandBoostTopCanonical: string | null;
-    adaptiveRankingEnabled: boolean | null;
-    adaptiveRankingKillSwitch: boolean | null;
-    adaptiveRankingGeneratedAt: string | null;
-    adaptiveRankingApplied: boolean | null;
-    adaptiveRankingAdjustedCount: number | null;
-    frontVisibilityScore: number | null;
-    selectedFrameQuality: number | null;
-    selectedFrameSharpness: number | null;
-    selectedFrameGlare: number | null;
-    selectedFrameBrightness: number | null;
-    packagingType: string | null;
-    topMatchConfidence: number | null;
-    topMatchMargin: number | null;
-    ocrStrategy: string | null;
-    shouldPromptRetake: boolean | null;
-  }>({
-    scanSessionId: null,
-    imageHash: null,
-    scanStartedAtMs: null,
-    predictLatencyMs: null,
-    resolveLatencyMs: null,
-    resolverChosenItemId: null,
-    resolverChosenScore: null,
-    resolverChosenConfidence: null,
-    resolverSuccessSeedIndex: null,
-    resolverSuccessSeedSource: null,
-    timeToFirstCandidateMs: null,
-    hadCorrectionTap: false,
-    manualSearchUsed: false,
-    circuitOpen: false,
-    ocrPreprocessTried: [],
-    ocrPreprocessChosen: null,
-    ocrTextCharCount: null,
-    ocrBestLineScore: null,
-    ocrSeedCount: null,
-    ocrRotationTried: [],
-    ocrRotationChosen: null,
-    ocrRunCount: null,
-    ocrBrandBoostHitCount: null,
-    ocrBrandBoostCanonicals: [],
-    ocrBrandBoostUsed: null,
-    ocrBrandBoostTopCanonical: null,
-    adaptiveRankingEnabled: null,
-    adaptiveRankingKillSwitch: null,
-    adaptiveRankingGeneratedAt: null,
-    adaptiveRankingApplied: null,
-    adaptiveRankingAdjustedCount: null,
-    frontVisibilityScore: null,
-    selectedFrameQuality: null,
-    selectedFrameSharpness: null,
-    selectedFrameGlare: null,
-    selectedFrameBrightness: null,
-    packagingType: null,
-    topMatchConfidence: null,
-    topMatchMargin: null,
-    ocrStrategy: null,
-    shouldPromptRetake: null,
-  });
+  const scanMetricsRef = useRef(createInitialScanMetrics());
   const resolveRunGuardRef = useRef(createResolveRunGuard());
   const resolverSessionCacheRef = useRef(createResolverSessionCache());
   const addUndoRef = useRef<AddUndoSnapshot | null>(null);
@@ -418,20 +294,6 @@ export default function ScanScreen() {
   function createScanRequestId() {
     if (window.crypto?.randomUUID) return window.crypto.randomUUID();
     return `scan-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-  }
-
-  function getClientDeviceId() {
-    try {
-      const existing = window.localStorage.getItem(SCAN_DEVICE_ID_STORAGE_KEY);
-      if (existing && existing.trim()) return existing.trim();
-      const next = window.crypto?.randomUUID
-        ? window.crypto.randomUUID()
-        : `dev-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-      window.localStorage.setItem(SCAN_DEVICE_ID_STORAGE_KEY, next);
-      return next;
-    } catch {
-      return 'unknown-device';
-    }
   }
 
   function createScanTrace(input: Record<string, unknown> = {}): ScanTrace {
@@ -464,6 +326,48 @@ export default function ScanScreen() {
     setFeedback({ message, kind });
   }
 
+  async function refreshBotHealth(opts: { showToastOnOffline?: boolean } = {}) {
+    try {
+      const response = await fetch('/api/health', { method: 'GET' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json() as { bot?: { ok?: boolean; error?: string; message?: string } };
+      const botOk = payload?.bot?.ok === true;
+      if (botOk) {
+        setBotHealth({
+          status: 'ok',
+          message: null,
+          checkedAt: Date.now(),
+        });
+        return;
+      }
+
+      const reason =
+        payload?.bot?.message ||
+        payload?.bot?.error ||
+        'food_detection_bot is not reachable on http://127.0.0.1:8001';
+      setBotHealth({
+        status: 'offline',
+        message: reason,
+        checkedAt: Date.now(),
+      });
+      if (opts.showToastOnOffline) {
+        showFeedback('food_detection_bot er ikke tilgjengelig. Start bot-en pa 127.0.0.1:8001.', 'error');
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Unknown health check error';
+      setBotHealth({
+        status: 'offline',
+        message: reason,
+        checkedAt: Date.now(),
+      });
+      if (opts.showToastOnOffline) {
+        showFeedback('Kunne ikke kontakte /api/health. Sjekk at backend kjører.', 'error');
+      }
+    }
+  }
+
   function beginResolveRun() {
     return resolveRunGuardRef.current.begin();
   }
@@ -484,6 +388,28 @@ export default function ScanScreen() {
   useEffect(() => {
     selectedDishSeedRef.current = selectedDishSeed;
   }, [selectedDishSeed]);
+
+  useEffect(() => {
+    const recent = loadRecentCapture();
+    setRecentCapturePreview(recent?.preview ?? null);
+    setRecentCaptureDataUrl(recent?.dataUrl ?? null);
+  }, [recentCaptureStorageKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (cancelled) return;
+      await refreshBotHealth();
+    };
+    void run();
+    const intervalId = window.setInterval(() => {
+      void run();
+    }, 15000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   function normalizeAnchorId(input: string) {
     return input.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 120);
@@ -643,6 +569,64 @@ export default function ScanScreen() {
     } catch {
       // ignore localStorage failures
     }
+  }
+
+  function loadRecentCapture() {
+    try {
+      const raw = window.localStorage.getItem(recentCaptureStorageKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { preview?: string; dataUrl?: string };
+      const preview =
+        typeof parsed?.preview === 'string' && parsed.preview.startsWith('data:image/')
+          ? parsed.preview
+          : null;
+      const dataUrl =
+        typeof parsed?.dataUrl === 'string' && parsed.dataUrl.startsWith('data:image/')
+          ? parsed.dataUrl
+          : null;
+      if (!preview && !dataUrl) return null;
+      return { preview, dataUrl };
+    } catch {
+      return null;
+    }
+  }
+
+  function saveRecentCapture(preview: string | null, dataUrl: string | null) {
+    try {
+      if (!preview && !dataUrl) {
+        window.localStorage.removeItem(recentCaptureStorageKey);
+        return;
+      }
+      window.localStorage.setItem(recentCaptureStorageKey, JSON.stringify({ preview, dataUrl, savedAt: Date.now() }));
+    } catch {
+      // ignore localStorage failures
+    }
+  }
+
+  async function blobToDataUrl(blob: Blob) {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('Failed converting blob to data URL'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function createRecentCapturePreview(blob: Blob) {
+    const img = await loadImageElement(blob);
+    const maxSize = 120;
+    const scale = Math.min(maxSize / Math.max(1, img.width), maxSize / Math.max(1, img.height), 1);
+    const width = Math.max(1, Math.round(img.width * scale));
+    const height = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas.toDataURL('image/jpeg', 0.72);
   }
 
   function loadRecentResolvedNames() {
@@ -898,10 +882,13 @@ export default function ScanScreen() {
     if (!tokens.length) return true;
     const letters = (text.match(/\p{L}/gu) ?? []).length;
     if (letters < 3) return true;
+    const mostlyShortTokens = tokens.length >= 2 && tokens.every((token) => token.length <= 3);
+    if (mostlyShortTokens && letters < 8) return true;
     const shortTokens = tokens.filter((token) => token.length <= 1).length;
     const longTokens = tokens.filter((token) => token.length >= 4).length;
     if (shortTokens >= 2 && longTokens === 0) return true;
     if (/^(?:[\p{L}\p{N}]\s+){2,}[\p{L}\p{N}]$/u.test(text)) return true;
+    if (/^(van|per|ski|med|uten|fra|til)$/i.test(text)) return true;
     return false;
   }
 
@@ -1090,6 +1077,7 @@ export default function ScanScreen() {
       const liveText = cleanLines.map((line) => line.text).join(' ').replace(/\s+/g, ' ').trim();
       if (liveText.length < 2) return;
       const letters = (liveText.match(/\p{L}/gu) ?? []).length;
+      if (quality.sharpNorm < 0.08 && quality.cropScore < 0.42 && letters < 8) return;
       let ocrConf = cleanLines.reduce((sum, line) => sum + Math.max(0, Math.min(1, line.confidence)), 0) / cleanLines.length;
       const brandBoost = brandBoostFromOcrText(liveText, {
         bestLineScore: ocrConf,
@@ -1607,31 +1595,7 @@ export default function ScanScreen() {
     return () => window.clearTimeout(t);
   }, [pendingUndo]);
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const response = await fetch('/api/scan-ranking-rules', { method: 'GET' });
-        if (!response.ok) return;
-        const payload = await response.json();
-        const rules = payload?.rules && typeof payload.rules === 'object' ? payload.rules : {};
-        const meta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : {};
-        const snapshot: AdaptiveRankingSnapshot = {
-          enabled: meta.rulesEnabled === true,
-          killSwitch: meta.killSwitch === true,
-          generatedAt: typeof meta.generatedAt === 'string' ? meta.generatedAt : null,
-          maxPenaltyPerBrand:
-            typeof rules.maxPenaltyPerBrand === 'number' ? Math.max(0, Math.min(0.6, rules.maxPenaltyPerBrand)) : 0.35,
-          maxBoostPerBrand:
-            typeof rules.maxBoostPerBrand === 'number' ? Math.max(0, Math.min(0.6, rules.maxBoostPerBrand)) : 0.25,
-          doNotPrefer: Array.isArray(rules.doNotPrefer) ? rules.doNotPrefer : [],
-          boosts: Array.isArray(rules.boosts) ? rules.boosts : [],
-        };
-        adaptiveRankingRef.current = snapshot;
-      } catch {
-        // ignore adaptive ranking fetch failures and continue with base ranking
-      }
-    })();
-  }, []);
+  useAdaptiveRankingRules(adaptiveRankingRef);
 
   useEffect(() => {
     if (!levelUpCelebration) return;
@@ -1665,10 +1629,16 @@ export default function ScanScreen() {
      }
    };
 
-  function clearScan() {
+  function clearScan(force = false) {
+    if (!force && scanLogId && scannedFood && !feedbackSubmitted) {
+      setShowCorrectionModal(true);
+      showFeedback('Velg Ser riktig ut, korriger, ikke mat eller daarlig bilde foer du avslutter.', 'info');
+      return;
+    }
     setScannedFood(null);
     setScanLogId(null);
     setSubmittingConfirm(false);
+    setFeedbackSubmitted(false);
     setPredictionOptions([]);
     setDishPredictions([]);
     setSelectedDishSeed(null);
@@ -1679,97 +1649,20 @@ export default function ScanScreen() {
     latestImageHashRef.current = null;
   }
 
-  async function sendScanFeedback(payload: ScanFeedbackPayload) {
-    if (!scanLogId) return;
-    const topPredictions = dishPredictions.slice(0, 5).map((entry) => ({
-      label: entry.label,
-      prob: Number(entry.confidence.toFixed(4)),
-    }));
-    const inferredFinalId = payload.userCorrectedTo
-      ? `user:${payload.userCorrectedTo.trim().toLowerCase()}`
-      : (scannedFood ? makeResolvedItemId({ source: 'resolved', name: scannedFood.name, brand: '' }) : null);
-    try {
-      await fetch('/api/scan-feedback', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'X-Scan-Request-Id': activeScanTraceRef.current?.scanRequestId ?? createScanRequestId(),
-        },
-        body: JSON.stringify({
-          scanLogId,
-          ...payload,
-          feedbackContext: {
-            imageHash: latestImageHashRef.current,
-            scanSessionId: scanMetricsRef.current.scanSessionId,
-            topPredictions,
-            selectedPrediction: selectedDishSeedRef.current,
-            resolverChosenItemId: scanMetricsRef.current.resolverChosenItemId,
-            resolverChosenScore: scanMetricsRef.current.resolverChosenScore,
-            resolverChosenConfidence: scanMetricsRef.current.resolverChosenConfidence,
-            userFinalItemId: payload.feedbackContext?.userFinalItemId ?? inferredFinalId,
-            predictLatencyMs: scanMetricsRef.current.predictLatencyMs,
-            resolveLatencyMs: scanMetricsRef.current.resolveLatencyMs,
-            resolverSuccessSeedIndex: scanMetricsRef.current.resolverSuccessSeedIndex,
-            resolverSuccessSeedSource: scanMetricsRef.current.resolverSuccessSeedSource,
-            seedWinSource:
-              scanMetricsRef.current.resolverSuccessSeedSource ??
-              (scanMetricsRef.current.manualSearchUsed ? 'manual_search' : null),
-            hadCorrectionTap: scanMetricsRef.current.hadCorrectionTap,
-            timeToFirstCandidateMs: scanMetricsRef.current.timeToFirstCandidateMs,
-            circuitOpen: scanMetricsRef.current.circuitOpen,
-            ocrPreprocessTried: scanMetricsRef.current.ocrPreprocessTried,
-            ocrPreprocessChosen: scanMetricsRef.current.ocrPreprocessChosen,
-            ocrTextCharCount: scanMetricsRef.current.ocrTextCharCount,
-            ocrBestLineScore: scanMetricsRef.current.ocrBestLineScore,
-            ocrSeedCount: scanMetricsRef.current.ocrSeedCount,
-            ocrRotationTried: scanMetricsRef.current.ocrRotationTried,
-            ocrRotationChosen: scanMetricsRef.current.ocrRotationChosen,
-            ocrRunCount: scanMetricsRef.current.ocrRunCount,
-            ocrBrandBoostHitCount: scanMetricsRef.current.ocrBrandBoostHitCount,
-            ocrBrandBoostCanonicals: scanMetricsRef.current.ocrBrandBoostCanonicals,
-            ocrBrandBoostUsed: scanMetricsRef.current.ocrBrandBoostUsed,
-            brandBoostWasApplied: scanMetricsRef.current.ocrBrandBoostUsed,
-            brandBoostWon: scanMetricsRef.current.resolverSuccessSeedSource === 'ocr_brand',
-            brandBoostTopCanonical: scanMetricsRef.current.ocrBrandBoostTopCanonical,
-            brandBoostResolverChosenItemId: scanMetricsRef.current.resolverChosenItemId,
-            brandBoostUserFinalItemId: payload.feedbackContext?.userFinalItemId ?? inferredFinalId,
-            frontVisibilityScore: scanMetricsRef.current.frontVisibilityScore,
-            selectedFrameQuality: scanMetricsRef.current.selectedFrameQuality,
-            selectedFrameSharpness: scanMetricsRef.current.selectedFrameSharpness,
-            selectedFrameGlare: scanMetricsRef.current.selectedFrameGlare,
-            selectedFrameBrightness: scanMetricsRef.current.selectedFrameBrightness,
-            packagingType: scanMetricsRef.current.packagingType,
-            topMatchConfidence: scanMetricsRef.current.topMatchConfidence,
-            topMatchMargin: scanMetricsRef.current.topMatchMargin,
-            ocrStrategy: scanMetricsRef.current.ocrStrategy,
-            shouldPromptRetake: scanMetricsRef.current.shouldPromptRetake,
-            adaptiveRankingEnabled: scanMetricsRef.current.adaptiveRankingEnabled,
-            adaptiveRankingKillSwitch: scanMetricsRef.current.adaptiveRankingKillSwitch,
-            adaptiveRankingGeneratedAt: scanMetricsRef.current.adaptiveRankingGeneratedAt,
-            adaptiveRankingApplied: scanMetricsRef.current.adaptiveRankingApplied,
-            adaptiveRankingAdjustedCount: scanMetricsRef.current.adaptiveRankingAdjustedCount,
-            ...(payload.feedbackContext ?? {}),
-          },
-        }),
-      });
-    } catch (err) {
-      console.warn('Failed to submit scan feedback:', err);
-    }
-  }
-
-  const confirmCurrentPrediction = async () => {
-    if (!scanLogId || !scannedFood) return;
-    setSubmittingConfirm(true);
-    await sendScanFeedback({
-      userConfirmed: true,
-      userCorrectedTo: scannedFood.name ?? null,
-      feedbackContext: {
-        userFinalItemId: makeResolvedItemId({ source: 'confirmed', name: scannedFood.name, brand: '' }),
-      },
-    });
-    setSubmittingConfirm(false);
-    showFeedback('Takk! Bekreftelsen er lagret.', 'success');
-  };
+  const { sendScanFeedback, confirmCurrentPrediction } = useScanFeedback({
+    scanLogId,
+    scannedFood,
+    dishPredictions,
+    activeScanTraceRef,
+    selectedDishSeedRef,
+    latestImageHashRef,
+    scanMetricsRef,
+    createScanRequestId,
+    makeResolvedItemId,
+    showFeedback,
+    setSubmittingConfirm,
+    setFeedbackSubmitted,
+  });
 
   const undoLastAddToLog = () => {
     const snapshot = addUndoRef.current;
@@ -1924,18 +1817,49 @@ export default function ScanScreen() {
       return;
     }
 
-    await sendScanFeedback({
+    const feedbackOk = await sendScanFeedback({
       userConfirmed: true,
       userCorrectedTo: scannedFood.name ?? null,
     });
+    if (!feedbackOk) return;
     showFeedback(`${scannedFood.name} lagt til i ${mealLabel[mealId]}.`, 'success');
     setPendingUndo({ expiresAt: Date.now() + 7000 });
-    clearScan();
+    clearScan(true);
   };
 
   // Camera roll / file picker support
   const openCameraRoll = () => {
     fileInputRef.current?.click();
+  };
+
+  const useRecentPhoto = async () => {
+    if (!recentCaptureDataUrl) {
+      showFeedback('Ingen nylige bilder ennå.', 'info');
+      return;
+    }
+    const trace = createScanTrace({ source: 'recent_photo' });
+    trace.mark('SCAN_START');
+    try {
+      const blob = await (await fetch(recentCaptureDataUrl)).blob();
+      trace.mark('IMAGE_CAPTURED', {
+        width: null,
+        height: null,
+        imageBytes: blob.size,
+      });
+      if (prevUrlRef.current) {
+        try { URL.revokeObjectURL(prevUrlRef.current); } catch { /* ignore */ }
+      }
+      const url = URL.createObjectURL(blob);
+      prevUrlRef.current = url;
+      await processImageForNutrition(url, trace, blob, blob);
+    } catch (err) {
+      showFeedback('Kunne ikke åpne nylig bilde. Prøv kamerarull.', 'error');
+      trace.mark('UI_UPDATED', {
+        outcome: 'recent_photo_error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+      trace.mark('SCAN_END');
+    }
   };
 
 function normalizeBarcode(code: string) {
@@ -2983,290 +2907,15 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     externalSignal?: AbortSignal
   ): Promise<unknown | null> {
     try {
-      const blob = sourceBlob ?? await (await fetch(url)).blob();
-      const file = new File([blob], 'capture.jpg', { type: blob.type || 'image/jpeg' });
-      const form = new FormData();
-      form.append('image', file);
-      form.append('scanRequestId', trace.scanRequestId);
-      form.append('deviceInfo', trace.deviceInfo);
-      form.append('scanMode', mode);
-      form.append('rotationDegrees', '0');
-
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), MAX_VISION_WAIT_MS);
-      if (externalSignal) {
-        externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
-      }
-
-      trace.mark('UPLOAD_START', {
-        uploadBytes: file.size,
+      return await detectFoodOnImage({
+        url,
+        trace,
+        mode,
+        maxWaitMs: MAX_VISION_WAIT_MS,
+        sourceBlob,
+        externalSignal,
+        isInvalidVisionLabel,
       });
-      let response: Response;
-      try {
-        response = await fetch('/api/detect-food', {
-          method: 'POST',
-          body: form,
-          headers: {
-            'X-Scan-Request-Id': trace.scanRequestId,
-            'X-Device-Info': trace.deviceInfo,
-            'X-Scan-Mode': mode,
-          },
-          signal: controller.signal,
-        });
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-
-      trace.mark('UPLOAD_DONE', {
-        httpStatus: response.status,
-      });
-
-      const responseText = await response.text();
-      const responseSizeBytes = new TextEncoder().encode(responseText).length;
-      const contentType = response.headers.get('content-type') || 'unknown';
-      trace.mark('API_RESPONSE_RECEIVED', {
-        httpStatus: response.status,
-        responseSizeBytes,
-        contentType,
-      });
-
-      let data: unknown;
-      try {
-        data = responseText ? JSON.parse(responseText) : {};
-      } catch {
-        const snippet = responseText.slice(0, 180).replace(/\s+/g, ' ');
-        throw new Error(`Invalid API response (HTTP ${response.status}, ${contentType}): ${snippet}`);
-      }
-
-      if (!response.ok) {
-        const parsed = data as { message?: string; error?: string };
-        const snippet = responseText.slice(0, 180).replace(/\s+/g, ' ');
-        const reason =
-          parsed?.message ||
-          parsed?.error ||
-          `statusText=${response.statusText || 'n/a'} body=${snippet || '<empty>'}`;
-        if (response.status === 404) {
-          throw new Error('Food detection API not found (HTTP 404). Start the backend with `npm run dev` in `app`.');
-        }
-        throw new Error(`Food detection failed (HTTP ${response.status}): ${reason}`);
-      }
-
-      const parsed = data as {
-        success?: boolean;
-        model?: string;
-        items?: Array<{
-          name?: string;
-          confidence?: number;
-          brand?: string;
-          product_name?: string;
-          reasons?: string[];
-        }>;
-        top_match?: {
-          name?: string;
-          confidence?: number;
-          brand?: string;
-          product_name?: string;
-        };
-        alternatives?: Array<{
-          name?: string;
-          confidence?: number;
-          brand?: string;
-          product_name?: string;
-        }>;
-        packaging_type?: string;
-        detections?: Array<{ label?: string; confidence?: number }>;
-        text_detections?: Array<{ text?: string; confidence?: number }>;
-        predicted_product?: string;
-        debug?: Record<string, unknown>;
-        scan_log_id?: string;
-        meta?: { scanLogId?: string };
-        message?: string;
-        error?: string;
-      };
-      if (parsed?.success === false) {
-        throw new Error(parsed?.message || parsed?.error || 'Food detection failed (invalid success payload).');
-      }
-      const modelId = typeof parsed?.model === 'string' ? parsed.model.toLowerCase() : '';
-      const isDummyProvider = modelId.includes('dummy');
-
-      const items = Array.isArray(parsed?.items) ? parsed.items : [];
-      const detections = Array.isArray(parsed?.detections) ? parsed.detections : [];
-      const textDetections = Array.isArray(parsed?.text_detections) ? parsed.text_detections : [];
-      const predictedProduct = typeof parsed?.predicted_product === 'string'
-        ? parsed.predicted_product.trim()
-        : '';
-      const predictionsFromItems = items.flatMap((item) => {
-        const name = (item?.name ?? '').trim();
-        const brand = (item?.brand ?? '').trim();
-        const productName = (item?.product_name ?? '').trim();
-        const reasons = Array.isArray(item?.reasons) ? item.reasons : [];
-        const baseConfidence = typeof item?.confidence === 'number' ? item.confidence : 0;
-        const reasonBoost =
-          (reasons.includes('barcode_exact') ? 0.12 : 0) +
-          (reasons.includes('brand_plus_product') ? 0.10 : 0) +
-          (reasons.includes('product_exact') ? 0.08 : 0) +
-          (reasons.includes('brand_exact') ? 0.05 : 0);
-        const boosted = Math.min(0.99, Math.max(0, baseConfidence + reasonBoost));
-        const candidates = [
-          name,
-          `${brand} ${productName}`.trim(),
-          brand,
-          productName,
-        ].filter((candidate, index, arr) => candidate && arr.indexOf(candidate) === index);
-
-        return candidates.map((label) => ({
-          label,
-          confidence: boosted,
-        }));
-      });
-      const predictionsFromDetections = detections.map((det: { label?: string; confidence?: number }) => ({
-        label: det?.label ?? '',
-        confidence: typeof det?.confidence === 'number' ? det.confidence : 0,
-      }));
-      const predictionsFromText = textDetections.flatMap((entry: { text?: string; confidence?: number }) => {
-        const raw = (entry?.text ?? '').trim();
-        const conf = typeof entry?.confidence === 'number' ? entry.confidence : 0;
-        if (!raw) return [];
-        const cleaned = raw
-          .toLowerCase()
-          .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (!cleaned) return [];
-        const parts = cleaned
-          .split(' ')
-          .map((token) => token.trim())
-          .filter((token) => token.length > 3 && !isInvalidVisionLabel(token));
-        const labels = [cleaned, ...parts];
-        return labels.map((label) => ({
-          label,
-          confidence: Math.max(0.2, Math.min(0.75, conf)),
-        }));
-      });
-      const strongestModelConfidence = Math.max(
-        0.45,
-        ...predictionsFromItems.map((entry) => entry.confidence),
-        ...predictionsFromDetections.map((entry) => entry.confidence)
-      );
-      const predictionsFromCatalog = predictedProduct
-        ? [{ label: predictedProduct, confidence: Math.min(0.98, strongestModelConfidence) }]
-        : [];
-
-      // Priority: catalog prediction first, then dictionary-ranked items, detector and OCR fallbacks.
-      const mergedByLabel = new Map<string, { label: string; confidence: number }>();
-      for (const entry of [...predictionsFromCatalog, ...predictionsFromItems, ...predictionsFromDetections, ...predictionsFromText]) {
-        const normalizedLabel = entry.label.trim().toLowerCase();
-        if (!normalizedLabel || entry.confidence <= 0) continue;
-        const previous = mergedByLabel.get(normalizedLabel);
-        if (!previous || entry.confidence > previous.confidence) {
-          mergedByLabel.set(normalizedLabel, { label: entry.label.trim(), confidence: entry.confidence });
-        }
-      }
-
-      const mergedPredictions = [...mergedByLabel.values()]
-        .sort((a, b) => b.confidence - a.confidence)
-        .slice(0, 8);
-
-      const parsedScanLogId = typeof parsed?.scan_log_id === 'string'
-        ? parsed.scan_log_id
-        : (typeof parsed?.meta?.scanLogId === 'string' ? parsed.meta.scanLogId : null);
-      const debugData: Record<string, unknown> = parsed?.debug && typeof parsed.debug === 'object'
-        ? parsed.debug
-        : {};
-      const topMatch = parsed?.top_match && typeof parsed.top_match === 'object'
-        ? {
-            name: String(parsed.top_match.name ?? '').trim(),
-            brand: String(parsed.top_match.brand ?? '').trim(),
-            productName: String(parsed.top_match.product_name ?? '').trim(),
-            confidence: typeof parsed.top_match.confidence === 'number' ? parsed.top_match.confidence : 0,
-          }
-        : null;
-      const alternatives = Array.isArray(parsed?.alternatives)
-        ? parsed.alternatives
-            .map((entry) => ({
-              name: String(entry?.name ?? '').trim(),
-              brand: String(entry?.brand ?? '').trim(),
-              productName: String(entry?.product_name ?? '').trim(),
-              confidence: typeof entry?.confidence === 'number' ? entry.confidence : 0,
-            }))
-            .filter((entry) => entry.name)
-        : [];
-      const dishPredictionsRaw = Array.isArray(debugData.dish_predictions)
-        ? (debugData.dish_predictions as Array<{ label?: unknown; confidence?: unknown }>)
-        : [];
-      const predictionsFromDish = dishPredictionsRaw
-        .map((entry) => ({
-          label: String(entry?.label ?? '').trim(),
-          confidence: typeof entry?.confidence === 'number'
-            ? Math.max(0.25, Math.min(0.92, entry.confidence))
-            : 0,
-        }))
-        .filter((entry) => entry.label && entry.confidence > 0);
-
-      const mergedWithDish = [...mergedPredictions, ...predictionsFromDish];
-      const mergedByDishLabel = new Map<string, { label: string; confidence: number }>();
-      for (const entry of mergedWithDish) {
-        const key = entry.label.toLowerCase().trim();
-        if (!key) continue;
-        const prev = mergedByDishLabel.get(key);
-        if (!prev || entry.confidence > prev.confidence) {
-          mergedByDishLabel.set(key, entry);
-        }
-      }
-      const finalPredictions = [...mergedByDishLabel.values()]
-        .sort((a, b) => b.confidence - a.confidence)
-        .slice(0, 8);
-      const labelResolutionState = typeof debugData.label_resolution_state === 'string'
-        ? debugData.label_resolution_state
-        : 'ready';
-      const retryGuidance = typeof debugData.retry_guidance === 'string'
-        ? debugData.retry_guidance
-        : null;
-      const topMatchConfidence = typeof debugData.top_match_confidence === 'number'
-        ? debugData.top_match_confidence
-        : (topMatch?.confidence ?? null);
-      const topMatchMargin = typeof debugData.top_match_margin === 'number'
-        ? debugData.top_match_margin
-        : null;
-      const ocrStrategy = typeof debugData.ocr_strategy === 'string'
-        ? debugData.ocr_strategy
-        : null;
-
-      if (labelResolutionState === 'needs_recapture') {
-        return {
-          label: '',
-          confidence: 0,
-          predictions: finalPredictions,
-          scanLogId: parsedScanLogId,
-          isDummyProvider,
-          needsRecapture: true,
-          retryGuidance,
-          topMatch,
-          alternatives,
-          topMatchConfidence,
-          topMatchMargin,
-          packagingType: typeof parsed?.packaging_type === 'string' ? parsed.packaging_type : null,
-          ocrStrategy,
-        };
-      }
-      if (!finalPredictions.length) return null;
-
-      const best = finalPredictions[0] as { label?: string; confidence?: number };
-      return {
-        label: best?.label ?? '',
-        confidence: typeof best?.confidence === 'number' ? best.confidence : 0,
-        predictions: finalPredictions,
-        scanLogId: parsedScanLogId,
-        isDummyProvider,
-        needsRecapture: false,
-        retryGuidance: null,
-        topMatch,
-        alternatives,
-        topMatchConfidence,
-        topMatchMargin,
-        packagingType: typeof parsed?.packaging_type === 'string' ? parsed.packaging_type : null,
-        ocrStrategy,
-      };
     } catch (err) {
       if ((externalSignal?.aborted) || (err instanceof DOMException && err.name === 'AbortError')) {
         if (externalSignal?.aborted) {
@@ -3293,55 +2942,27 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           return { predictions: cached.predictions, latencyMs: cached.latencyMs, circuitOpen: false };
         }
       }
-      const blob = sourceBlob ?? await (await fetch(url)).blob();
-      const file = new File([blob], 'capture.jpg', { type: blob.type || 'image/jpeg' });
-      const form = new FormData();
-      form.append('image', file);
-      form.append('topk', '5');
-      form.append('scanRequestId', trace.scanRequestId);
-
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 9000);
-      if (externalSignal) {
-        externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
-      }
-      let response: Response;
-      const startedAt = performance.now();
-      try {
-        response = await fetch('/api/predict-dish', {
-          method: 'POST',
-          body: form,
-          headers: {
-            'X-Scan-Request-Id': trace.scanRequestId,
-            'X-Scan-Device-Id': getClientDeviceId(),
-          },
-          signal: controller.signal,
-        });
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-      if (!response.ok) return { predictions: [], latencyMs: Math.round(performance.now() - startedAt), circuitOpen: false };
-
-      const parsed = await response.json() as {
-        results?: Array<{ label?: string; confidence?: number }>;
-        meta?: { circuitOpen?: unknown };
-      };
-      const rows = Array.isArray(parsed.results) ? parsed.results : [];
+      const upstream = await predictDishOnImage({
+        url,
+        trace,
+        sourceBlob,
+        externalSignal,
+      });
       const filtered = filterDishPredictionSeeds(
-        rows
+        upstream.predictions
         .map((row) => ({
           label: normalizeDishLabel(row.label ?? ''),
           confidence: typeof row.confidence === 'number' ? row.confidence : 0,
         }))
       );
-      const latencyMs = Math.round(performance.now() - startedAt);
+      const latencyMs = upstream.latencyMs;
       if (imageHash) {
         dishPredictionCacheRef.current.set(imageHash, { predictions: filtered, latencyMs });
       }
       return {
         predictions: filtered,
         latencyMs,
-        circuitOpen: parsed?.meta?.circuitOpen === true,
+        circuitOpen: upstream.circuitOpen,
       };
     } catch (err) {
       if ((externalSignal?.aborted) || (err instanceof DOMException && err.name === 'AbortError')) {
@@ -3703,6 +3324,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         })
         : null;
       const nextScanLogId = typeof rawResultObject?.scanLogId === 'string' ? rawResultObject.scanLogId : null;
+      setFeedbackSubmitted(false);
       const topMatchConfidence = typeof rawResultObject?.topMatchConfidence === 'number' ? rawResultObject.topMatchConfidence : null;
       const topMatchMargin = typeof rawResultObject?.topMatchMargin === 'number' ? rawResultObject.topMatchMargin : null;
       const packagingType = typeof rawResultObject?.packagingType === 'string' ? rawResultObject.packagingType : null;
@@ -3883,7 +3505,10 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
       if (detectChocolateMilkHint(finalPredictions)) {
         setScanStatus('Soker etter sjokolademelk...');
-        const direct = await withTimeout(resolveLabelOFFWithCandidates('sjokolademelk', {}, 3), MAX_RESOLVER_WAIT_MS);
+        const direct = await withTimeout(
+          resolveLabelAcrossDatasets('sjokolademelk', { limitPerSource: 3, includeFoodRepo: true }),
+          MAX_RESOLVER_WAIT_MS
+        );
         if (!isTimedOut(direct) && direct.best) {
           if (shouldSuppressResolvedName(direct.best.name, 'duplicate_chocolate_milk_direct_match')) {
             return;
@@ -3928,21 +3553,11 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         (async () => {
           const resolvedEntries = await Promise.all(
             resolverSeeds.slice(0, 4).map(async (prediction) => {
-              const [matResult, offResult] = await Promise.all([
-                withTimeout(resolveLabelMatvaretabellen(prediction.label), MAX_RESOLVER_WAIT_MS),
-                withTimeout(resolveLabelOFFWithCandidates(prediction.label, {}, 3), MAX_RESOLVER_WAIT_MS),
-              ]);
-
-              const matCandidates =
-                !isTimedOut(matResult) && matResult.best
-                  ? matResult.candidates
-                  : [];
-              const offCandidates =
-                !isTimedOut(offResult)
-                  ? offResult.candidates
-                  : [];
-
-              const sourceCandidates = matCandidates.length ? matCandidates : offCandidates;
+              const datasetResult = await withTimeout(
+                resolveLabelAcrossDatasets(prediction.label, { limitPerSource: 3, includeFoodRepo: true }),
+                MAX_RESOLVER_WAIT_MS
+              );
+              const sourceCandidates = !isTimedOut(datasetResult) ? datasetResult.candidates : [];
               return sourceCandidates.slice(0, 2).map((candidate) => {
                 const semantic = semanticCandidateScore(prediction.label, candidate);
                 if (semantic <= 0.02) return null;
@@ -3985,7 +3600,10 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           .filter((prediction) => Boolean(prediction.label))
           .slice(0, 4);
         for (const fallbackSeed of fallbackSeeds) {
-          const quickFallback = await withTimeout(resolveLabelOFFWithCandidates(fallbackSeed.label, {}, 1), 4000);
+          const quickFallback = await withTimeout(
+            resolveLabelAcrossDatasets(fallbackSeed.label, { limitPerSource: 1, includeFoodRepo: true }),
+            4000
+          );
           if (isTimedOut(quickFallback) || !quickFallback.best) continue;
           if (shouldSuppressResolvedName(quickFallback.best.name, 'duplicate_resolver_quick_fallback')) {
             return;
@@ -4266,6 +3884,11 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       }
       const imageUrl = URL.createObjectURL(preprocessed.blob);
       prevUrlRef.current = imageUrl;
+      const recentPreview = await createRecentCapturePreview(preprocessed.blob);
+      const recentDataUrl = await blobToDataUrl(preprocessed.blob);
+      setRecentCapturePreview(recentPreview);
+      setRecentCaptureDataUrl(recentDataUrl);
+      saveRecentCapture(recentPreview, recentDataUrl);
 
       await processImageForNutrition(
         imageUrl,
@@ -4312,6 +3935,11 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
       const url = URL.createObjectURL(preprocessed.blob);
       prevUrlRef.current = url;
+      const recentPreview = await createRecentCapturePreview(preprocessed.blob);
+      const recentDataUrl = await blobToDataUrl(preprocessed.blob);
+      setRecentCapturePreview(recentPreview);
+      setRecentCaptureDataUrl(recentDataUrl);
+      saveRecentCapture(recentPreview, recentDataUrl);
       await processImageForNutrition(url, trace, preprocessed.blob, file);
     } catch (err) {
       showFeedback('Kunne ikke forberede bildet. Prøv igjen.', 'error');
@@ -4331,38 +3959,10 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     try {
       if (!isCurrentResolveRun(runId)) return 'error';
       const aiConfidence = 0.8;
-      // Try Matvaretabellen first for Norwegian foods.
-      const mat = await resolveLabelMatvaretabellen(label);
-      if (mat && mat.best) {
-        const bestMat = mat.best;
-        if (mat.candidates.length > 1 && (aiConfidence * bestMat.confidence) < 0.85) {
-          if (!isCurrentResolveRun(runId)) return 'error';
-          setCandidates(mat.candidates);
-          setShowCandidates(true);
-          markFirstCandidateShown();
-          return 'candidates';
-        }
-
-        const combinedConfidenceMat = Math.min(0.98, Math.max(0.35, aiConfidence * bestMat.confidence));
-        if (!isCurrentResolveRun(runId)) return 'error';
-        setScannedFood({
-          name: bestMat.name,
-          calories: bestMat.per100g?.kcal ?? 0,
-          protein: bestMat.per100g?.protein_g ?? 0,
-          carbs: bestMat.per100g?.carbs_g ?? 0,
-          fat: bestMat.per100g?.fat_g ?? 0,
-          per100g: bestMat.per100g ?? null,
-          confidence: Math.round(combinedConfidenceMat * 100),
-          image: prevUrlRef.current ?? undefined,
-        });
-        setScanState('idle');
-        void storeVisualAnchorFromCurrentImage(bestMat);
-        markFirstCandidateShown();
-        return 'matched';
-      }
-
-      // Fallback to Open Food Facts.
-      const { best, candidates: cand } = await resolveLabelOFFWithCandidates(label, {}, 3);
+      const { best, candidates: cand } = await resolveLabelAcrossDatasets(label, {
+        limitPerSource: 3,
+        includeFoodRepo: true,
+      });
       if (!best) {
         if (isCurrentResolveRun(runId)) {
           setScanState('no_match');
@@ -4465,7 +4065,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     if (scanMetricsRef.current.ocrBrandBoostUsed && canonical && chosenId) {
       addBrandAvoid(canonical, chosenId);
     }
-    await sendScanFeedback({
+    const ok = await sendScanFeedback({
       userConfirmed: false,
       userCorrectedTo: normalizedLabel || null,
       notFood: correctionNotFood,
@@ -4474,6 +4074,10 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         userFinalItemId: normalizedLabel ? `user:${normalizedLabel.toLowerCase()}` : null,
       },
     });
+    if (!ok) {
+      setSubmittingCorrection(false);
+      return;
+    }
     setSubmittingCorrection(false);
     setShowCorrectionModal(false);
     setManualCorrectionLabel('');
@@ -4687,10 +4291,31 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       protein_g: per100g?.protein_g != null ? Math.round(per100g.protein_g * f * 10) / 10 : undefined,
       carbs_g: per100g?.carbs_g != null ? Math.round(per100g.carbs_g * f * 10) / 10 : undefined,
       fat_g: per100g?.fat_g != null ? Math.round(per100g.fat_g * f * 10) / 10 : undefined,
+      fiber_g: per100g?.fiber_g != null ? Math.round(per100g.fiber_g * f * 10) / 10 : undefined,
+      sugars_g: per100g?.sugars_g != null ? Math.round(per100g.sugars_g * f * 10) / 10 : undefined,
+      saturated_fat_g: per100g?.saturated_fat_g != null ? Math.round(per100g.saturated_fat_g * f * 10) / 10 : undefined,
+      salt_g: per100g?.salt_g != null ? Math.round(per100g.salt_g * f * 100) / 100 : undefined,
+      sodium_mg: per100g?.sodium_mg != null ? Math.round(per100g.sodium_mg * f) : undefined,
     };
   }
 
+  function formatGrams(value: number | undefined) {
+    return value == null ? '—' : `${value} g`;
+  }
+
+  function formatMilligrams(value: number | undefined) {
+    return value == null ? '—' : `${value} mg`;
+  }
+
   const perServing = scannedFood?.per100g ? calcServing(scannedFood.per100g, portionAmount) : null;
+  const nutritionPer100Rows = [
+    { label: 'Fiber', value: formatGrams(scannedFood?.per100g?.fiber_g) },
+    { label: 'Sukker', value: formatGrams(scannedFood?.per100g?.sugars_g) },
+    { label: 'Mettet fett', value: formatGrams(scannedFood?.per100g?.saturated_fat_g) },
+    { label: 'Salt', value: formatGrams(scannedFood?.per100g?.salt_g) },
+    { label: 'Natrium', value: formatMilligrams(scannedFood?.per100g?.sodium_mg) },
+  ].filter((row) => row.value !== '—');
+  const showCameraSwitch = (mode === 'photo' && photoCamActive) || (mode === 'barcode' && liveScanActive);
 
   return (
     <div className="screen">
@@ -4758,6 +4383,29 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       )}
       {!scannedFood ? (
         <div className="camera-container">
+          {botHealth.status === 'offline' && (
+            <div className="absolute top-3 left-3 right-3 z-[42] rounded-xl border border-red-300 bg-red-50/95 px-3 py-2 text-sm text-red-800 backdrop-blur">
+              <div className="font-semibold">Scanner backend er utilgjengelig</div>
+              <p className="mt-1">
+                food_detection_bot ser ut til å være nede på <code>http://127.0.0.1:8001</code>.
+              </p>
+              {botHealth.message && (
+                <p className="mt-1 text-xs text-red-700 break-words">Detalj: {botHealth.message}</p>
+              )}
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { void refreshBotHealth({ showToastOnOffline: true }); }}
+                  className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  Prøv igjen
+                </button>
+                <span className="text-xs text-red-700">
+                  Start bot med: <code>uvicorn src.main:app --host 127.0.0.1 --port 8001 --reload</code>
+                </span>
+              </div>
+            </div>
+          )}
           {/* Camera Preview */}
           <div className="camera-preview">
             {(mode === 'barcode' || mode === 'photo') && (
@@ -4767,6 +4415,66 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                 playsInline
                 muted
               />
+            )}
+            {showCameraSwitch && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (mode === 'photo') {
+                    void switchPhotoCamera();
+                    return;
+                  }
+                  void switchLiveCamera();
+                }}
+                className="absolute top-3 right-2 z-20 flex h-12 w-12 items-center justify-center rounded-xl border border-white/14 bg-black/20 text-white shadow-[0_12px_24px_rgba(0,0,0,0.2)] backdrop-blur-lg transition duration-150 hover:bg-black/24 active:scale-95"
+                aria-label="Bytt mellom front- og bakkamera"
+                title="Bytt kamera"
+              >
+                <span className="pointer-events-none absolute inset-[1.5px] rounded-[15px] bg-gradient-to-br from-white/8 via-white/3 to-transparent" />
+                <svg
+                  viewBox="0 0 64 64"
+                  aria-hidden="true"
+                  className="relative h-8 w-8"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M13 23a4 4 0 0 1 4-4h8.7c1.77 0 3.41-.93 4.31-2.45l1.13-1.9A3.5 3.5 0 0 1 34.15 13h8.7a3.5 3.5 0 0 1 3.01 1.65l1.13 1.9A5 5 0 0 0 51.3 19H55a4 4 0 0 1 4 4v21a4 4 0 0 1-4 4H17a4 4 0 0 1-4-4V23Z"
+                    stroke="currentColor"
+                    strokeWidth="2.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M28.3 28.2a12 12 0 0 1 15.35-1.45"
+                    stroke="currentColor"
+                    strokeWidth="3.7"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="m41.6 22.9 2.95 4.4-5.2.26"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M41.5 38.6A12 12 0 0 1 26.2 40"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="m29.35 43.05-2.95-4.4 5.2-.26"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
             )}
             <div className="camera-frame">
               {/* Corner markers */}
@@ -4797,7 +4505,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                       </div>
                     </div>
                   ) : (
-                    <div className="absolute inset-[19%] rounded-xl border border-white/45 bg-black/10 pointer-events-none">
+                    <div className="absolute inset-x-[16%] top-[-16%] bottom-[56%] rounded-xl border border-white/45 bg-black/10 pointer-events-none">
                       <div className="absolute -top-6 left-1/2 -translate-x-1/2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] text-white tracking-wide">
                         OCR SONE
                       </div>
@@ -4927,76 +4635,72 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
               </div>
             )}
 
-            {/* Shutter Button */}
-            <button 
-              onClick={handleScan}
-              disabled={isScanning}
-              className="shutter-button disabled:opacity-50"
-            >
-              {isScanning && (
-                <Loader2 className="absolute inset-0 m-auto w-8 h-8 text-orange-500 animate-spin z-10" />
-              )}
-            </button>
+            <div className="w-full max-w-md grid grid-cols-[96px_auto_96px] items-center gap-2">
+              <div className="flex justify-start">
+                <button
+                  onClick={openCameraRoll}
+                  className="h-14 min-w-[98px] rounded-2xl border border-white/25 bg-black/45 text-white backdrop-blur flex items-center gap-2 px-2 transition hover:bg-black/55 active:scale-95"
+                  title="Åpne kamerarull"
+                  aria-label="Åpne kamerarull"
+                >
+                  <span className="h-9 w-9 rounded-full border border-white/20 bg-black/20 flex items-center justify-center">
+                    <ImagePlus className="w-4 h-4" />
+                  </span>
+                  <span className="text-[11px] font-semibold">Camera roll</span>
+                </button>
+              </div>
 
-            {/* Kamerarull (camera roll) button - opens file picker */}
-            <button
-              onClick={() => {
-                if (mode === 'photo') {
-                  void capturePhotoAndAnalyze();
-                  return;
-                }
-                openCameraRoll();
-              }}
-              className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center text-white font-medium text-xs"
-              title="Kamerarull"
-            >
-              Kamerarull
-            </button>
+              <div className="flex justify-center">
+                <button
+                  onClick={handleScan}
+                  disabled={isScanning}
+                  className="shutter-button disabled:opacity-50"
+                  title="Ta bilde / start skann"
+                >
+                  {isScanning && (
+                    <Loader2 className="absolute inset-0 m-auto w-8 h-8 text-orange-500 animate-spin z-10" />
+                  )}
+                </button>
+              </div>
 
-            {(mode === 'barcode' || mode === 'photo') && (
-              <div className="flex gap-2">
-                {mode === 'barcode' && (
-                  <button
-                    onClick={() => {
-                      setManualBarcode('');
-                      setManualBarcodeError(null);
-                      setShowBarcodeEntry(true);
-                    }}
-                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
-                  >
-                    Manuell kode
-                  </button>
-                )}
-                {mode === 'photo' && photoCamActive && (
-                  <button
-                    onClick={() => {
-                      void switchPhotoCamera();
-                    }}
-                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
-                  >
-                    Bytt kamera
-                  </button>
-                )}
-                {liveScanActive && (
-                  <button
-                    onClick={() => {
-                      void switchLiveCamera();
-                    }}
-                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
-                  >
-                    Bytt kamera
-                  </button>
-                )}
-                {liveScanActive && (
-                  <button
-                    onClick={() => {
-                      stopLiveBarcodeScan();
-                    }}
-                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
-                  >
-                    Stopp kamera
-                  </button>
-                )}
+              <div className="flex justify-end">
+                <button
+                  onClick={() => { void useRecentPhoto(); }}
+                  className="h-14 min-w-[98px] rounded-2xl border border-white/25 bg-black/45 text-white backdrop-blur flex items-center gap-2 px-2 transition hover:bg-black/55 active:scale-95"
+                  title={recentCapturePreview ? 'Bruk nylig bilde' : 'Ingen nylige'}
+                  aria-label="Bruk nylig bilde"
+                >
+                  {recentCapturePreview ? (
+                    <>
+                      <span className="h-9 w-9 overflow-hidden rounded-full border border-white/20">
+                        <img src={recentCapturePreview} alt="Nylig" className="h-full w-full object-cover" />
+                      </span>
+                      <span className="text-[11px] font-semibold">Recent</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="h-9 w-9 rounded-full border border-white/20 bg-black/20 flex items-center justify-center">
+                        <ImagePlus className="w-4 h-4" />
+                      </span>
+                      <span className="text-[10px] font-semibold leading-3 text-left">Ingen nylige</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {mode === 'barcode' && (
+              <div className="w-full max-w-md flex justify-center">
+                <button
+                  onClick={() => {
+                    setManualBarcode('');
+                    setManualBarcodeError(null);
+                    setShowBarcodeEntry(true);
+                  }}
+                  className="h-11 rounded-2xl border border-white/20 bg-black/35 px-4 text-[11px] font-semibold text-white backdrop-blur"
+                >
+                  Manuell kode
+                </button>
               </div>
             )}
 
@@ -5171,15 +4875,15 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                     </div>
                   )}
 
-            {/* Recent Photos */}
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-white">
-                <img 
-                  src="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=100&h=100&fit=crop" 
-                  alt="Recent" 
-                  className="w-full h-full object-cover"
-                />
-              </div>
+            <div className="mt-4 rounded-2xl border border-orange-200 bg-white/90 p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">Training Mode</p>
+              <p className="mt-2 text-sm text-gray-700">
+                On localhost, each scan is currently saved for model training. Finish the scan with
+                {' '}<span className="font-medium">Ser riktig ut</span>,{' '}
+                <span className="font-medium">Korriger</span>,{' '}
+                <span className="font-medium">Ikke mat</span>, or{' '}
+                <span className="font-medium">Darlig bilde</span> so the data becomes usable.
+              </p>
             </div>
           </div>
         </div>
@@ -5188,7 +4892,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         <div className="min-h-screen bg-gray-50">
           {/* Header */}
           <div className="bg-white p-4 flex items-center justify-between">
-            <button onClick={clearScan} className="p-2">
+            <button onClick={() => clearScan()} className="p-2">
               <X className="w-6 h-6 text-gray-600" />
             </button>
             <h2 className="font-semibold text-gray-800">Gjenkjent mat</h2>
@@ -5210,6 +4914,11 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           {/* Food Details */}
           <div className="p-4">
             <h1 className="text-2xl font-bold text-gray-800 mb-4">{scannedFood.name}</h1>
+            {scanLogId && (
+              <div className="mb-4 rounded-2xl border border-orange-200 bg-orange-50 p-3 text-sm text-gray-700">
+                This scan is being collected for training right now. Confirm or correct the result before closing so it is saved as training data.
+              </div>
+            )}
             {scanLogId && (
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <button
@@ -5248,21 +4957,35 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             <div className="grid grid-cols-2 gap-3 mb-6">
               <div className="bg-white rounded-xl p-4 text-center shadow-sm">
                 <p className="text-2xl font-bold text-gray-800">{scannedFood.calories}</p>
-                <p className="text-sm text-gray-500">kcal</p>
+                <p className="text-sm text-gray-500">kcal / 100g</p>
               </div>
               <div className="bg-blue-50 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-blue-600">{scannedFood.protein}g</p>
-                <p className="text-sm text-blue-500">protein</p>
+                <p className="text-sm text-blue-500">protein / 100g</p>
               </div>
               <div className="bg-green-50 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-green-600">{scannedFood.carbs}g</p>
-                <p className="text-sm text-green-500">karbo</p>
+                <p className="text-sm text-green-500">karbo / 100g</p>
               </div>
               <div className="bg-orange-50 rounded-xl p-4 text-center">
                 <p className="text-2xl font-bold text-orange-600">{scannedFood.fat}g</p>
-                <p className="text-sm text-orange-500">fett</p>
+                <p className="text-sm text-orange-500">fett / 100g</p>
               </div>
             </div>
+
+            {nutritionPer100Rows.length > 0 && (
+              <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-sm font-semibold text-gray-800 mb-3">Flere næringsfakta (per 100g)</p>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  {nutritionPer100Rows.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2">
+                      <span className="text-gray-600">{row.label}</span>
+                      <span className="font-medium text-gray-800">{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Portion picker */}
             <div className="mt-4">
@@ -5274,13 +4997,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                   inputMode="numeric"
                   value={String(portionAmount)}
                   onChange={(e) => setPortionAmount(Number(String(e.target.value).replace(/[^0-9]/g, '')) || 0)}
-                  className="flex-1 bg-white/5 text-white p-3 rounded-lg outline-none"
+                  className="flex-1 bg-white text-gray-800 p-3 rounded-lg border border-gray-200 outline-none"
                   placeholder="100"
                 />
 
                 <button
                   onClick={() => setPortionUnit((u) => (u === 'g' ? 'ml' : 'g'))}
-                  className="bg-white/5 text-white px-4 py-2 rounded-lg"
+                  className="bg-gray-100 text-gray-800 px-4 py-2 rounded-lg border border-gray-200"
                 >
                   {portionUnit}
                 </button>
@@ -5288,11 +5011,28 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
               {perServing && (
                 <div className="mt-4">
-                  <p className="text-white text-lg font-semibold">Per {portionAmount}{portionUnit}</p>
-                  <p className="text-white">{perServing.kcal} kcal</p>
-                  <p className="text-white">{perServing.protein_g ?? '—'} g protein</p>
-                  <p className="text-white">{perServing.carbs_g ?? '—'} g carbs</p>
-                  <p className="text-white">{perServing.fat_g ?? '—'} g fat</p>
+                  <p className="text-gray-800 text-lg font-semibold">Per {portionAmount}{portionUnit}</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{perServing.kcal} kcal</div>
+                    <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatGrams(perServing.protein_g)} protein</div>
+                    <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatGrams(perServing.carbs_g)} karbo</div>
+                    <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatGrams(perServing.fat_g)} fett</div>
+                    {perServing.fiber_g != null && (
+                      <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatGrams(perServing.fiber_g)} fiber</div>
+                    )}
+                    {perServing.sugars_g != null && (
+                      <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatGrams(perServing.sugars_g)} sukker</div>
+                    )}
+                    {perServing.saturated_fat_g != null && (
+                      <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatGrams(perServing.saturated_fat_g)} mettet fett</div>
+                    )}
+                    {perServing.salt_g != null && (
+                      <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatGrams(perServing.salt_g)} salt</div>
+                    )}
+                    {perServing.sodium_mg != null && (
+                      <div className="rounded-md bg-gray-100 px-3 py-2 text-gray-800">{formatMilligrams(perServing.sodium_mg)} natrium</div>
+                    )}
+                  </div>
                 </div>
               )}
 

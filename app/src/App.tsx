@@ -54,6 +54,17 @@ function App() {
     return () => window.removeEventListener('kalorifit:navigate', onNavigate as EventListener);
   }, []);
 
+  useEffect(() => {
+    const bootStatus = document.getElementById('boot-status');
+    if (!bootStatus) return;
+
+    const cleanup = window.requestAnimationFrame(() => {
+      bootStatus.remove();
+    });
+
+    return () => window.cancelAnimationFrame(cleanup);
+  }, []);
+
   const renderScreen = () => {
     switch (activeTab) {
       case 'home':

@@ -4,6 +4,7 @@ import time
 import uuid
 import io
 import re
+from contextlib import asynccontextmanager
 from typing import Any
 from datetime import datetime, timezone
 
@@ -35,8 +36,6 @@ from src.utils.model_fingerprint import sha256_file
 settings = get_settings()
 setup_logging(settings.log_level)
 logger = logging.getLogger('food_detection_bot')
-
-app = FastAPI(title='Food Detection Bot', version=settings.version)
 started_at = time.time()
 
 OCR_HIGH_VALUE_PACKAGING = {'can', 'bottle', 'carton', 'wrapper', 'pouch'}
@@ -194,8 +193,44 @@ def _label_hint_scores(detections) -> dict[str, float]:
     return scores
 
 
-@app.on_event('startup')
-def startup_event() -> None:
+def _normalize_dish_predictions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for row in rows:
+        label = str(row.get('label') or '').strip()
+        if not label:
+            continue
+        normalized.append(
+            {
+                'label': label,
+                'confidence': round(float(row.get('confidence') or 0.0), 4),
+                'source': str(row.get('source') or 'dish_classifier'),
+            }
+        )
+    return normalized
+
+
+def _resolution_debug_state(
+    *,
+    filtered_detections,
+    ocr_tokens: list[str],
+    packaging_type: str | None,
+    top_candidate: dict[str, Any] | None,
+    candidate_margin: float,
+    dish_predictions: list[dict[str, Any]],
+) -> tuple[str, str | None]:
+    top_conf = float(top_candidate.get('confidence') or 0.0) if top_candidate else 0.0
+    if top_candidate and bool(top_candidate.get('accepted')):
+        return 'ready', None
+    if not filtered_detections and not ocr_tokens and not dish_predictions:
+        return 'needs_recapture', 'No food signal found. Fill the frame and retake the photo in brighter light.'
+    if packaging_type in OCR_HIGH_VALUE_PACKAGING and not ocr_tokens and top_conf < 0.55 and not dish_predictions:
+        return 'needs_recapture', 'Front label was not readable. Center the package front and reduce glare.'
+    if top_candidate and top_conf < 0.45 and candidate_margin < 0.08 and not dish_predictions:
+        return 'needs_recapture', 'Match confidence is too low. Retake the photo closer and keep the label sharp.'
+    return 'ready', None
+
+
+def initialize_app_state() -> None:
     detector = create_detector(settings)
     dish_classifier = create_dish_classifier(settings.dish_classifier_enabled, settings.dish_classifier_model_path)
     text_provider = create_text_provider(settings.text_provider)
@@ -239,6 +274,15 @@ def startup_event() -> None:
         model_loaded_at,
     )
     logger.info('Product catalog loaded path=%s size=%s', settings.product_catalog_path, product_catalog.size)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    initialize_app_state()
+    yield
+
+
+app = FastAPI(title='Food Detection Bot', version=settings.version, lifespan=lifespan)
 
 
 def _parse_label_set(raw: str | None) -> set[str]:
@@ -339,6 +383,8 @@ async def detect(
 
     text_detections = []
     text_status = getattr(app.state, 'text_provider_status', {'available': False, 'message': 'uninitialized'})
+    dish_classifier = app.state.dish_classifier
+    dish_classifier_status = getattr(app.state, 'dish_classifier_status', {'available': False, 'message': 'uninitialized'})
     ocr_strategy = 'skipped'
     ocr_regions_used: list[str] = []
     if settings.text_detection_enabled and packaging_type in OCR_HIGH_VALUE_PACKAGING:
@@ -387,6 +433,19 @@ async def detect(
         else float(ranked_candidates[0]['confidence']) if ranked_candidates else 0.0
     )
     predicted_product = top_candidate['name'] if top_candidate and top_candidate.get('accepted') else (top_candidate['name'] if top_candidate and top_candidate['confidence'] >= 0.75 else None)
+    dish_predictions = _normalize_dish_predictions(
+        dish_classifier.predict(img, top_k=max(1, int(settings.dish_classifier_top_k)))
+        if settings.dish_classifier_enabled
+        else []
+    )
+    label_resolution_state, retry_guidance = _resolution_debug_state(
+        filtered_detections=filtered_detections,
+        ocr_tokens=ocr_tokens,
+        packaging_type=packaging_type,
+        top_candidate=top_candidate,
+        candidate_margin=candidate_margin,
+        dish_predictions=dish_predictions,
+    )
     items = [
         {
             'name': candidate['name'],
@@ -535,7 +594,12 @@ async def detect(
             'top_match_confidence': top_candidate['confidence'] if top_candidate else None,
             'top_match_margin': round(candidate_margin, 4) if top_candidate else None,
             'top_match_accepted': bool(top_candidate.get('accepted')) if top_candidate else False,
+            'label_resolution_state': label_resolution_state,
+            'retry_guidance': retry_guidance,
             'alternatives': ranked_candidates[1:3],
+            'dish_predictions': dish_predictions,
+            'dish_classifier_available': dish_classifier_status.get('available'),
+            'dish_classifier_message': dish_classifier_status.get('message'),
             'model_weights_path': getattr(app.state, 'model_weights_path', None),
             'model_weights_sha256': getattr(app.state, 'model_weights_sha256', None),
             'model_loaded_at': getattr(app.state, 'model_loaded_at', None),
@@ -647,6 +711,7 @@ async def feedback(payload: FeedbackRequest):
             not_food=payload.not_food,
             bad_photo=payload.bad_photo,
             feedback_notes=payload.feedback_notes,
+            corrected_detection=payload.corrected_detection.model_dump() if payload.corrected_detection else None,
             feedback_context=payload.feedback_context,
         )
     except FileNotFoundError as exc:

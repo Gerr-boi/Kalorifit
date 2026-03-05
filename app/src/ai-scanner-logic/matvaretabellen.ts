@@ -71,6 +71,18 @@ function findNutrientG(food: MatvareFood, nutrientId: string): number | undefine
   return hit.quantity;
 }
 
+function findNutrientByAliases(food: MatvareFood, aliases: string[]): number | undefined {
+  const normalizedAliases = aliases.map((value) => value.trim().toLowerCase()).filter(Boolean);
+  if (!normalizedAliases.length) return undefined;
+
+  const hit = (food.constituents ?? []).find((row) => {
+    const nutrientId = String(row.nutrientId ?? '').trim().toLowerCase();
+    return normalizedAliases.some((alias) => nutrientId === alias || nutrientId.includes(alias));
+  });
+  if (!hit || typeof hit.quantity !== 'number') return undefined;
+  return hit.quantity;
+}
+
 export function extractMacros(food: MatvareFood): MacroNutrients | null {
   const kcal = food.calories?.unit === 'kcal' ? food.calories?.quantity : undefined;
   if (typeof kcal !== 'number') return null;
@@ -78,12 +90,22 @@ export function extractMacros(food: MatvareFood): MacroNutrients | null {
   const protein = findNutrientG(food, 'Protein');
   const carbs = findNutrientG(food, 'Karbo');
   const fat = findNutrientG(food, 'Fett');
+  const fiber = findNutrientByAliases(food, ['fiber', 'kostfiber']);
+  const sugars = findNutrientByAliases(food, ['sukker', 'sukkerarter']);
+  const saturatedFat = findNutrientByAliases(food, ['mett', 'mettet']);
+  const salt = findNutrientByAliases(food, ['salt']);
+  const sodium = findNutrientByAliases(food, ['natrium']);
 
   return {
     kcal: Math.round(kcal),
     protein_g: protein,
     carbs_g: carbs,
     fat_g: fat,
+    fiber_g: fiber,
+    sugars_g: sugars,
+    saturated_fat_g: saturatedFat,
+    salt_g: salt,
+    sodium_mg: typeof sodium === 'number' ? Math.round(sodium * 1000) : undefined,
   };
 }
 

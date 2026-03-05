@@ -4,6 +4,16 @@ body,
   height: 100%;
 }
 
+button,
+[role="button"],
+a,
+input,
+select,
+textarea,
+label {
+  touch-action: manipulation;
+}
+
 /* App Container */
 .app-container {
   min-height: 100vh;
@@ -125,6 +135,40 @@ body,
   color: white;
   padding: 20px;
   border-radius: 0 0 24px 24px;
+}
+
+.hero-message-shell {
+  position: relative;
+  min-height: 44px;
+  overflow: hidden;
+}
+
+.hero-message-card {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.14);
+  padding: 10px 12px;
+  backdrop-filter: blur(10px);
+  transition: opacity 2000ms ease, transform 2000ms ease;
+}
+
+.hero-message-card-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.hero-message-card-hidden {
+  opacity: 0;
+  transform: translateX(18px);
+}
+
+.hero-message-text {
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 /* Cards */
@@ -285,6 +329,79 @@ body,
 
 .social-section {
   padding: 14px 16px;
+}
+
+.community-screen {
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 26%, #fff7ed 100%);
+}
+
+.community-hero {
+  background: linear-gradient(145deg, #0f172a 0%, #1e293b 48%, #f97316 100%);
+  color: white;
+  padding: 20px 16px 18px;
+  border-radius: 0 0 28px 28px;
+}
+
+.community-panel {
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid #fed7aa;
+}
+
+.community-panel-muted {
+  background: #fff7ed;
+}
+
+.friend-search-inline {
+  margin-top: 12px;
+}
+
+.friend-search-inline-label {
+  margin-bottom: 8px;
+  color: #9a3412;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.friend-search-input-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #fdba74;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
+  padding: 0 14px;
+  min-height: 50px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.friend-search-input-wrap:focus-within {
+  border-color: #f97316;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.14);
+  transform: translateY(-1px);
+}
+
+.friend-search-icon {
+  width: 18px;
+  height: 18px;
+  color: #f97316;
+  flex-shrink: 0;
+}
+
+.friend-search-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #111827;
+  font-size: 15px;
+}
+
+.friend-search-input::placeholder {
+  color: #9ca3af;
 }
 
 .social-pill {
@@ -493,6 +610,45 @@ body,
   border-color: #374151;
 }
 
+.dark .community-screen {
+  background: #111827;
+}
+
+.dark .community-hero {
+  background: linear-gradient(145deg, #111827 0%, #1f2937 52%, #f97316 100%);
+}
+
+.dark .community-panel {
+  background: rgba(17, 24, 39, 0.94);
+  border-bottom-color: #374151;
+}
+
+.dark .community-panel-muted {
+  background: #1f2937;
+}
+
+.dark .friend-search-inline-label {
+  color: #fdba74;
+}
+
+.dark .friend-search-input-wrap {
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  border-color: #4b5563;
+}
+
+.dark .friend-search-input-wrap:focus-within {
+  border-color: #fb923c;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.18);
+}
+
+.dark .friend-search-input {
+  color: #f9fafb;
+}
+
+.dark .friend-search-input::placeholder {
+  color: #6b7280;
+}
+
 .dark .social-switch,
 .dark .social-pill {
   border-color: #4b5563;
@@ -560,18 +716,17 @@ body,
 /* Camera Styles */
 .camera-container {
   position: relative;
-  height: 100vh;
+  height: 100dvh;
   background: #000;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
 }
 
 .camera-preview {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
 }
 
 .camera-frame {
@@ -580,6 +735,7 @@ body,
   border: 3px solid rgba(255, 255, 255, 0.5);
   border-radius: 20px;
   position: relative;
+  transform: translateY(-120px);
 }
 
 .camera-frame::before,
@@ -607,12 +763,17 @@ body,
 }
 
 .camera-controls {
-  background: rgba(0, 0, 0, 0.8);
-  padding: 20px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 32;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.82) 18%, rgba(0, 0, 0, 0.55) 52%, rgba(0, 0, 0, 0));
+  padding: 16px 14px calc(22px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 20px;
+  gap: 12px;
 }
 
 .camera-modes {
@@ -620,6 +781,7 @@ body,
   background: rgba(255, 255, 255, 0.1);
   border-radius: 24px;
   padding: 4px;
+  backdrop-filter: blur(8px);
 }
 
 .camera-mode {
@@ -641,10 +803,11 @@ body,
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  border: 4px solid white;
+  border: 4px solid rgba(255, 255, 255, 0.95);
   background: transparent;
   position: relative;
   cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
 
 .shutter-button::after {

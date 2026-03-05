@@ -92,6 +92,11 @@ class LogScanResponse(BaseModel):
     created_at: str
 
 
+class FeedbackDetectionIn(BaseModel):
+    label: str | None = None
+    bbox: list[float] | None = None
+
+
 class FeedbackRequest(BaseModel):
     scan_log_id: str
     user_confirmed: bool | None = None
@@ -99,6 +104,7 @@ class FeedbackRequest(BaseModel):
     not_food: bool | None = None
     bad_photo: bool | None = None
     feedback_notes: str | None = None
+    corrected_detection: FeedbackDetectionIn | None = None
     feedback_context: dict | None = None
 
 

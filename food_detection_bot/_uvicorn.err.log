@@ -1,0 +1,10 @@
+INFO:     Will watch for changes in these directories: ['C:\\Users\\hrger\\Kalorifit\\food_detection_bot']
+INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
+INFO:     Started reloader process [14188] using WatchFiles
+INFO:     Started server process [8780]
+INFO:     Waiting for application startup.
+2026-03-05 18:59:53,989 INFO food_detection_bot Detector initialized provider=yolo model=yolo11n.pt text_provider=tesseract-ocr text_enabled=True text_available=False text_message=tesseract binary not found in PATH
+2026-03-05 18:59:54,009 INFO food_detection_bot Dish classifier initialized enabled=True available=False model=food101-efficientnet-b0 message=checkpoint not found: src/models/food101_efficientnet.pt
+2026-03-05 18:59:54,009 INFO food_detection_bot Model fingerprint model_id=yolo11n.pt model_weights_path=C:\Users\hrger\Kalorifit\food_detection_bot\yolo11n.pt model_weights_sha256=0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1 model_loaded_at=2026-03-05T17:59:53.939813Z
+2026-03-05 18:59:54,010 INFO food_detection_bot Product catalog loaded path=src/data/products.json size=8
+INFO:     Application startup complete.

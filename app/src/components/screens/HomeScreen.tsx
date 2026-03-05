@@ -356,6 +356,8 @@ export default function HomeScreen() {
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate | null>(null);
   const [smartPrompt, setSmartPrompt] = useState<string | null>(null);
+  const [heroMessageIndex, setHeroMessageIndex] = useState(0);
+  const [heroMessageVisible, setHeroMessageVisible] = useState(true);
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
   const [sidebarView, setSidebarView] = useState<'menu' | 'logg' | 'goals' | 'journey'>('menu');
@@ -489,6 +491,42 @@ export default function HomeScreen() {
     () => smartDietPlan.behaviorInsights.filter((insight) => insight !== CONSISTENCY_DROP_INSIGHT),
     [smartDietPlan.behaviorInsights],
   );
+  const extraHeroTips = useMemo(() => {
+    const tips: string[] = [];
+
+    if (isTodaySelected && consumed === 0) {
+      tips.push('Tips: Start med ett raskt maltid for a holde dagen i gang.');
+    }
+    if (isTodaySelected && waterProgress < 0.45) {
+      tips.push('Tips: Ta et glass vann na. Det er den enkleste maaten a holde rytmen oppe.');
+    }
+    if (consumed > 0 && protein < 60) {
+      tips.push('Tips: Legg til en proteinkilde i neste maltid for a jevne ut dagen.');
+    }
+    if (lastLoggedFood && isTodaySelected) {
+      tips.push(`Tips: Du kan gjenta ${lastLoggedFood.name} som en rask fallback pa travle dager.`);
+    }
+    if (!lazyMode) {
+      tips.push('Tips: Bruk Enkel modus pa travle dager i stedet for a hoppe over logging.');
+    }
+    if (caloriesRemaining > 450 && consumed > 0) {
+      tips.push('Tips: Du ligger fortsatt et stykke unna dagens mal. Planlegg neste maltid tidlig.');
+    }
+
+    return tips;
+  }, [caloriesRemaining, consumed, isTodaySelected, lastLoggedFood, lazyMode, protein, waterProgress]);
+  const rotatingHeroMessages = useMemo(() => {
+    const messages = [
+      smartPrompt,
+      consistencyDropInsight ? localizeBehaviorInsight(consistencyDropInsight) : null,
+      ...otherBehaviorInsights.map((insight) => localizeBehaviorInsight(insight)),
+      ...extraHeroTips,
+    ].filter((message): message is string => Boolean(message?.trim()));
+
+    return messages.filter((message, index) => messages.indexOf(message) === index);
+  }, [consistencyDropInsight, extraHeroTips, otherBehaviorInsights, smartPrompt]);
+  const rotatingHeroMessageKey = useMemo(() => rotatingHeroMessages.join('||'), [rotatingHeroMessages]);
+  const activeHeroMessage = rotatingHeroMessages[heroMessageIndex] ?? null;
 
   const weeklyData = useMemo(() => {
     const weekStart = startOfWeekMonday(selectedDate);
@@ -885,6 +923,34 @@ export default function HomeScreen() {
   useEffect(() => {
     if (isPastSelectedDay) setShowQuickAddMenu(false);
   }, [isPastSelectedDay]);
+
+  useEffect(() => {
+    setHeroMessageIndex(0);
+    setHeroMessageVisible(true);
+  }, [rotatingHeroMessageKey]);
+
+  useEffect(() => {
+    if (rotatingHeroMessages.length <= 1) {
+      setHeroMessageVisible(true);
+      return;
+    }
+
+    let fadeTimer: number | null = null;
+    const cycle = () => {
+      setHeroMessageVisible(false);
+      fadeTimer = window.setTimeout(() => {
+        setHeroMessageIndex((prev) => (prev + 1) % rotatingHeroMessages.length);
+        setHeroMessageVisible(true);
+      }, 2000);
+    };
+
+    const cycleTimer = window.setInterval(cycle, 7000);
+
+    return () => {
+      window.clearInterval(cycleTimer);
+      if (fadeTimer !== null) window.clearTimeout(fadeTimer);
+    };
+  }, [rotatingHeroMessageKey, rotatingHeroMessages.length]);
 
   const updateDayLog = (key: string, updater: (current: DayLog) => DayLog) => {
     setLogsByDate((prev) => {
@@ -1652,9 +1718,11 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        {smartPrompt && (
-          <div className="rounded-xl bg-white/15 px-3 py-2 mb-3">
-            <p className="text-xs text-white">{smartPrompt}</p>
+        {activeHeroMessage && (
+          <div className="hero-message-shell mb-3">
+            <div className={`hero-message-card ${heroMessageVisible ? 'hero-message-card-visible' : 'hero-message-card-hidden'}`}>
+              <p className="hero-message-text">{activeHeroMessage}</p>
+            </div>
           </div>
         )}
 
@@ -1767,14 +1835,14 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        {consistencyDropInsight && (
+        {false && consistencyDropInsight && (
           <div className="mt-2 flex items-start gap-2 px-1">
             <span className="text-base leading-none" aria-hidden>💬</span>
-            <p className="text-[11px] text-white/90">{localizeBehaviorInsight(consistencyDropInsight)}</p>
+            <p className="text-[11px] text-white/90">{localizeBehaviorInsight(consistencyDropInsight ?? '')}</p>
           </div>
         )}
 
-        {otherBehaviorInsights.length > 0 && (
+        {false && otherBehaviorInsights.length > 0 && (
           <div className="mt-2 rounded-xl bg-white/10 p-3">
             {otherBehaviorInsights.map((insight) => (
               <p key={insight} className="text-[11px] text-white/80">
@@ -1987,9 +2055,16 @@ export default function HomeScreen() {
                         <button
                           key={template.id}
                           type="button"
-                          onClick={() =>
-                            template.items.forEach((item) => addFoodToMeal(meal.id, { ...item, id: createFoodId() }, `template:${template.id}`))
-                          }
+                          onClick={() => {
+                            template.items.forEach((item) => addFoodToMeal(meal.id, { ...item, id: createFoodId() }, `template:${template.id}`));
+                            setSavedMealTemplates((prev) =>
+                              prev.map((entry) => (
+                                entry.id === template.id
+                                  ? { ...entry, usageCount: (entry.usageCount ?? 0) + 1 }
+                                  : entry
+                              )),
+                            );
+                          }}
                           className="text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-600"
                           disabled={isPastSelectedDay}
                         >

@@ -13,6 +13,17 @@ export class FoodDetectorProvider {
     throw new Error('FoodDetectorProvider.detectFood must be implemented');
   }
 
+  async predictDish(_imageBytes, _options = {}) {
+    return {
+      ok: true,
+      model: null,
+      results: [],
+      meta: {
+        circuitOpen: false,
+      },
+    };
+  }
+
   async submitFeedback(_payload, _options = {}) {
     throw new Error('FoodDetectorProvider.submitFeedback must be implemented');
   }

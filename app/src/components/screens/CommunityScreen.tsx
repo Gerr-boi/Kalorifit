@@ -1,10 +1,12 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { ImagePlus, Plus, Trophy, UserPlus, X } from 'lucide-react';
+import { ImagePlus, Plus, Search, Soup, Trophy, UserPlus, X } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { addDays, createEmptyDayLog, startOfDay, toDateKey, type DayLog } from '../../lib/disciplineEngine';
 
 type ReactionKey = 'fire' | 'strong' | 'beast' | 'insane' | 'watching';
+type CommunityPostVisibility = 'public' | 'friends' | 'private';
+type CommunityPostKind = 'workout' | 'recipe';
 
 type CommunityProfile = {
   name?: string;
@@ -27,6 +29,7 @@ type WorkoutSession = {
 
 type CommunityPost = {
   id: string;
+  kind: CommunityPostKind;
   authorId: string;
   authorName: string;
   authorInitials: string;
@@ -45,7 +48,13 @@ type CommunityPost = {
   createdAt: number;
   hideCalories: boolean;
   hideBodyPhoto: boolean;
+  visibility?: CommunityPostVisibility;
   reactions: Record<ReactionKey, number>;
+  recipeTitle?: string;
+  recipeIngredients?: string[];
+  recipeSteps?: string[];
+  recipeServings?: number;
+  recipePrepMinutes?: number;
 };
 
 const reactionConfig: Array<{ key: ReactionKey; token: string; label: string }> = [
@@ -139,17 +148,28 @@ function badgeStyleById(id: string) {
   return 'bg-gradient-to-r from-slate-500 to-gray-600 text-white border-slate-300';
 }
 
+function getPostVisibility(post: CommunityPost): CommunityPostVisibility {
+  return post.visibility ?? 'public';
+}
+
 export default function CommunityScreen() {
-  const { users, currentUser, activeUserId, setActiveUserId, createUser } = useCurrentUser();
+  const { activeUserId } = useCurrentUser();
   const [activeTab, setActiveTab] = useState<'feed' | 'friends' | 'pods'>('feed');
   const [newUserName, setNewUserName] = useState('');
   const [showAddPost, setShowAddPost] = useState(false);
   const [postMode, setPostMode] = useState<'photo' | 'text'>('photo');
+  const [postKind, setPostKind] = useState<CommunityPostKind>('workout');
   const [caption, setCaption] = useState('');
   const [durationMinutes, setDurationMinutes] = useState('30');
   const [calories, setCalories] = useState('250');
   const [prHighlight, setPrHighlight] = useState('');
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [postVisibility, setPostVisibility] = useState<CommunityPostVisibility>('public');
+  const [recipeTitle, setRecipeTitle] = useState('');
+  const [recipeIngredients, setRecipeIngredients] = useState('');
+  const [recipeSteps, setRecipeSteps] = useState('');
+  const [recipeServings, setRecipeServings] = useState('2');
+  const [recipePrepMinutes, setRecipePrepMinutes] = useState('20');
   const [autoPostEnabled, setAutoPostEnabled] = useLocalStorageState<boolean>('community.autoPostEnabled.v1', true);
 
   const [profile] = useLocalStorageState<CommunityProfile>('profile', EMPTY_COMMUNITY_PROFILE);
@@ -160,7 +180,6 @@ export default function CommunityScreen() {
     'community.myReactions.v1',
     EMPTY_MY_REACTIONS,
   );
-
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const displayName = profile.name?.trim() || 'You';
@@ -262,21 +281,40 @@ export default function CommunityScreen() {
   }, [activeUserId, posts, profile.goalStrategy, profile.trainingType]);
 
   const visiblePosts = useMemo(() => {
+    const isVisibleToCurrentUser = (post: CommunityPost) => {
+      if (post.authorId === activeUserId) return true;
+      const visibility = getPostVisibility(post);
+      if (visibility === 'public') return true;
+      if (activeTab === 'friends') return visibility === 'friends';
+      if (activeTab === 'pods') return visibility === 'friends' && podMemberIds.has(post.authorId);
+      return false;
+    };
+
     if (activeTab === 'pods') {
-      return posts.filter((post) => post.authorId === activeUserId || podMemberIds.has(post.authorId));
+      return posts.filter((post) => {
+        if (post.authorId !== activeUserId && !podMemberIds.has(post.authorId)) return false;
+        return isVisibleToCurrentUser(post);
+      });
     }
-    if (activeTab === 'friends') return posts.filter((post) => post.authorId !== activeUserId);
-    return posts;
+    if (activeTab === 'friends') return posts.filter((post) => post.authorId !== activeUserId && isVisibleToCurrentUser(post));
+    return posts.filter(isVisibleToCurrentUser);
   }, [activeTab, activeUserId, podMemberIds, posts]);
 
   function openAddPostModal() {
     setShowAddPost(true);
+    setPostKind('workout');
     setPostMode('photo');
     setCaption('');
     setImageDataUrl(null);
+    setPostVisibility('public');
     setDurationMinutes(String(latestTodayWorkout?.durationMin ?? 30));
     setCalories(String(latestTodayWorkout?.caloriesBurned ?? 250));
     setPrHighlight(latestTodayWorkout ? `${latestTodayWorkout.workoutType}: ${latestTodayWorkout.exerciseName || 'Strong session'}` : '');
+    setRecipeTitle('');
+    setRecipeIngredients('');
+    setRecipeSteps('');
+    setRecipeServings('2');
+    setRecipePrepMinutes('20');
   }
 
   function closeAddPostModal() {
@@ -302,7 +340,21 @@ export default function CommunityScreen() {
   function createPost() {
     const nextDuration = Number.parseInt(durationMinutes, 10);
     const nextCalories = Number.parseInt(calories, 10);
-    if (!caption.trim() && !imageDataUrl) return;
+    const nextServings = Number.parseInt(recipeServings, 10);
+    const nextPrepMinutes = Number.parseInt(recipePrepMinutes, 10);
+    const normalizedIngredients = recipeIngredients
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const normalizedSteps = recipeSteps
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (postKind === 'recipe') {
+      if (!recipeTitle.trim() || normalizedIngredients.length === 0 || normalizedSteps.length === 0) return;
+    } else if (!caption.trim() && !imageDataUrl) {
+      return;
+    }
 
     const goal = profile.goalStrategy ? profile.goalStrategy.split('_').join(' ') : 'General fitness';
     const trainingStyle = profile.trainingType ? profile.trainingType.split('_').join(' ') : 'Mixed training';
@@ -310,6 +362,7 @@ export default function CommunityScreen() {
 
     const nextPost: CommunityPost = {
       id: createId('post'),
+      kind: postKind,
       authorId: activeUserId,
       authorName: profile.socialAnonymousPosting ? 'Anonymous' : displayName,
       authorInitials: profile.socialAnonymousPosting ? 'AN' : initialsFromName(displayName),
@@ -328,7 +381,13 @@ export default function CommunityScreen() {
       createdAt: Date.now(),
       hideCalories: Boolean(profile.socialHideWeightNumbers),
       hideBodyPhoto: Boolean(profile.socialHideBodyPhotos),
+      visibility: postVisibility,
       reactions: { ...emptyReactions },
+      recipeTitle: postKind === 'recipe' ? recipeTitle.trim() : undefined,
+      recipeIngredients: postKind === 'recipe' ? normalizedIngredients : undefined,
+      recipeSteps: postKind === 'recipe' ? normalizedSteps : undefined,
+      recipeServings: postKind === 'recipe' && Number.isFinite(nextServings) && nextServings > 0 ? nextServings : undefined,
+      recipePrepMinutes: postKind === 'recipe' && Number.isFinite(nextPrepMinutes) && nextPrepMinutes > 0 ? nextPrepMinutes : undefined,
     };
 
     setPosts((prev) => [nextPost, ...prev]);
@@ -357,16 +416,9 @@ export default function CommunityScreen() {
     }));
   }
 
-  function handleAddFriend() {
-    const nextName = newUserName.trim();
-    if (!nextName) return;
-    createUser(nextName);
-    setNewUserName('');
-  }
-
   return (
-    <div className="screen dark:bg-gray-900">
-      <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4">
+    <div className="screen community-screen">
+      <div className="community-hero">
         <div className="flex justify-between items-center mb-3">
           <h1 className="text-xl font-bold">Community</h1>
           <button className="social-pill social-pill-light">Progress + Accountability</button>
@@ -409,43 +461,24 @@ export default function CommunityScreen() {
         </div>
       </div>
 
-      <div className="social-section bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Friends</p>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">You: {currentUser.name}</p>
-          </div>
-          <select
-            value={currentUser.id}
-            onChange={(e) => setActiveUserId(e.target.value)}
-            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-200"
-          >
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <input
-            type="text"
-            value={newUserName}
-            onChange={(e) => setNewUserName(e.target.value)}
-            placeholder="New friend name"
-            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
-          />
-          <button
-            type="button"
-            onClick={handleAddFriend}
-            className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white"
-          >
-            Add friend
-          </button>
+      <div className="social-section community-panel">
+        <div className="friend-search-inline">
+          <p className="friend-search-inline-label">Find friends</p>
+          <label className="friend-search-input-wrap" htmlFor="community-friend-search">
+            <Search className="friend-search-icon" />
+            <input
+              id="community-friend-search"
+              type="text"
+              value={newUserName}
+              onChange={(e) => setNewUserName(e.target.value)}
+              placeholder="Search friends"
+              className="friend-search-input"
+            />
+          </label>
         </div>
       </div>
 
-      <div className="social-section bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+      <div className="social-section community-panel">
         <div className="flex items-center gap-2 mb-3">
           <Trophy className="w-5 h-5 text-yellow-500" />
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">Weekly leaderboard</h2>
@@ -468,13 +501,13 @@ export default function CommunityScreen() {
         </div>
       </div>
 
-      <div className="social-section bg-slate-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="social-section community-panel community-panel-muted">
         <p className="text-xs font-semibold text-slate-500 dark:text-gray-400 uppercase tracking-wide">
           {activeTab === 'feed'
-            ? 'All recent posts'
+            ? 'Public posts and your own updates'
             : activeTab === 'friends'
-              ? 'Friend posts only'
-              : `Pod posts only (${podMemberIds.size + 1} members incl. you)`}
+              ? 'Friends posts shared with friends or public'
+              : `Pod posts shared with your pod (${podMemberIds.size + 1} members incl. you)`}
         </p>
       </div>
 
@@ -482,6 +515,7 @@ export default function CommunityScreen() {
         {visiblePosts.map((post) => {
           const showCalories = !post.hideCalories;
           const showImage = !post.hideBodyPhoto && Boolean(post.imageDataUrl);
+          const isRecipePost = post.kind === 'recipe';
 
           return (
             <div key={post.id} className="feed-item">
@@ -499,27 +533,41 @@ export default function CommunityScreen() {
                     {post.goal} | {post.trainingStyle} | {post.level} | {relativeTimeFrom(post.createdAt)}
                   </p>
                 </div>
+                <span className="rounded-full border border-gray-200 dark:border-gray-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                  {getPostVisibility(post)}
+                </span>
                 <button className="text-gray-400 dark:text-gray-500">
                   <UserPlus className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="workout-card">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <span className={`social-pill ${isRecipePost ? 'social-pill-success' : ''}`}>
+                    {isRecipePost ? 'Recipe share' : 'Workout share'}
+                  </span>
+                  {isRecipePost ? (
+                    <div className="flex items-center gap-1 text-sm font-medium text-orange-600 dark:text-orange-300">
+                      <Soup className="w-4 h-4" />
+                      <span>{post.recipeServings ?? 1} servings</span>
+                    </div>
+                  ) : null}
+                </div>
                 <div className="workout-stats">
                   <div>
-                    <p className="workout-label">Duration</p>
-                    <p className="workout-value">{post.durationMinutes} min</p>
+                    <p className="workout-label">{isRecipePost ? 'Prep' : 'Duration'}</p>
+                    <p className="workout-value">{isRecipePost ? (post.recipePrepMinutes ?? post.durationMinutes) : post.durationMinutes} min</p>
                   </div>
                   <div>
                     <p className="workout-label">Calories</p>
                     <p className="workout-value">{showCalories ? post.calories : '--'}</p>
                   </div>
                   <div>
-                    <p className="workout-label">Streak</p>
-                    <p className="workout-value">{post.streak} days</p>
+                    <p className="workout-label">{isRecipePost ? 'Type' : 'Streak'}</p>
+                    <p className="workout-value">{isRecipePost ? 'Homemade' : `${post.streak} days`}</p>
                   </div>
                 </div>
-                <p className="workout-pr">PR: {post.prHighlight}</p>
+                <p className="workout-pr">{isRecipePost ? `Recipe: ${post.recipeTitle ?? 'Shared meal'}` : `PR: ${post.prHighlight}`}</p>
                 <div className="flex flex-wrap gap-2 mt-2">
                   <span className="social-pill">{post.identityBadge}</span>
                   {(post.equippedBadgeIds ?? []).slice(0, 3).map((badgeId) => (
@@ -532,6 +580,28 @@ export default function CommunityScreen() {
 
               {post.caption ? <p className="text-gray-700 dark:text-gray-300 mt-3">{post.caption}</p> : null}
               {showImage ? <img src={post.imageDataUrl} alt="Post" className="w-full h-64 object-cover rounded-2xl mt-3" /> : null}
+              {isRecipePost ? (
+                <div className="mt-3 rounded-2xl border border-orange-100 bg-orange-50/70 p-4 text-sm dark:border-orange-900/40 dark:bg-orange-950/20">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-300">Ingredients</p>
+                      <ul className="space-y-1 text-gray-700 dark:text-gray-200">
+                        {(post.recipeIngredients ?? []).map((ingredient, index) => (
+                          <li key={`${post.id}-ingredient-${index}`}>- {ingredient}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-orange-600 dark:text-orange-300">Steps</p>
+                      <ol className="space-y-1 text-gray-700 dark:text-gray-200">
+                        {(post.recipeSteps ?? []).map((step, index) => (
+                          <li key={`${post.id}-step-${index}`}>{index + 1}. {step}</li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="reaction-row">
                 {reactionConfig.map((reaction) => {
@@ -585,6 +655,23 @@ export default function CommunityScreen() {
             <div className="flex gap-2 mb-3">
               <button
                 type="button"
+                onClick={() => setPostKind('workout')}
+                className={`px-3 py-1.5 text-xs rounded-full border ${postKind === 'workout' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}`}
+              >
+                Workout
+              </button>
+              <button
+                type="button"
+                onClick={() => setPostKind('recipe')}
+                className={`px-3 py-1.5 text-xs rounded-full border ${postKind === 'recipe' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}`}
+              >
+                Recipe
+              </button>
+            </div>
+
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
                 onClick={() => setPostMode('photo')}
                 className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'photo' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}`}
               >
@@ -613,34 +700,104 @@ export default function CommunityScreen() {
             <textarea
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
-              placeholder="Write a short update"
+              placeholder={postKind === 'recipe' ? 'Tell people why this recipe is worth making' : 'Write a short update'}
               rows={3}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-3"
             />
 
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <input
-                inputMode="numeric"
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="Duration (min)"
-                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
-              />
-              <input
-                inputMode="numeric"
-                value={calories}
-                onChange={(e) => setCalories(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="Calories"
-                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
-              />
-            </div>
+            {postKind === 'recipe' ? (
+              <>
+                <input
+                  value={recipeTitle}
+                  onChange={(e) => setRecipeTitle(e.target.value)}
+                  placeholder="Recipe title"
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-3"
+                />
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <input
+                    inputMode="numeric"
+                    value={recipePrepMinutes}
+                    onChange={(e) => setRecipePrepMinutes(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="Prep (min)"
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+                  />
+                  <input
+                    inputMode="numeric"
+                    value={recipeServings}
+                    onChange={(e) => setRecipeServings(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="Servings"
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+                  />
+                </div>
+                <input
+                  inputMode="numeric"
+                  value={calories}
+                  onChange={(e) => setCalories(e.target.value.replace(/[^0-9]/g, ''))}
+                  placeholder="Calories per serving"
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-3"
+                />
+                <textarea
+                  value={recipeIngredients}
+                  onChange={(e) => setRecipeIngredients(e.target.value)}
+                  placeholder={'Ingredients, one per line'}
+                  rows={4}
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-3"
+                />
+                <textarea
+                  value={recipeSteps}
+                  onChange={(e) => setRecipeSteps(e.target.value)}
+                  placeholder={'Steps, one per line'}
+                  rows={4}
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-4"
+                />
+              </>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <input
+                    inputMode="numeric"
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="Duration (min)"
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+                  />
+                  <input
+                    inputMode="numeric"
+                    value={calories}
+                    onChange={(e) => setCalories(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="Calories"
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+                  />
+                </div>
 
-            <input
-              value={prHighlight}
-              onChange={(e) => setPrHighlight(e.target.value)}
-              placeholder="PR highlight"
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-4"
-            />
+                <input
+                  value={prHighlight}
+                  onChange={(e) => setPrHighlight(e.target.value)}
+                  placeholder="PR highlight"
+                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-100 mb-4"
+                />
+              </>
+            )}
+
+            <div className="mb-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Who can view this</p>
+              <div className="grid grid-cols-3 gap-2">
+                {(['public', 'friends', 'private'] as const).map((visibility) => (
+                  <button
+                    key={visibility}
+                    type="button"
+                    onClick={() => setPostVisibility(visibility)}
+                    className={`rounded-lg border px-3 py-2 text-xs font-medium capitalize ${
+                      postVisibility === visibility
+                        ? 'border-orange-500 bg-orange-500 text-white'
+                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    {visibility}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="flex justify-end gap-2">
               <button type="button" onClick={closeAddPostModal} className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">

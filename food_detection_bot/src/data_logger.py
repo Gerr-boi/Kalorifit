@@ -1,19 +1,34 @@
 import json
 import mimetypes
+import os
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from src.training.labels import normalize_training_label
+
 
 class DatasetLogger:
     def __init__(self, dataset_dir: str):
         self._base_dir = Path(dataset_dir)
+        self._assert_test_dataset_safety(self._base_dir)
         self._images_dir = self._base_dir / 'images'
         self._crops_dir = self._base_dir / 'crops'
         self._records_dir = self._base_dir / 'records'
         self._lock = threading.Lock()
+
+    def _assert_test_dataset_safety(self, dataset_dir: Path) -> None:
+        if 'PYTEST_CURRENT_TEST' not in os.environ:
+            return
+        raw_env = os.environ.get('DATASET_DIR')
+        if not raw_env:
+            raise RuntimeError('Tests must set DATASET_DIR to an isolated temp directory before DatasetLogger is created.')
+        resolved = dataset_dir.resolve()
+        repo_dataset_dir = (Path(__file__).resolve().parents[1] / 'dataset').resolve()
+        if resolved == repo_dataset_dir:
+            raise RuntimeError(f'Tests cannot write to the repo dataset directory: {repo_dataset_dir.as_posix()}')
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -129,6 +144,19 @@ class DatasetLogger:
             if text:
                 output.append(text)
         return output
+
+    def _normalize_bbox(self, value: Any) -> list[float] | None:
+        if not isinstance(value, list) or len(value) != 4:
+            return None
+        coords: list[float] = []
+        for raw in value:
+            numeric = self._as_float(raw)
+            if numeric is None:
+                return None
+            coords.append(float(numeric))
+        if coords[2] <= coords[0] or coords[3] <= coords[1]:
+            return None
+        return coords
 
     def _as_float_dict(self, value: Any) -> dict[str, float]:
         if not isinstance(value, dict):
@@ -358,6 +386,66 @@ class DatasetLogger:
             'domain_key': self._derive_domain_key(current),
         }
 
+    def _find_product_id_for_label(self, current: dict[str, Any], label: str | None) -> str | None:
+        normalized_label = self._as_str(label)
+        if not normalized_label:
+            return None
+        target = normalized_label.casefold()
+        candidates = current.get('predicted_candidates') if isinstance(current.get('predicted_candidates'), list) else []
+        for row in candidates:
+            if not isinstance(row, dict):
+                continue
+            name = self._as_str(row.get('name'))
+            if name and name.casefold() == target:
+                return self._as_str(row.get('product_id'))
+        return None
+
+    def _derive_training_target(self, current: dict[str, Any]) -> dict[str, Any] | None:
+        feedback_context = current.get('feedback_context') if isinstance(current.get('feedback_context'), dict) else {}
+        corrected_detection = current.get('corrected_detection') if isinstance(current.get('corrected_detection'), dict) else {}
+        corrected_bbox = self._normalize_bbox(corrected_detection.get('bbox'))
+
+        if current.get('bad_photo') is True:
+            return None
+
+        if current.get('not_food') is True:
+            return {
+                'task': 'detection',
+                'label': '__non_food__',
+                'label_source': 'user_marked_not_food',
+                'product_id': None,
+                'bbox': corrected_bbox,
+            }
+
+        corrected_to = self._as_str(current.get('user_corrected_to'))
+        if corrected_to:
+            normalized_label = normalize_training_label(corrected_to)
+            if not normalized_label:
+                return None
+            return {
+                'task': 'detection',
+                'label': normalized_label,
+                'label_source': 'user_corrected',
+                'product_id': self._as_str(feedback_context.get('userFinalItemId')) or self._find_product_id_for_label(current, corrected_to),
+                'bbox': corrected_bbox,
+            }
+
+        if current.get('user_confirmed') is True:
+            accepted = self._as_str(current.get('user_accepted_product')) or self._as_str(current.get('predicted_product'))
+            if accepted:
+                normalized_label = normalize_training_label(accepted)
+                if not normalized_label:
+                    return None
+                return {
+                    'task': 'detection',
+                    'label': normalized_label,
+                    'label_source': 'user_confirmed_prediction',
+                    'product_id': self._as_str(feedback_context.get('resolverChosenItemId')) or self._find_product_id_for_label(current, accepted),
+                    'bbox': corrected_bbox,
+                }
+
+        return None
+
     def log_scan(
         self,
         *,
@@ -415,6 +503,7 @@ class DatasetLogger:
                 'not_food': False,
                 'bad_photo': False,
                 'feedback_notes': None,
+                'corrected_detection': None,
                 'created_at': created_at,
                 'updated_at': created_at,
                 'request_id': request_id,
@@ -422,6 +511,7 @@ class DatasetLogger:
                 'latency_ms': latency_ms,
                 'context': self._normalize_context(context),
             }
+            record['training_target'] = self._derive_training_target(record)
             record['active_learning'] = self._derive_active_learning(record)
             self._record_path(scan_log_id).write_text(
                 json.dumps(record, ensure_ascii=True, separators=(',', ':')) + '\n',
@@ -438,7 +528,8 @@ class DatasetLogger:
         not_food: bool | None,
         bad_photo: bool | None,
         feedback_notes: str | None,
-        feedback_context: dict[str, Any] | None,
+        corrected_detection: dict[str, Any] | None = None,
+        feedback_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         record_path = self._record_path(scan_log_id)
         if not record_path.exists():
@@ -465,6 +556,10 @@ class DatasetLogger:
             if feedback_notes is not None:
                 normalized_notes = feedback_notes.strip()
                 current['feedback_notes'] = normalized_notes or None
+            if corrected_detection is not None:
+                label = self._as_str(corrected_detection.get('label'))
+                bbox = self._normalize_bbox(corrected_detection.get('bbox'))
+                current['corrected_detection'] = {'label': label, 'bbox': bbox} if label or bbox else None
             if feedback_context is not None:
                 current['feedback_context'] = self._normalize_feedback_context(feedback_context)
 
@@ -478,6 +573,7 @@ class DatasetLogger:
                 if any(tag in current['failure_tags'] for tag in ('hard_negative_non_food', 'wrong_product_match'))
                 else ('medium' if current['failure_tags'] else 'low')
             )
+            current['training_target'] = self._derive_training_target(current)
             current['active_learning'] = self._derive_active_learning(current)
 
             current['updated_at'] = self._now_iso()

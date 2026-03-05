@@ -34,6 +34,11 @@ export async function lookupOpenFoodFacts(barcode: Barcode): Promise<NutritionRe
     const protein = nutr["proteins_100g"];
     const carbs = nutr["carbohydrates_100g"];
     const fat = nutr["fat_100g"];
+    const fiber = nutr["fiber_100g"];
+    const sugars = nutr["sugars_100g"];
+    const saturatedFat = nutr["saturated-fat_100g"];
+    const salt = nutr["salt_100g"];
+    const sodium = nutr["sodium_100g"];
 
     const kcalNum =
       typeof kcal === "number"
@@ -63,6 +68,11 @@ export async function lookupOpenFoodFacts(barcode: Barcode): Promise<NutritionRe
         protein_g: typeof protein === "number" ? protein : undefined,
         carbs_g: typeof carbs === "number" ? carbs : undefined,
         fat_g: typeof fat === "number" ? fat : undefined,
+        fiber_g: typeof fiber === "number" ? fiber : undefined,
+        sugars_g: typeof sugars === "number" ? sugars : undefined,
+        saturated_fat_g: typeof saturatedFat === "number" ? saturatedFat : undefined,
+        salt_g: typeof salt === "number" ? salt : undefined,
+        sodium_mg: typeof sodium === "number" ? Math.round(sodium * 1000) : undefined,
       },
       confidence: 0.85,
       raw: data,

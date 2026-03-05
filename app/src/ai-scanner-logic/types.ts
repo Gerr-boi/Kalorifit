@@ -5,10 +5,15 @@ export type MacroNutrients = {
   protein_g?: number;
   carbs_g?: number;
   fat_g?: number;
+  fiber_g?: number;
+  sugars_g?: number;
+  saturated_fat_g?: number;
+  salt_g?: number;
+  sodium_mg?: number;
 };
 
 export type NutritionResult = {
-  source: "openfoodfacts" | "kassalapp" | "manual" | "matvaretabellen";
+  source: "openfoodfacts" | "kassalapp" | "manual" | "matvaretabellen" | "foodrepo" | "food101";
   barcode?: Barcode;
   name: string;
   brand?: string;
@@ -20,7 +25,7 @@ export type NutritionResult = {
 };
 
 export type LookupError = {
-  source: "openfoodfacts" | "kassalapp" | "matvaretabellen";
+  source: "openfoodfacts" | "kassalapp" | "matvaretabellen" | "foodrepo";
   message: string;
   status?: number;
 };
