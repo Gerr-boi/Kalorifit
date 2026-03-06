@@ -1182,21 +1182,23 @@ export default function HomeScreen() {
     reward();
   };
 
-  const getPreviousDateWithMeal = (mealId: MealId) =>
-    Object.keys(logsByDate)
+  const getPreviousDateWithMeal = (mealId: MealId) => {
+    const keys = Object.keys(logsByDate)
       .filter((key) => key < selectedDateKey && logsByDate[key].meals[mealId].length > 0)
-      .sort()
-      .at(-1) ?? null;
+      .sort();
+    return keys.length > 0 ? keys[keys.length - 1] : null;
+  };
 
-  const getLastMondayKey = () =>
-    Object.keys(logsByDate)
+  const getLastMondayKey = () => {
+    const keys = Object.keys(logsByDate)
       .filter((key) => {
         if (key >= selectedDateKey) return false;
         const date = new Date(`${key}T00:00:00`);
         return date.getDay() === 1;
       })
-      .sort()
-      .at(-1) ?? null;
+      .sort();
+    return keys.length > 0 ? keys[keys.length - 1] : null;
+  };
 
   const addMacroQuick = (kind: 'protein' | 'carbs' | 'fat', amountG: number) => {
     const kcal = kind === 'fat' ? amountG * 9 : amountG * 4;
@@ -1666,9 +1668,9 @@ export default function HomeScreen() {
         </div>
       )}
 
-      <div className="screen-header pt-6 pb-7">
-        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-start gap-2">
+      <div className="screen-header pt-8 pb-10">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
             <button
               type="button"
               onClick={() =>
@@ -1678,30 +1680,30 @@ export default function HomeScreen() {
                   return next;
                 })
               }
-              className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center shrink-0"
-              title="Apne meny"
+              className="w-11 h-11 btn-glass rounded-2xl flex items-center justify-center shrink-0"
+              title="Åpne meny"
             >
               {showSidebar ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-white" />}
             </button>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1 text-white/90 text-sm font-medium">
-                  <Flame className="w-4 h-4 text-orange-200" />
+              <div className="flex flex-wrap items-center gap-3 mb-2">
+                <span className="inline-flex items-center gap-2 premium-body text-sm font-semibold">
+                  <Flame className="w-4 h-4 text-orange-300 drop-shadow-sm" />
                   {streak} dagers streak
                 </span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${consistencyBadge.tone}`}>
+                <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-bold backdrop-blur-sm ${consistencyBadge.tone}`}>
                   {consistencyBadge.label}
                 </span>
               </div>
-              <p className="text-white/70 text-xs">Konsistensscore: {weeklyConsistencyScore}%</p>
-              <p className="text-white/70 text-xs">Daglig disiplin: {discipline.score}/100</p>
+              <p className="premium-body text-xs font-medium">Konsistensscore: {weeklyConsistencyScore}%</p>
+              <p className="premium-body text-xs font-medium">Daglig disiplin: {discipline.score}/100</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setLazyMode((prev) => !prev)}
-              className="h-10 px-3 bg-white/20 rounded-full text-xs font-semibold text-white whitespace-nowrap"
+              className="btn-glass h-11 px-4 rounded-2xl text-xs font-bold text-white whitespace-nowrap"
               title="Enkel modus"
             >
               {lazyMode ? 'Enkel ON' : 'Enkel modus'}
@@ -1709,7 +1711,7 @@ export default function HomeScreen() {
             <button
               type="button"
               onClick={() => setShowQuickAddMenu((prev) => !prev)}
-              className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center"
+              className="w-11 h-11 btn-glass rounded-2xl flex items-center justify-center"
               title="Quick add"
               disabled={isPastSelectedDay}
             >
@@ -1726,112 +1728,145 @@ export default function HomeScreen() {
           </div>
         )}
 
-        <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-6 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <button
             type="button"
             onClick={onRingTap}
             className="progress-circle mx-auto shrink-0 sm:mx-0"
             title="Vis kaloridetaljer"
           >
-            <svg width="190" height="190" viewBox="0 0 200 200">
+            <svg width="200" height="200" viewBox="0 0 200 200">
+              <defs>
+                <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor={ringColor} stopOpacity="0.9" />
+                  <stop offset="50%" stopColor={ringColor} stopOpacity="1" />
+                  <stop offset="100%" stopColor={ringColor} stopOpacity="0.7" />
+                </linearGradient>
+                <filter id="glow">
+                  <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                  <feMerge> 
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+              </defs>
               <circle className="progress-circle-bg" cx="100" cy="100" r={RING_RADIUS} />
               <circle
                 cx="100"
                 cy="100"
                 r={RING_RADIUS}
                 fill="none"
-                stroke={ringColor}
-                strokeWidth="12"
+                stroke="url(#ringGradient)"
+                strokeWidth="14"
                 strokeLinecap="round"
                 strokeDasharray={RING_CIRCUMFERENCE}
                 strokeDashoffset={strokeDashoffset}
-                style={{ transition: 'stroke-dashoffset 500ms ease, stroke 300ms ease' }}
+                filter="url(#glow)"
+                style={{ transition: 'stroke-dashoffset 800ms cubic-bezier(0.4, 0, 0.2, 1), stroke 400ms ease' }}
               />
             </svg>
             <div className="progress-text">
-              <p className="text-5xl font-bold text-white">{progressValue}</p>
-              <p className="text-white/70 text-sm mt-1">{progressText}</p>
-              <span className="mt-2 inline-flex text-white/80 text-xs items-center gap-1">
-                Trykk for detaljer <ChevronRight className={`w-3 h-3 ${ringExpanded ? 'rotate-90' : ''} transition-transform`} />
+              <p className="text-6xl font-black text-white drop-shadow-md">{progressValue}</p>
+              <p className="text-white/80 text-sm mt-2 font-semibold tracking-wide">{progressText}</p>
+              <span className="mt-3 inline-flex premium-body text-xs items-center gap-1.5 font-medium">
+                Trykk for detaljer <ChevronRight className={`w-3 h-3 ${ringExpanded ? 'rotate-90' : ''} transition-transform duration-300`} />
               </span>
             </div>
           </button>
 
-          <div className="w-full min-w-0 flex-1 rounded-2xl bg-white/10 px-3 py-3">
-            <p className="text-[11px] uppercase text-white/75 mb-2">Ukesoversikt</p>
-            <div className="flex items-end justify-between gap-1 h-28">
-              {weeklyData.map((day) => {
+          <div className="w-full min-w-0 flex-1 rounded-3xl bg-white/12 backdrop-blur-xl border border-white/20 px-4 py-4 shadow-lg">
+            <p className="text-[11px] uppercase text-white/90 mb-3 font-bold tracking-wider">Ukesoversikt</p>
+            <div className="flex items-end justify-between gap-1.5 h-32">
+              {weeklyData.map((day, index) => {
                 const dayTarget = Math.max(1, optimizedTargetKcal + (logsByDate[day.key]?.trainingKcal ?? 0));
                 const ratioRaw = day.consumed / dayTarget;
                 const ratio = Math.max(0, Math.min(ratioRaw, 1));
-                const fillHeight = day.consumed > 0 ? Math.max(6, Math.round(ratio * 100)) : 0;
+                const fillHeight = day.consumed > 0 ? Math.max(8, Math.round(ratio * 100)) : 0;
                 const barColor = getWeeklyBarColor(ratio);
                 return (
                   <div key={day.key} className="flex flex-1 justify-center">
                     <div
-                      className={`w-4 h-24 rounded-full bg-white/20 p-[2px] flex flex-col ${day.isSelected ? 'ring-2 ring-white' : day.isToday ? 'ring-1 ring-white/60' : ''}`}
-                      title={`${formatDateKey(day.key)}: ${Math.round(ratioRaw * 100)}% av mal`}
+                      className={`weekly-bar-container w-5 h-28 rounded-2xl bg-white/15 backdrop-blur-sm p-[2px] flex flex-col border transition-all duration-300 ${
+                        day.isSelected 
+                          ? 'ring-2 ring-white border-white/40 selected' 
+                          : day.isToday 
+                            ? 'ring-1 ring-white/80 border-white/30 today' 
+                            : 'border-white/20'
+                      }`}
+                      title={`${formatDateKey(day.key)}: ${Math.round(ratioRaw * 100)}% av mål`}
+                      style={{ '--shimmer-delay': `${index * 0.1}s` } as React.CSSProperties}
                     >
                       <div
-                        className="w-full rounded-full mt-auto transition-all"
-                        style={{ height: `${fillHeight}%`, backgroundColor: barColor }}
+                        className="weekly-bar w-full rounded-xl mt-auto"
+                        style={{ 
+                          height: `${fillHeight}%`, 
+                          background: `linear-gradient(180deg, ${barColor}, ${barColor}dd)`,
+                          boxShadow: `0 0 8px ${barColor}40`
+                        }}
                       />
                     </div>
                   </div>
                 );
               })}
             </div>
+            <div className="flex justify-between mt-2 px-1">
+              {weeklyData.map((day) => (
+                <span key={day.key} className="text-[10px] text-white/60 font-medium">
+                  {day.label}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center">
-          <p className="text-white/90 text-sm font-medium text-center sm:text-left">{coachMessage}</p>
-          <div className="flex items-end gap-2 rounded-xl bg-white/10 px-3 py-2">
-            <div className="relative w-5 h-8 rounded-b-md rounded-t-sm border border-white/70 overflow-hidden bg-white/10">
+        <div className="mt-6 flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-center">
+          <p className="premium-body text-sm font-semibold text-center sm:text-left leading-relaxed">{coachMessage}</p>
+          <div className="flex items-end gap-3 rounded-2xl bg-white/12 backdrop-blur-xl border border-white/20 px-4 py-3 shadow-md">
+            <div className="relative w-6 h-9 rounded-b-lg rounded-t-sm border-2 border-cyan-300/80 overflow-hidden bg-white/10 shadow-inner">
               <div
-                className="absolute bottom-0 left-0 right-0 bg-cyan-300/90 transition-all"
-                style={{ height: `${Math.round(waterProgress * 100)}%` }}
+                className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-cyan-400 to-cyan-300 transition-all duration-700"
+                style={{ height: `${Math.round(waterProgress * 100)}%`, boxShadow: '0 0 8px rgba(34, 211, 238, 0.4)' }}
               />
             </div>
-            <p className="text-xs text-white/85 whitespace-nowrap">
+            <p className="text-sm text-white/90 whitespace-nowrap font-semibold">
               {dayLog.waterMl} / {WATER_GOAL_ML} ml
             </p>
           </div>
         </div>
 
         {ringExpanded && (
-          <div className="mt-4 bg-white/10 rounded-2xl p-4 grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-white/70">Protein</p>
-              <p className="text-white font-semibold">{Math.round(protein)} g</p>
+          <div className="mt-6 bg-white/12 backdrop-blur-xl border border-white/20 rounded-3xl p-5 grid grid-cols-2 gap-4 text-sm shadow-lg animate-in slide-in-from-top duration-500">
+            <div className="space-y-1">
+              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">Protein</p>
+              <p className="text-white font-bold text-lg">{Math.round(protein)} g</p>
             </div>
-            <div>
-              <p className="text-white/70">Karbo</p>
-              <p className="text-white font-semibold">{Math.round(carbs)} g</p>
+            <div className="space-y-1">
+              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">Karbo</p>
+              <p className="text-white font-bold text-lg">{Math.round(carbs)} g</p>
             </div>
-            <div>
-              <p className="text-white/70">Fett</p>
-              <p className="text-white font-semibold">{Math.round(fat)} g</p>
+            <div className="space-y-1">
+              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">Fett</p>
+              <p className="text-white font-bold text-lg">{Math.round(fat)} g</p>
             </div>
-            <div>
-              <p className="text-white/70">7-dagers snitt</p>
-              <p className="text-white font-semibold">{weeklyAverage} kcal</p>
+            <div className="space-y-1">
+              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">7-dagers snitt</p>
+              <p className="text-white font-bold text-lg">{weeklyAverage} kcal</p>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-3 mt-4 text-center gap-2 items-end">
-          <div>
-            <p className="text-2xl font-bold text-white">{optimizedTargetKcal}</p>
-            <p className="text-white/60 text-xs">TARGET KCAL</p>
+        <div className="grid grid-cols-3 mt-8 text-center gap-4 items-end">
+          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 shadow-md">
+            <p className="text-3xl font-black text-white drop-shadow-sm">{optimizedTargetKcal}</p>
+            <p className="text-white/80 text-xs font-bold uppercase tracking-wider mt-1">Mål kcal</p>
           </div>
-          <div>
-            <p className="text-2xl font-bold text-white">{consumed}</p>
-            <p className="text-white/60 text-xs">INNTAK</p>
+          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 shadow-md">
+            <p className="text-3xl font-black text-white drop-shadow-sm">{consumed}</p>
+            <p className="text-white/80 text-xs font-bold uppercase tracking-wider mt-1">Inntak</p>
           </div>
-          <div>
-            <p className="text-2xl font-bold text-white">+{dayLog.trainingKcal}</p>
-            <p className="text-white/60 text-xs">TRENING</p>
+          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 shadow-md">
+            <p className="text-3xl font-black text-white drop-shadow-sm">+{dayLog.trainingKcal}</p>
+            <p className="text-white/80 text-xs font-bold uppercase tracking-wider mt-1">Trening</p>
           </div>
         </div>
 
@@ -1855,47 +1890,60 @@ export default function HomeScreen() {
       </div>
 
       <div
-        className="flex items-center justify-center gap-4 py-4 select-none"
+        className="flex items-center justify-center gap-6 py-6 select-none"
         onTouchStart={onDateTouchStart}
         onTouchEnd={onDateTouchEnd}
       >
-        <button type="button" className="text-gray-500 p-2" onClick={goPreviousDay} title="Forrige dag">
-          <ChevronLeft className="w-5 h-5" />
+        <button 
+          type="button" 
+          className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95" 
+          onClick={goPreviousDay} 
+          title="Forrige dag"
+        >
+          <ChevronLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <p className="text-gray-600 font-medium text-center min-w-0 flex-1 px-2">{dateLabel}</p>
-        <button type="button" className="text-gray-500 p-2" onClick={goNextDay} title="Neste dag">
-          <ChevronRight className="w-5 h-5" />
+        <div className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-2xl px-6 py-3 shadow-md">
+          <p className="text-gray-800 font-bold text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
+        </div>
+        <button 
+          type="button" 
+          className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95" 
+          onClick={goNextDay} 
+          title="Neste dag"
+        >
+          <ChevronRight className="w-5 h-5 text-gray-600" />
         </button>
       </div>
 
       <div className="card">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800">Rask matlogging</h3>
-          <span className="text-[11px] text-gray-500">Ett trykk</span>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="text-lg font-bold text-gray-800">Rask matlogging</h3>
+          <span className="text-[11px] text-gray-500 font-semibold bg-gray-100 px-2 py-1 rounded-full">Ett trykk</span>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <p className="text-sm text-gray-600 mb-4">Logg mat på sekunder med AI-drevne verktøy</p>
+        <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
             onClick={() => openScanTab('photo')}
-            className="rounded-lg bg-orange-500 text-white text-xs px-3 py-2 flex items-center justify-center gap-1.5 disabled:bg-orange-300"
+            className="btn-primary text-sm px-4 py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
-            <Camera className="w-3.5 h-3.5" />
+            <Camera className="w-4 h-4" />
             Ta bilde
           </button>
           <button
             type="button"
             onClick={() => openScanTab('barcode')}
-            className="rounded-lg border border-orange-200 text-orange-600 text-xs px-3 py-2 flex items-center justify-center gap-1.5 disabled:text-orange-300 disabled:border-orange-100"
+            className="rounded-2xl border-2 border-orange-200 bg-orange-50 text-orange-700 text-sm font-bold px-4 py-3 flex items-center justify-center gap-2 transition-all duration-300 hover:border-orange-300 hover:bg-orange-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
-            <ScanLine className="w-3.5 h-3.5" />
+            <ScanLine className="w-4 h-4" />
             Strekkode
           </button>
           <button
             type="button"
             onClick={() => handleQuickAdd('repeat-last')}
-            className="rounded-lg border border-gray-200 text-gray-700 text-xs px-3 py-2 disabled:text-gray-400 disabled:border-gray-100"
+            className="rounded-2xl border-2 border-gray-200 bg-gray-50 text-gray-700 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-gray-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay || !lastLoggedFood}
           >
             Gjenta sist
@@ -1903,7 +1951,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('kcal-adaptive')}
-            className="rounded-lg border border-gray-200 text-gray-700 text-xs px-3 py-2 disabled:text-gray-400 disabled:border-gray-100"
+            className="rounded-2xl border-2 border-gray-200 bg-gray-50 text-gray-700 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-gray-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             Smart +kcal
@@ -2183,42 +2231,44 @@ export default function HomeScreen() {
         </div>
       )}
 
-      <div className="card mt-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Dumbbell className="w-5 h-5 text-orange-500" />
-            <h3 className="text-sm font-semibold text-gray-800">Trening</h3>
+      <div className="card">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
+              <Dumbbell className="w-5 h-5 text-orange-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800">Trening</h3>
           </div>
           <button
             type="button"
             onClick={openWorkoutModal}
-            className="text-xs font-medium text-orange-600 px-2 py-1 rounded-lg hover:bg-orange-50"
+            className="text-sm font-bold text-orange-600 px-3 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 transition-colors duration-200"
             disabled={isPastSelectedDay}
           >
             Logg detaljert
           </button>
         </div>
-        <div className="mt-3 rounded-xl border border-orange-100 bg-gradient-to-br from-orange-50 via-amber-50 to-orange-100 p-3">
-          <div className="flex items-start gap-4">
+        <div className="mt-4 rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-5 shadow-inner">
+          <div className="flex items-start gap-5">
             <div className="shrink-0">
-              <div className="flex h-24 w-20 items-center justify-center rounded-xl bg-white/45">
-                <div className={`flex-arm-emoji ${isTrainingFlexing ? 'training-flex-active' : ''}`} aria-hidden="true">💪</div>
+              <div className="flex h-28 w-24 items-center justify-center rounded-2xl bg-white/60 shadow-md border border-orange-100">
+                <div className={`flex-arm-emoji ${isTrainingFlexing ? 'training-flex-active' : ''}`} aria-hidden="true" style={{ fontSize: '3.5rem' }}>💪</div>
               </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Dagens trening</p>
-              <p className="text-sm text-orange-900">{dayLog.trainingKcal} kcal logget</p>
-              <p className="mt-1 text-[11px] text-orange-700/80">
-                {hasTrainingLogged ? 'Trykk en treningsokt for flex.' : 'Armen hviler til du logger en okt.'}
+            <div className="min-w-0 flex-1 pt-1">
+              <p className="text-xs font-bold uppercase tracking-wide text-orange-800 mb-1">Dagens trening</p>
+              <p className="text-xl font-black text-orange-900 mb-2">{dayLog.trainingKcal} kcal logget</p>
+              <p className="text-xs text-orange-700 font-medium leading-relaxed">
+                {hasTrainingLogged ? 'Trykk en treningsøkt for flex! 💪' : 'Armen hviler til du logger en økt.'}
               </p>
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-2 mt-3">
+        <div className="grid grid-cols-3 gap-3 mt-4">
           <button
             type="button"
             onClick={() => addTraining(420, 'workout:45-intense')}
-            className="w-full p-2 text-xs rounded-lg bg-orange-50 text-orange-600"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-200 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
             +45 min
@@ -2226,7 +2276,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => addTraining(300, 'workout:strength')}
-            className="w-full p-2 text-xs rounded-lg bg-orange-50 text-orange-600"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-200 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
             +Styrke
@@ -2234,27 +2284,27 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => addTraining(350, 'workout:10k-steps')}
-            className="w-full p-2 text-xs rounded-lg bg-orange-50 text-orange-600"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-200 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
             +10k skritt
           </button>
         </div>
         {selectedDayWorkouts.length > 0 && (
-          <div className="mt-3 rounded-lg bg-orange-50 p-2">
-            <p className="text-[11px] text-orange-700 mb-1">Dagens okter</p>
-            <div className="space-y-1">
+          <div className="mt-4 rounded-xl bg-white/80 border border-orange-100 p-3 shadow-sm">
+            <p className="text-xs font-bold text-orange-800 mb-2 uppercase tracking-wide">Dagens økter</p>
+            <div className="space-y-2">
               {selectedDayWorkouts.map((session) => (
                 <button
                   key={session.id}
                   type="button"
                   onClick={triggerTrainingFlex}
-                  className="w-full text-left text-xs text-orange-700 flex justify-between gap-3 rounded-md px-1 py-0.5 hover:bg-orange-100/70"
+                  className="w-full text-left text-sm text-orange-800 flex justify-between items-center gap-3 rounded-lg px-3 py-2 bg-orange-50 hover:bg-orange-100 transition-colors font-semibold"
                 >
                   <span className="truncate">
                     {session.exerciseName} ({session.durationMin} min)
                   </span>
-                  <span>{session.caloriesBurned} kcal</span>
+                  <span className="font-bold">{session.caloriesBurned} kcal</span>
                 </button>
               ))}
             </div>
@@ -2263,36 +2313,42 @@ export default function HomeScreen() {
       </div>
 
       <div className="card">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Droplets className="w-5 h-5 text-cyan-600" />
-            <h3 className="text-sm font-semibold text-gray-800">Vann</h3>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
+              <Droplets className="w-5 h-5 text-cyan-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800">Vann</h3>
           </div>
-          <p className="text-xs text-cyan-700">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
+          <div className="text-right">
+            <p className="text-sm font-bold text-cyan-700">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
+            <p className="text-xs text-cyan-600">{Math.round(waterProgress * 100)}% av mål</p>
+          </div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-gradient-to-br from-cyan-50 via-sky-50 to-cyan-100 p-3 border border-cyan-100">
-          <div className="flex items-start gap-4">
-            <div className="shrink-0">
-              <div className="mx-auto h-4 w-8 rounded-t-lg border-[3px] border-cyan-200 border-b-0 bg-white/80" />
-              <div className="relative h-36 w-16 overflow-hidden rounded-[1.7rem] border-4 border-cyan-200 bg-white/75 shadow-inner">
+        <div className="mt-4 rounded-2xl bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 p-6 border border-cyan-200 shadow-inner">
+          <div className="flex items-start gap-6">
+            <div className="shrink-0 water-bottle-enhanced">
+              <div className="mx-auto h-5 w-9 rounded-t-2xl border-[3px] border-cyan-300 border-b-0 bg-white/90 shadow-sm" />
+              <div className="relative h-40 w-18 overflow-hidden rounded-[2rem] border-4 border-cyan-300 bg-white/85 shadow-lg">
                 <div
                   className="absolute inset-x-0 bottom-0 overflow-hidden bg-gradient-to-t from-cyan-500 via-sky-400 to-cyan-300 transition-[height] duration-700 ease-out"
-                  style={{ height: `${bottleFillPercent}%` }}
+                  style={{ height: `${bottleFillPercent}%`, boxShadow: '0 0 16px rgba(6, 182, 212, 0.4)' }}
                 >
                   <div className="water-bottle-wave water-bottle-wave-back" />
                   <div className="water-bottle-wave water-bottle-wave-front" />
-                  <div className="absolute inset-x-0 top-0 h-2 bg-white/35 blur-sm" />
+                  <div className="absolute inset-x-0 top-0 h-3 bg-white/40 blur-sm" />
                 </div>
-                <div className="absolute inset-x-2.5 top-5 bottom-5 rounded-full border border-white/50 pointer-events-none" />
+                <div className="absolute inset-x-3 top-6 bottom-6 rounded-full border border-white/60 pointer-events-none" />
+                <div className="absolute inset-x-4 top-8 bottom-8 rounded-full border border-white/40 pointer-events-none" />
               </div>
-              <p className="mt-1 text-center text-[10px] text-cyan-700 font-medium">{bottleFillPercent}%</p>
+              <p className="mt-2 text-center text-xs text-cyan-800 font-bold bg-white/60 rounded-full px-2 py-1">{bottleFillPercent}%</p>
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between text-xs text-cyan-700 mb-2">
+              <div className="flex items-center justify-between text-sm text-cyan-800 mb-3 font-semibold">
                 <span>Vannmeter</span>
-                <span>{waterMeterMl} ml</span>
+                <span className="bg-white/70 px-2 py-1 rounded-lg">{waterMeterMl} ml</span>
               </div>
               <input
                 type="range"
@@ -2301,22 +2357,25 @@ export default function HomeScreen() {
                 step={50}
                 value={waterMeterMl}
                 onChange={(event) => setWaterMeterMl(Number(event.target.value))}
-                className="w-full accent-cyan-500"
+                className="w-full h-3 accent-cyan-500 rounded-full appearance-none bg-white/70 shadow-inner"
                 disabled={isPastSelectedDay}
+                style={{
+                  background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(waterMeterMl / 1000) * 100}%, #e0f7fa ${(waterMeterMl / 1000) * 100}%, #e0f7fa 100%)`
+                }}
               />
-              <div className="mt-1 flex justify-between text-[11px] text-cyan-600">
+              <div className="mt-2 flex justify-between text-xs text-cyan-700 font-medium px-1">
                 <span>0 ml</span>
                 <span>500 ml</span>
                 <span>1000 ml</span>
               </div>
-              <div className="mt-3">
+              <div className="mt-4">
                 <button
                   type="button"
                   onClick={() => addWater(waterMeterMl, 'water:meter:add')}
-                  className="w-full p-2 text-xs rounded-lg bg-cyan-600 text-white disabled:bg-cyan-300"
+                  className="w-full bg-gradient-to-b from-cyan-500 to-cyan-600 text-white font-bold text-sm p-3 rounded-xl hover:from-cyan-600 hover:to-cyan-700 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 shadow-lg"
                   disabled={isPastSelectedDay || waterMeterMl <= 0}
                 >
-                  Fyll glass
+                  💧 Fyll glass ({waterMeterMl} ml)
                 </button>
               </div>
             </div>
