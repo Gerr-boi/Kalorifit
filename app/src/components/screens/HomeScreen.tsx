@@ -2267,62 +2267,120 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 p-6 border border-cyan-400/20 shadow-inner">
-          <div className="flex items-start gap-6">
-            <div className="shrink-0 water-bottle-enhanced">
-              <div className="mx-auto h-5 w-9 rounded-t-2xl border-[3px] border-cyan-300 border-b-0 bg-white/[0.06] shadow-sm" />
-              <div className="relative h-40 w-18 overflow-hidden rounded-[2rem] border-4 border-cyan-300 bg-white/85 shadow-lg">
-                <div
-                  className="absolute inset-x-0 bottom-0 overflow-hidden bg-gradient-to-t from-cyan-500 via-sky-400 to-cyan-300 transition-[height] duration-700 ease-out"
-                  style={{ height: `${bottleFillPercent}%`, boxShadow: '0 0 16px rgba(6, 182, 212, 0.4)' }}
-                >
-                  <div className="water-bottle-wave water-bottle-wave-back" />
-                  <div className="water-bottle-wave water-bottle-wave-front" />
-                  <div className="absolute inset-x-0 top-0 h-3 bg-white/40 blur-sm" />
-                </div>
-                <div className="absolute inset-x-3 top-6 bottom-6 rounded-full border border-white/60 pointer-events-none" />
-                <div className="absolute inset-x-4 top-8 bottom-8 rounded-full border border-white/40 pointer-events-none" />
-              </div>
-              <p className="mt-2 text-center text-xs text-cyan-800 font-bold bg-white/60 rounded-full px-2 py-1">{bottleFillPercent}%</p>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between text-sm text-cyan-800 mb-3 font-semibold">
-                <span>Vannmeter</span>
-                <span className="bg-white/70 px-2 py-1 rounded-lg">{waterMeterMl} ml</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={1000}
-                step={50}
-                value={waterMeterMl}
-                onChange={(event) => setWaterMeterMl(Number(event.target.value))}
-                className="w-full h-3 accent-cyan-500 rounded-full appearance-none bg-white/70 shadow-inner"
-                disabled={isPastSelectedDay}
-                style={{
-                  background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(waterMeterMl / 1000) * 100}%, #e0f7fa ${(waterMeterMl / 1000) * 100}%, #e0f7fa 100%)`
-                }}
-              />
-              <div className="mt-2 flex justify-between text-xs text-cyan-300 font-medium px-1">
-                <span>0 ml</span>
-                <span>500 ml</span>
-                <span>1000 ml</span>
-              </div>
-              <div className="mt-4">
+        <div className="mt-4">
+          {/* 8 Water Cup Icons */}
+          <div className="flex justify-center items-center gap-2 mb-4">
+            {Array.from({ length: 8 }, (_, index) => {
+              const cupIndex = index + 1;
+              const cupsNeeded = Math.ceil(dayLog.waterMl / 250);
+              const isFilled = cupIndex <= cupsNeeded;
+              const isFirstUnfilled = cupIndex === cupsNeeded + 1;
+              
+              return (
                 <button
+                  key={cupIndex}
                   type="button"
-                  onClick={() => addWater(waterMeterMl, 'water:meter:add')}
-                  className="w-full bg-gradient-to-b from-cyan-500 to-cyan-600 text-white font-bold text-sm p-3 rounded-xl hover:from-cyan-600 hover:to-cyan-700 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 shadow-lg"
-                  disabled={isPastSelectedDay || waterMeterMl <= 0}
+                  onClick={() => !isFilled && addWater(250, 'water:cup:tap')}
+                  className={`relative w-8 h-10 rounded-b-lg border-2 transition-all duration-200 ${
+                    isFilled 
+                      ? 'bg-cyan-400 border-cyan-500' 
+                      : 'bg-white/[0.06] border-white/[0.08] hover:bg-white/[0.1]'
+                  } ${!isFilled && !isPastSelectedDay ? 'cursor-pointer' : 'cursor-default'}`}
+                  disabled={isPastSelectedDay || isFilled}
                 >
-                  💧 Fyll glass ({waterMeterMl} ml)
+                  {/* Cup Icon */}
+                  <div className={`w-full h-full rounded-b-lg ${isFilled ? 'bg-cyan-500' : ''}`} />
+                  
+                  {/* Plus overlay for first unfilled cup */}
+                  {isFirstUnfilled && !isPastSelectedDay && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Plus className="w-4 h-4 text-white/80" />
+                    </div>
+                  )}
                 </button>
-              </div>
-            </div>
+              );
+            })}
+          </div>
+          
+          {/* Water progress text */}
+          <div className="text-center">
+            <p className="text-sm text-cyan-300 font-medium">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
           </div>
         </div>
 
+      </div>
+
+      {/* Weight Graph Section */}
+      <div className="card bg-white/[0.03] border-white/[0.06]">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <h3 className="text-lg font-bold text-white/90">Kroppsvekt</h3>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-white/60">Ingen endring</p>
+          </div>
+        </div>
+
+        {/* Time Range Tabs */}
+        <div className="flex gap-2 mb-4">
+          {[
+            { label: '1 Måned', value: 1 },
+            { label: '3 Måneder', value: 3 },
+            { label: '6 Måneder', value: 6 }
+          ].map((tab, index) => (
+            <button
+              key={tab.value}
+              type="button"
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                index === 0 
+                  ? 'bg-orange-500 text-white' 
+                  : 'bg-white/[0.06] text-white/40 hover:bg-white/[0.1] hover:text-white/60'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Simple Weight Chart */}
+        <div className="h-32 bg-white/[0.02] rounded-lg border border-white/[0.05] mb-4 flex items-center justify-center">
+          {journeyWeightSeries.length > 0 ? (
+            <svg className="w-full h-full p-4" viewBox="0 0 300 100">
+              {/* Simple line chart */}
+              <polyline
+                fill="none"
+                stroke="#f97316"
+                strokeWidth="2"
+                points={journeyWeightSeries.map((point, index) => 
+                  `${(index / (journeyWeightSeries.length - 1)) * 280 + 10},${80 - (point.value - Math.min(...journeyWeightSeries.map(p => p.value))) / (Math.max(...journeyWeightSeries.map(p => p.value)) - Math.min(...journeyWeightSeries.map(p => p.value))) * 60}`
+                ).join(' ')}
+              />
+              {/* Data points */}
+              {journeyWeightSeries.map((point, index) => (
+                <circle
+                  key={index}
+                  cx={(index / (journeyWeightSeries.length - 1)) * 280 + 10}
+                  cy={80 - (point.value - Math.min(...journeyWeightSeries.map(p => p.value))) / (Math.max(...journeyWeightSeries.map(p => p.value)) - Math.min(...journeyWeightSeries.map(p => p.value))) * 60}
+                  r="3"
+                  fill="#f97316"
+                />
+              ))}
+              {/* Y-axis labels */}
+              <text x="5" y="15" fill="#ffffff60" fontSize="10">{Math.max(...journeyWeightSeries.map(p => p.value)).toFixed(1)}</text>
+              <text x="5" y="85" fill="#ffffff60" fontSize="10">{Math.min(...journeyWeightSeries.map(p => p.value)).toFixed(1)}</text>
+            </svg>
+          ) : (
+            <p className="text-white/40 text-sm">Ingen vektdata tilgjengelig</p>
+          )}
+        </div>
+
+        {/* Log Weight Button */}
+        <button
+          type="button"
+          className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium py-3 rounded-xl transition-colors duration-200"
+        >
+          Logg vekt
+        </button>
       </div>
 
       {isPastSelectedDay && (
