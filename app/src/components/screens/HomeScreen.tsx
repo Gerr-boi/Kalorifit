@@ -627,7 +627,7 @@ export default function HomeScreen() {
   );
   const consistencyBadge = useMemo(() => {
     if (streak >= 30 || weeklyConsistencyScore >= 85) return { label: 'Maskin', tone: 'bg-emerald-400/25 text-emerald-100 border-emerald-200/40' };
-    if (streak >= 14 || weeklyConsistencyScore >= 70) return { label: 'Dedikert', tone: 'bg-cyan-400/25 text-cyan-100 border-cyan-200/40' };
+    if (streak >= 14 || weeklyConsistencyScore >= 70) return { label: 'Dedikert', tone: 'bg-cyan-400/25 text-cyan-100 border-cyan-400/20/40' };
     if (streak >= 7 || weeklyConsistencyScore >= 45) return { label: 'Aktiv', tone: 'bg-amber-300/25 text-amber-50 border-amber-200/40' };
     return { label: 'Nybegynner', tone: 'bg-white/20 text-white border-white/35' };
   }, [streak, weeklyConsistencyScore]);
@@ -1394,12 +1394,13 @@ export default function HomeScreen() {
   const progressText = caloriesRemaining < 0 ? 'OVER MAL' : 'KALORIER GJENSTAR';
   const progressValue = caloriesRemaining < 0 ? Math.abs(caloriesRemaining) : caloriesRemaining;
   const dateLabel = isTodaySelected ? `I dag, ${fullDateFormat.format(selectedDate)}` : fullDateFormat.format(selectedDate);
-  const coachMessage =
+  const _coachMessage =
     consumed === 0
       ? 'Start dagen med et maltid for a bygge streak.'
       : caloriesRemaining > 0
       ? `Du er ${caloriesRemaining} kcal under malet i dag.`
       : `Du har overstiget malet med ${Math.abs(caloriesRemaining)} kcal.`;
+  void _coachMessage;
 
   const smartQuickActions = useMemo(() => {
     const base = [
@@ -1428,16 +1429,16 @@ export default function HomeScreen() {
             onClick={() => setShowSidebar(false)}
           />
           <div className="pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-[430px] -translate-x-1/2">
-            <aside className="pointer-events-auto h-full w-80 max-w-[86vw] bg-gradient-to-b from-white to-orange-50 shadow-2xl border-r border-orange-100 p-4 overflow-y-auto">
-              <div className="rounded-2xl bg-white/80 border border-orange-100 p-3">
+            <aside className="pointer-events-auto h-full w-80 max-w-[86vw] bg-gradient-to-b from-zinc-900 to-zinc-950 shadow-2xl border-r border-orange-500/10 p-4 overflow-y-auto">
+              <div className="rounded-2xl bg-white/[0.06] border border-orange-500/10 p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex w-9 h-9 items-center justify-center rounded-xl bg-orange-500 text-white">
+                    <span className="inline-flex w-9 h-9 items-center justify-center rounded-xl bg-orange-500/100 text-white">
                       {sidebarView === 'menu' ? <Menu className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                     </span>
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-orange-500">Hjem</p>
-                      <h3 className="text-base font-semibold text-gray-800">
+                      <h3 className="text-base font-semibold text-white/90">
                         {sidebarView === 'menu' ? 'Meny' : sidebarView === 'logg' ? 'Logg' : sidebarView === 'goals' ? 'Goal details' : 'Journey'}
                       </h3>
                     </div>
@@ -1447,7 +1448,7 @@ export default function HomeScreen() {
                       <button
                         type="button"
                         onClick={() => setSidebarView('menu')}
-                        className="h-8 rounded-full bg-gray-100 px-3 text-xs font-medium text-gray-600"
+                        className="h-8 rounded-full bg-white/[0.06] px-3 text-xs font-medium text-white/60"
                         title="Til meny"
                       >
                         Tilbake
@@ -1456,14 +1457,14 @@ export default function HomeScreen() {
                     <button
                       type="button"
                       onClick={() => setShowSidebar(false)}
-                      className="w-8 h-8 rounded-full bg-gray-100 text-gray-600"
+                      className="w-8 h-8 rounded-full bg-white/[0.06] text-white/60"
                       title="Lukk"
                     >
                       <X className="w-4 h-4 mx-auto" />
                     </button>
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-gray-500">
+                <p className="mt-2 text-xs text-white/40">
                   {sidebarView === 'menu'
                     ? 'Rask navigasjon til logg og maelinnsikt.'
                     : sidebarView === 'logg'
@@ -1479,40 +1480,40 @@ export default function HomeScreen() {
                   <button
                     type="button"
                     onClick={() => setSidebarView('logg')}
-                    className="w-full text-left rounded-2xl border border-orange-100 bg-white/90 px-3 py-3 text-sm font-medium text-gray-700 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-white/[0.06] px-3 py-3 text-sm font-medium text-white/70 hover:bg-white"
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-gray-800">Logg</p>
-                        <p className="text-xs text-gray-500">I gar + tidligere matdager</p>
+                        <p className="font-semibold text-white/90">Logg</p>
+                        <p className="text-xs text-white/40">I gar + tidligere matdager</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                      <ChevronRight className="w-4 h-4 text-white/30" />
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarView('goals')}
-                    className="w-full text-left rounded-2xl border border-orange-100 bg-white/90 px-3 py-3 text-sm font-medium text-gray-700 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-white/[0.06] px-3 py-3 text-sm font-medium text-white/70 hover:bg-white"
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-gray-800">Goal details</p>
-                        <p className="text-xs text-gray-500">Energi, makro, progresjon</p>
+                        <p className="font-semibold text-white/90">Goal details</p>
+                        <p className="text-xs text-white/40">Energi, makro, progresjon</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                      <ChevronRight className="w-4 h-4 text-white/30" />
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarView('journey')}
-                    className="w-full text-left rounded-2xl border border-orange-100 bg-white/90 px-3 py-3 text-sm font-medium text-gray-700 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-white/[0.06] px-3 py-3 text-sm font-medium text-white/70 hover:bg-white"
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-gray-800">Journey</p>
-                        <p className="text-xs text-gray-500">Vektgraf og progresjon</p>
+                        <p className="font-semibold text-white/90">Journey</p>
+                        <p className="text-xs text-white/40">Vektgraf og progresjon</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                      <ChevronRight className="w-4 h-4 text-white/30" />
                     </div>
                   </button>
                 </div>
@@ -1521,25 +1522,25 @@ export default function HomeScreen() {
               {sidebarView === 'logg' && (
                 <div className="mt-4 space-y-3">
                   {historicalMealLog.length === 0 ? (
-                    <p className="text-xs text-gray-500">Ingen historisk matlogg enda.</p>
+                    <p className="text-xs text-white/40">Ingen historisk matlogg enda.</p>
                   ) : (
                     historicalMealLog.map((day) => (
-                      <div key={day.dateKey} className="rounded-xl bg-gray-50 p-3">
+                      <div key={day.dateKey} className="rounded-xl bg-white/[0.03] p-3">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-gray-800">
+                          <p className="text-xs font-semibold text-white/90">
                             {formatDateKey(day.dateKey)} ({getRelativeDayLabel(day.dateKey)})
                           </p>
-                          <p className="text-[11px] text-gray-500">
+                          <p className="text-[11px] text-white/40">
                             {day.totalFoods} matvarer | {Math.round(day.totalKcal)} kcal | {Math.round(day.totalProtein)} g protein
                           </p>
                         </div>
                         <div className="mt-2 space-y-2">
                           {day.mealSections.map(([mealId, foods]) => (
-                            <div key={`${day.dateKey}-${mealId}`} className="rounded-lg bg-white border border-gray-200 p-2">
-                              <p className="text-[11px] font-medium text-gray-500 capitalize mb-1">{mealId}</p>
+                            <div key={`${day.dateKey}-${mealId}`} className="rounded-lg bg-white border border-white/[0.08] p-2">
+                              <p className="text-[11px] font-medium text-white/40 capitalize mb-1">{mealId}</p>
                               <div className="space-y-1">
                                 {foods.map((food) => (
-                                  <p key={food.id} className="text-xs text-gray-700">{food.name} - {Math.round(food.kcal)} kcal</p>
+                                  <p key={food.id} className="text-xs text-white/70">{food.name} - {Math.round(food.kcal)} kcal</p>
                                 ))}
                               </div>
                             </div>
@@ -1553,29 +1554,29 @@ export default function HomeScreen() {
 
               {sidebarView === 'goals' && (
                 <div className="mt-4">
-                  <div className="rounded-xl border border-orange-100 bg-white p-3">
+                  <div className="rounded-xl border border-orange-500/10 bg-white p-3">
                     <button
                       type="button"
                       onClick={() => setNutritionBoxExpanded((prev) => !prev)}
                       className="w-full text-left flex items-start justify-between gap-3"
                     >
-                      <p className="text-[11px] text-gray-700">
+                      <p className="text-[11px] text-white/70">
                         Dagens kalorimal: {smartDietPlan.optimizedTargetKcal} kcal
                         {' '}
                         ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} vs grunnmal)
                       </p>
-                      <span className="text-[11px] text-gray-500 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
+                      <span className="text-[11px] text-white/40 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
                     </button>
 
                     {nutritionBoxExpanded && (
                       <>
-                        <p className="text-[11px] text-gray-500 mt-2">
+                        <p className="text-[11px] text-white/40 mt-2">
                           Grunnmal: {smartDietPlan.baseTargetKcal} | Vedlikehold: {smartDietPlan.tdee} | Hvileforbrenning: {smartDietPlan.bmr}
                         </p>
-                        <p className="text-[11px] text-gray-500 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
-                        <p className="text-[11px] text-gray-500 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
+                        <p className="text-[11px] text-white/40 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
+                        <p className="text-[11px] text-white/40 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
                         {smartDietPlan.macros && (
-                          <p className="text-[11px] text-gray-500 mt-1">
+                          <p className="text-[11px] text-white/40 mt-1">
                             Dagsmal makro: Protein {smartDietPlan.macros.proteinG} g | Fett {smartDietPlan.macros.fatG} g | Karbo {smartDietPlan.macros.carbsG} g
                           </p>
                         )}
@@ -1584,34 +1585,34 @@ export default function HomeScreen() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 text-xs">
-                    <div className="rounded-lg bg-gray-50 p-2">
+                    <div className="rounded-lg bg-white/[0.03] p-2">
                       Goal category: {String(profilePrefs.goalCategory ?? 'fat_loss').split('_').join(' ')}
                     </div>
-                    <div className="rounded-lg bg-gray-50 p-2">
+                    <div className="rounded-lg bg-white/[0.03] p-2">
                       Goal strategy: {String(profilePrefs.goalStrategy ?? 'standard_cut').split('_').join(' ')}
                     </div>
-                    <div className="rounded-lg bg-gray-50 p-2">
+                    <div className="rounded-lg bg-white/[0.03] p-2">
                       Timeline: {String(profilePrefs.timelineType ?? 'maintenance_open').split('_').join(' ')}
                     </div>
-                    <div className="rounded-lg bg-gray-50 p-2">
+                    <div className="rounded-lg bg-white/[0.03] p-2">
                       Projection: {localizeProjectionText(smartDietPlan.projectedProgressText)}
                     </div>
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-lg bg-orange-50 p-2">BMR: {smartDietPlan.bmr} kcal</div>
-                    <div className="rounded-lg bg-orange-50 p-2">TDEE: {smartDietPlan.tdee} kcal</div>
-                    <div className="rounded-lg bg-orange-50 p-2">Base: {smartDietPlan.baseTargetKcal} kcal</div>
-                    <div className="rounded-lg bg-orange-50 p-2">Optimized: {smartDietPlan.optimizedTargetKcal} kcal</div>
+                    <div className="rounded-lg bg-orange-500/10 p-2">BMR: {smartDietPlan.bmr} kcal</div>
+                    <div className="rounded-lg bg-orange-500/10 p-2">TDEE: {smartDietPlan.tdee} kcal</div>
+                    <div className="rounded-lg bg-orange-500/10 p-2">Base: {smartDietPlan.baseTargetKcal} kcal</div>
+                    <div className="rounded-lg bg-orange-500/10 p-2">Optimized: {smartDietPlan.optimizedTargetKcal} kcal</div>
                   </div>
-                  <p className="mt-2 text-xs text-gray-600">
+                  <p className="mt-2 text-xs text-white/60">
                     Ukentlig justering: {smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} kcal
                   </p>
-                  <p className="text-xs text-gray-600 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
+                  <p className="text-xs text-white/60 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
                   {smartDietPlan.macros && (
                     <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                      <div className="rounded-lg bg-gray-50 p-2">Protein: {smartDietPlan.macros.proteinG} g</div>
-                      <div className="rounded-lg bg-gray-50 p-2">Karbo: {smartDietPlan.macros.carbsG} g</div>
-                      <div className="rounded-lg bg-gray-50 p-2">Fett: {smartDietPlan.macros.fatG} g</div>
+                      <div className="rounded-lg bg-white/[0.03] p-2">Protein: {smartDietPlan.macros.proteinG} g</div>
+                      <div className="rounded-lg bg-white/[0.03] p-2">Karbo: {smartDietPlan.macros.carbsG} g</div>
+                      <div className="rounded-lg bg-white/[0.03] p-2">Fett: {smartDietPlan.macros.fatG} g</div>
                     </div>
                   )}
                 </div>
@@ -1620,10 +1621,10 @@ export default function HomeScreen() {
               {sidebarView === 'journey' && (
                 <div className="mt-4">
                   {journeyWeightSeries.length === 0 ? (
-                    <p className="text-xs text-gray-500">Ingen vektdata enda. Logg en maling for graf.</p>
+                    <p className="text-xs text-white/40">Ingen vektdata enda. Logg en maling for graf.</p>
                   ) : (
-                    <div className="rounded-xl bg-gray-50 p-3">
-                      <p className="text-xs font-medium text-gray-600 mb-2">Vekttrend (kg)</p>
+                    <div className="rounded-xl bg-white/[0.03] p-3">
+                      <p className="text-xs font-medium text-white/60 mb-2">Vekttrend (kg)</p>
                       <svg viewBox="0 0 420 170" className="w-full h-40">
                         {(() => {
                           const values = journeyWeightSeries.map((point) => point.value);
@@ -1649,10 +1650,10 @@ export default function HomeScreen() {
                                   <circle cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
                                 </g>
                               ))}
-                              <text x="15" y="164" fontSize="10" fill="currentColor" className="text-gray-500">
+                              <text x="15" y="164" fontSize="10" fill="currentColor" className="text-white/40">
                                 {formatDateKey(coords[0]?.date ?? todayKey)}
                               </text>
-                              <text x="340" y="164" fontSize="10" fill="currentColor" className="text-gray-500">
+                              <text x="340" y="164" fontSize="10" fill="currentColor" className="text-white/40">
                                 {formatDateKey(coords[coords.length - 1]?.date ?? todayKey)}
                               </text>
                             </>
@@ -1668,259 +1669,199 @@ export default function HomeScreen() {
         </div>
       )}
 
-      <div className="screen-header pt-8 pb-10">
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
+      {/* ===== COMPACT TOP BAR ===== */}
+      <div className="screen-header">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
                 setShowSidebar((prev) => {
                   const next = !prev;
                   if (next) setSidebarView('menu');
                   return next;
-                })
-              }
-              className="w-11 h-11 btn-glass rounded-2xl flex items-center justify-center shrink-0"
+                });
+              }}
+              className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center"
               title="Åpne meny"
             >
-              {showSidebar ? <X className="w-5 h-5 text-white" /> : <Menu className="w-5 h-5 text-white" />}
+              {showSidebar ? <X className="w-4 h-4 text-white/70" /> : <Menu className="w-4 h-4 text-white/70" />}
             </button>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-3 mb-2">
-                <span className="inline-flex items-center gap-2 premium-body text-sm font-semibold">
-                  <Flame className="w-4 h-4 text-orange-300 drop-shadow-sm" />
-                  {streak} dagers streak
-                </span>
-                <span className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-bold backdrop-blur-sm ${consistencyBadge.tone}`}>
+            <div>
+              <div className="flex items-center gap-2">
+                <Flame className="w-3.5 h-3.5 text-orange-400" />
+                <span className="text-sm font-semibold text-white/90">{streak} dagers streak</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${consistencyBadge.tone}`}>
                   {consistencyBadge.label}
                 </span>
               </div>
-              <p className="premium-body text-xs font-medium">Konsistensscore: {weeklyConsistencyScore}%</p>
-              <p className="premium-body text-xs font-medium">Daglig disiplin: {discipline.score}/100</p>
+              <p className="text-[11px] text-white/40 mt-0.5">Disiplin {discipline.score}/100 · Konsistens {weeklyConsistencyScore}%</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setLazyMode((prev) => !prev)}
-              className="btn-glass h-11 px-4 rounded-2xl text-xs font-bold text-white whitespace-nowrap"
+              className="h-9 px-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-[11px] font-semibold text-white/60"
               title="Enkel modus"
             >
-              {lazyMode ? 'Enkel ON' : 'Enkel modus'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowQuickAddMenu((prev) => !prev)}
-              className="w-11 h-11 btn-glass rounded-2xl flex items-center justify-center"
-              title="Quick add"
-              disabled={isPastSelectedDay}
-            >
-              <Plus className="w-5 h-5 text-white" />
+              {lazyMode ? 'Enkel ✓' : 'Enkel'}
             </button>
           </div>
         </div>
 
         {activeHeroMessage && (
-          <div className="hero-message-shell mb-3">
+          <div className="hero-message-shell mt-3">
             <div className={`hero-message-card ${heroMessageVisible ? 'hero-message-card-visible' : 'hero-message-card-hidden'}`}>
               <p className="hero-message-text">{activeHeroMessage}</p>
             </div>
           </div>
         )}
+      </div>
 
-        <div className="mt-6 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="button"
-            onClick={onRingTap}
-            className="progress-circle mx-auto shrink-0 sm:mx-0"
-            title="Vis kaloridetaljer"
-          >
-            <svg width="200" height="200" viewBox="0 0 200 200">
-              <defs>
-                <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor={ringColor} stopOpacity="0.9" />
-                  <stop offset="50%" stopColor={ringColor} stopOpacity="1" />
-                  <stop offset="100%" stopColor={ringColor} stopOpacity="0.7" />
-                </linearGradient>
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                  <feMerge> 
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                  </feMerge>
-                </filter>
-              </defs>
-              <circle className="progress-circle-bg" cx="100" cy="100" r={RING_RADIUS} />
-              <circle
-                cx="100"
-                cy="100"
-                r={RING_RADIUS}
-                fill="none"
-                stroke="url(#ringGradient)"
-                strokeWidth="14"
-                strokeLinecap="round"
-                strokeDasharray={RING_CIRCUMFERENCE}
-                strokeDashoffset={strokeDashoffset}
-                filter="url(#glow)"
-                style={{ transition: 'stroke-dashoffset 800ms cubic-bezier(0.4, 0, 0.2, 1), stroke 400ms ease' }}
-              />
-            </svg>
-            <div className="progress-text">
-              <p className="text-6xl font-black text-white drop-shadow-md">{progressValue}</p>
-              <p className="text-white/80 text-sm mt-2 font-semibold tracking-wide">{progressText}</p>
-              <span className="mt-3 inline-flex premium-body text-xs items-center gap-1.5 font-medium">
-                Trykk for detaljer <ChevronRight className={`w-3 h-3 ${ringExpanded ? 'rotate-90' : ''} transition-transform duration-300`} />
-              </span>
-            </div>
-          </button>
+      {/* ===== CALORIE RING HERO ===== */}
+      <div className="calorie-hero">
+        <button
+          type="button"
+          onClick={onRingTap}
+          className="progress-circle"
+          title="Vis kaloridetaljer"
+        >
+          <svg width="220" height="220" viewBox="0 0 200 200">
+            <defs>
+              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={ringColor} />
+                <stop offset="100%" stopColor={ringColor} stopOpacity="0.5" />
+              </linearGradient>
+              <filter id="ringGlow">
+                <feGaussianBlur stdDeviation="4" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <circle className="progress-circle-bg" cx="100" cy="100" r={RING_RADIUS} />
+            <circle
+              cx="100" cy="100" r={RING_RADIUS}
+              fill="none" stroke="url(#ringGrad)" strokeWidth="10" strokeLinecap="round"
+              strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={strokeDashoffset}
+              filter="url(#ringGlow)"
+              style={{ transition: 'stroke-dashoffset 800ms cubic-bezier(0.4,0,0.2,1), stroke 300ms ease' }}
+            />
+          </svg>
+          <div className="progress-text">
+            <p className="text-[52px] font-bold text-white leading-none tracking-tight">{progressValue}</p>
+            <p className="text-white/50 text-xs mt-1.5 font-medium tracking-widest uppercase">{progressText}</p>
+          </div>
+        </button>
 
-          <div className="w-full min-w-0 flex-1 rounded-3xl bg-white/12 backdrop-blur-xl border border-white/20 px-4 py-4 shadow-lg">
-            <p className="text-[11px] uppercase text-white/90 mb-3 font-bold tracking-wider">Ukesoversikt</p>
-            <div className="flex items-end justify-between gap-1.5 h-32">
-              {weeklyData.map((day, index) => {
-                const dayTarget = Math.max(1, optimizedTargetKcal + (logsByDate[day.key]?.trainingKcal ?? 0));
-                const ratioRaw = day.consumed / dayTarget;
-                const ratio = Math.max(0, Math.min(ratioRaw, 1));
-                const fillHeight = day.consumed > 0 ? Math.max(8, Math.round(ratio * 100)) : 0;
-                const barColor = getWeeklyBarColor(ratio);
-                return (
-                  <div key={day.key} className="flex flex-1 justify-center">
-                    <div
-                      className={`weekly-bar-container w-5 h-28 rounded-2xl bg-white/15 backdrop-blur-sm p-[2px] flex flex-col border transition-all duration-300 ${
-                        day.isSelected 
-                          ? 'ring-2 ring-white border-white/40 selected' 
-                          : day.isToday 
-                            ? 'ring-1 ring-white/80 border-white/30 today' 
-                            : 'border-white/20'
-                      }`}
-                      title={`${formatDateKey(day.key)}: ${Math.round(ratioRaw * 100)}% av mål`}
-                      style={{ '--shimmer-delay': `${index * 0.1}s` } as React.CSSProperties}
-                    >
-                      <div
-                        className="weekly-bar w-full rounded-xl mt-auto"
-                        style={{ 
-                          height: `${fillHeight}%`, 
-                          background: `linear-gradient(180deg, ${barColor}, ${barColor}dd)`,
-                          boxShadow: `0 0 8px ${barColor}40`
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+        {/* Stats row */}
+        <div className="flex justify-center gap-8 mt-6">
+          <div className="text-center">
+            <p className="text-xl font-bold text-white">{optimizedTargetKcal}</p>
+            <p className="text-[10px] text-white/35 font-semibold tracking-wider uppercase mt-0.5">Mål</p>
+          </div>
+          <div className="w-px h-10 bg-white/[0.08]" />
+          <div className="text-center">
+            <p className="text-xl font-bold text-orange-400">{consumed}</p>
+            <p className="text-[10px] text-white/35 font-semibold tracking-wider uppercase mt-0.5">Spist</p>
+          </div>
+          <div className="w-px h-10 bg-white/[0.08]" />
+          <div className="text-center">
+            <p className="text-xl font-bold text-emerald-400">+{dayLog.trainingKcal}</p>
+            <p className="text-[10px] text-white/35 font-semibold tracking-wider uppercase mt-0.5">Trening</p>
+          </div>
+        </div>
+
+        {/* Macro row when expanded */}
+        {ringExpanded && (
+          <div className="mt-5 grid grid-cols-4 gap-2">
+            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-white">{Math.round(protein)}<span className="text-xs text-white/40 ml-0.5">g</span></p>
+              <p className="text-[10px] text-white/35 mt-0.5">Protein</p>
             </div>
-            <div className="flex justify-between mt-2 px-1">
-              {weeklyData.map((day) => (
-                <span key={day.key} className="text-[10px] text-white/60 font-medium">
+            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-white">{Math.round(carbs)}<span className="text-xs text-white/40 ml-0.5">g</span></p>
+              <p className="text-[10px] text-white/35 mt-0.5">Karbo</p>
+            </div>
+            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-white">{Math.round(fat)}<span className="text-xs text-white/40 ml-0.5">g</span></p>
+              <p className="text-[10px] text-white/35 mt-0.5">Fett</p>
+            </div>
+            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-white">{weeklyAverage}</p>
+              <p className="text-[10px] text-white/35 mt-0.5">Snitt/uke</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ===== WEEKLY BAR CHART ===== */}
+      <div className="mx-4 mt-2 mb-2 rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[11px] text-white/40 font-semibold tracking-wider uppercase">Denne uken</p>
+          <p className="text-[11px] text-white/30">Snitt: {weeklyAverage} kcal</p>
+        </div>
+        <div className="flex items-end justify-between gap-2 h-24">
+          {weeklyData.map((day) => {
+            const dayTarget = Math.max(1, optimizedTargetKcal + (logsByDate[day.key]?.trainingKcal ?? 0));
+            const ratioRaw = day.consumed / dayTarget;
+            const ratio = Math.max(0, Math.min(ratioRaw, 1));
+            const fillHeight = day.consumed > 0 ? Math.max(6, Math.round(ratio * 100)) : 4;
+            const barColor = getWeeklyBarColor(ratio);
+            return (
+              <div key={day.key} className="flex-1 flex flex-col items-center gap-1.5">
+                <div className="w-full max-w-[14px] h-20 rounded-full bg-white/[0.04] flex flex-col justify-end overflow-hidden">
+                  <div
+                    className="w-full rounded-full transition-all duration-700 ease-out"
+                    style={{
+                      height: `${fillHeight}%`,
+                      backgroundColor: day.consumed > 0 ? barColor : 'rgba(255,255,255,0.06)',
+                      boxShadow: day.consumed > 0 ? `0 0 8px ${barColor}30` : 'none',
+                    }}
+                  />
+                </div>
+                <span className={`text-[10px] font-medium ${
+                  day.isSelected ? 'text-orange-400' : day.isToday ? 'text-white/60' : 'text-white/25'
+                }`}>
                   {day.label}
                 </span>
-              ))}
-            </div>
-          </div>
+              </div>
+            );
+          })}
         </div>
-
-        <div className="mt-6 flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-center">
-          <p className="premium-body text-sm font-semibold text-center sm:text-left leading-relaxed">{coachMessage}</p>
-          <div className="flex items-end gap-3 rounded-2xl bg-white/12 backdrop-blur-xl border border-white/20 px-4 py-3 shadow-md">
-            <div className="relative w-6 h-9 rounded-b-lg rounded-t-sm border-2 border-cyan-300/80 overflow-hidden bg-white/10 shadow-inner">
-              <div
-                className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-cyan-400 to-cyan-300 transition-all duration-700"
-                style={{ height: `${Math.round(waterProgress * 100)}%`, boxShadow: '0 0 8px rgba(34, 211, 238, 0.4)' }}
-              />
-            </div>
-            <p className="text-sm text-white/90 whitespace-nowrap font-semibold">
-              {dayLog.waterMl} / {WATER_GOAL_ML} ml
-            </p>
-          </div>
-        </div>
-
-        {ringExpanded && (
-          <div className="mt-6 bg-white/12 backdrop-blur-xl border border-white/20 rounded-3xl p-5 grid grid-cols-2 gap-4 text-sm shadow-lg animate-in slide-in-from-top duration-500">
-            <div className="space-y-1">
-              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">Protein</p>
-              <p className="text-white font-bold text-lg">{Math.round(protein)} g</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">Karbo</p>
-              <p className="text-white font-bold text-lg">{Math.round(carbs)} g</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">Fett</p>
-              <p className="text-white font-bold text-lg">{Math.round(fat)} g</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">7-dagers snitt</p>
-              <p className="text-white font-bold text-lg">{weeklyAverage} kcal</p>
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-3 mt-8 text-center gap-4 items-end">
-          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 shadow-md">
-            <p className="text-3xl font-black text-white drop-shadow-sm">{optimizedTargetKcal}</p>
-            <p className="text-white/80 text-xs font-bold uppercase tracking-wider mt-1">Mål kcal</p>
-          </div>
-          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 shadow-md">
-            <p className="text-3xl font-black text-white drop-shadow-sm">{consumed}</p>
-            <p className="text-white/80 text-xs font-bold uppercase tracking-wider mt-1">Inntak</p>
-          </div>
-          <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl p-4 shadow-md">
-            <p className="text-3xl font-black text-white drop-shadow-sm">+{dayLog.trainingKcal}</p>
-            <p className="text-white/80 text-xs font-bold uppercase tracking-wider mt-1">Trening</p>
-          </div>
-        </div>
-
-        {false && consistencyDropInsight && (
-          <div className="mt-2 flex items-start gap-2 px-1">
-            <span className="text-base leading-none" aria-hidden>💬</span>
-            <p className="text-[11px] text-white/90">{localizeBehaviorInsight(consistencyDropInsight ?? '')}</p>
-          </div>
-        )}
-
-        {false && otherBehaviorInsights.length > 0 && (
-          <div className="mt-2 rounded-xl bg-white/10 p-3">
-            {otherBehaviorInsights.map((insight) => (
-              <p key={insight} className="text-[11px] text-white/80">
-                {localizeBehaviorInsight(insight)}
-              </p>
-            ))}
-          </div>
-        )}
-
       </div>
 
       <div
-        className="flex items-center justify-center gap-6 py-6 select-none"
+        className="flex items-center justify-center gap-4 py-4 select-none"
         onTouchStart={onDateTouchStart}
         onTouchEnd={onDateTouchEnd}
       >
         <button 
           type="button" 
-          className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95" 
+          className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
           onClick={goPreviousDay} 
           title="Forrige dag"
         >
-          <ChevronLeft className="w-5 h-5 text-gray-600" />
+          <ChevronLeft className="w-4 h-4 text-white/50" />
         </button>
-        <div className="bg-white/90 backdrop-blur-sm border border-gray-200 rounded-2xl px-6 py-3 shadow-md">
-          <p className="text-gray-800 font-bold text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
+        <div className="bg-white/[0.06] backdrop-blur-sm border border-white/[0.08] rounded-2xl px-6 py-3 shadow-md">
+          <p className="text-white/80 font-medium text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
         </div>
         <button 
           type="button" 
-          className="w-10 h-10 rounded-2xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95" 
+          className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
           onClick={goNextDay} 
           title="Neste dag"
         >
-          <ChevronRight className="w-5 h-5 text-gray-600" />
+          <ChevronRight className="w-4 h-4 text-white/50" />
         </button>
       </div>
 
       <div className="card">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold text-gray-800">Rask matlogging</h3>
-          <span className="text-[11px] text-gray-500 font-semibold bg-gray-100 px-2 py-1 rounded-full">Ett trykk</span>
+          <h3 className="text-lg font-bold text-white/90">Rask matlogging</h3>
+          <span className="text-[11px] text-white/40 font-semibold bg-white/[0.06] px-2 py-1 rounded-full">Ett trykk</span>
         </div>
-        <p className="text-sm text-gray-600 mb-4">Logg mat på sekunder med AI-drevne verktøy</p>
+        <p className="text-sm text-white/60 mb-4">Logg mat på sekunder med AI-drevne verktøy</p>
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -1934,7 +1875,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => openScanTab('barcode')}
-            className="rounded-2xl border-2 border-orange-200 bg-orange-50 text-orange-700 text-sm font-bold px-4 py-3 flex items-center justify-center gap-2 transition-all duration-300 hover:border-orange-300 hover:bg-orange-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-2xl border-2 border-orange-200 bg-orange-500/10 text-orange-300 text-sm font-bold px-4 py-3 flex items-center justify-center gap-2 transition-all duration-300 hover:border-orange-300 hover:bg-orange-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             <ScanLine className="w-4 h-4" />
@@ -1943,7 +1884,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('repeat-last')}
-            className="rounded-2xl border-2 border-gray-200 bg-gray-50 text-gray-700 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-gray-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-2xl border-2 border-white/[0.08] bg-white/[0.03] text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay || !lastLoggedFood}
           >
             Gjenta sist
@@ -1951,7 +1892,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('kcal-adaptive')}
-            className="rounded-2xl border-2 border-gray-200 bg-gray-50 text-gray-700 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-gray-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-2xl border-2 border-white/[0.08] bg-white/[0.03] text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             Smart +kcal
@@ -1961,26 +1902,26 @@ export default function HomeScreen() {
 
       <div className="card">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-800">Dagens matlogg</h3>
-          <span className="text-[11px] text-gray-500">{todaysLoggedItems.length} varer</span>
+          <h3 className="text-sm font-semibold text-white/90">Dagens matlogg</h3>
+          <span className="text-[11px] text-white/40">{todaysLoggedItems.length} varer</span>
         </div>
         {todaysLoggedItems.length === 0 ? (
-          <p className="mt-3 text-xs text-gray-500">Ingen matvarer logget enda i dag.</p>
+          <p className="mt-3 text-xs text-white/40">Ingen matvarer logget enda.</p>
         ) : (
           <div className="mt-3 space-y-2">
             {todaysLoggedItems.map(({ mealId, index, entry }) => (
-              <div key={entry.id} className="rounded-lg border border-gray-100 px-3 py-2">
+              <div key={entry.id} className="rounded-lg border border-white/[0.06] px-3 py-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-[11px] uppercase text-gray-400">{mealLabelById[mealId]} #{index + 1}</p>
-                    <p className="text-sm font-medium text-gray-800 truncate">{entry.name}</p>
-                    <p className="text-xs text-gray-500">{entry.kcal} kcal | P {entry.protein} | K {entry.carbs} | F {entry.fat}</p>
+                    <p className="text-[11px] uppercase text-white/30">{mealLabelById[mealId]} #{index + 1}</p>
+                    <p className="text-sm font-medium text-white/90 truncate">{entry.name}</p>
+                    <p className="text-xs text-white/40">{entry.kcal} kcal | P {entry.protein} | K {entry.carbs} | F {entry.fat}</p>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => openFoodEdit(mealId, entry)}
-                      className="h-8 w-8 rounded-md border border-gray-200 text-gray-500 flex items-center justify-center disabled:text-gray-300 disabled:border-gray-100"
+                      className="h-8 w-8 rounded-md border border-white/[0.08] text-white/40 flex items-center justify-center disabled:text-white/20 disabled:border-white/[0.06]"
                       title="Rediger"
                       disabled={isPastSelectedDay}
                     >
@@ -1989,7 +1930,7 @@ export default function HomeScreen() {
                     <button
                       type="button"
                       onClick={() => removeFoodFromMeal(mealId, entry.id)}
-                      className="h-8 w-8 rounded-md border border-red-200 text-red-500 flex items-center justify-center disabled:text-red-300 disabled:border-red-100"
+                      className="h-8 w-8 rounded-md border border-red-500/20 text-red-400 flex items-center justify-center disabled:text-red-400/50 disabled:border-red-100"
                       title="Slett"
                       disabled={isPastSelectedDay}
                     >
@@ -2033,31 +1974,31 @@ export default function HomeScreen() {
               >
                 <div className="meal-info">
                   <div className="meal-icon" style={{ background: meal.color }}>
-                    <MealIcon className="w-6 h-6 text-gray-700" />
+                    <MealIcon className="w-6 h-6 text-white/70" />
                   </div>
                   <div className="text-left min-w-0">
-                    <h3 className="font-semibold text-gray-800">{meal.name}</h3>
-                    <p className="text-sm text-gray-500">{items.length ? `${totals.kcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}</p>
+                    <h3 className="font-semibold text-white/90">{meal.name}</h3>
+                    <p className="text-sm text-white/40">{items.length ? `${totals.kcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}</p>
                     {mealHistory.avgKcal > 0 && (
-                      <p className="text-[11px] text-gray-400">Vanlig: ~{mealHistory.avgKcal} kcal</p>
+                      <p className="text-[11px] text-white/30">Vanlig: ~{mealHistory.avgKcal} kcal</p>
                     )}
                     {items.length > 0 ? (
-                      <p className="text-xs text-gray-500 mt-1 truncate">
+                      <p className="text-xs text-white/40 mt-1 truncate">
                         {previewItems.map((item) => `${item.name}${item.count > 1 ? ` x${item.count}` : ''}`).join(' + ')}
                         {extraPreviewCount > 0 ? ` + ${extraPreviewCount} til` : ''}
                       </p>
                     ) : (
-                      <p className="text-xs text-gray-400 mt-1">Trykk for a legge til mat</p>
+                      <p className="text-xs text-white/30 mt-1">Trykk for a legge til mat</p>
                     )}
                   </div>
                 </div>
-                <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                <ChevronRight className={`w-4 h-4 text-white/30 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
               </button>
 
               {isExpanded && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
+                <div className="mt-3 pt-3 border-t border-white/[0.06]">
                   {mealHistory.lastThree.length > 0 && (
-                    <p className="text-[11px] text-gray-500 mb-2">
+                    <p className="text-[11px] text-white/40 mb-2">
                       Last 3: {mealHistory.lastThree.join(' / ')} kcal
                     </p>
                   )}
@@ -2079,7 +2020,7 @@ export default function HomeScreen() {
                           `predictive:${meal.id}`,
                         )
                       }
-                      className="mb-3 w-full text-left text-xs px-3 py-2 rounded-lg bg-blue-50 text-blue-700"
+                      className="mb-3 w-full text-left text-xs px-3 py-2 rounded-lg bg-blue-500/10 text-blue-400"
                       disabled={isPastSelectedDay}
                     >
                       Du pleier ca {suggestedKcal} kcal her. Trykk for auto prefill.
@@ -2093,7 +2034,7 @@ export default function HomeScreen() {
                           key={quick.id}
                           type="button"
                           onClick={() => addFoodToMeal(meal.id, quick)}
-                          className="text-xs px-3 py-1.5 rounded-full bg-orange-50 text-orange-600"
+                          className="text-xs px-3 py-1.5 rounded-full bg-orange-500/10 text-orange-400"
                           disabled={isPastSelectedDay}
                         >
                           + {quick.name}
@@ -2113,14 +2054,14 @@ export default function HomeScreen() {
                               )),
                             );
                           }}
-                          className="text-xs px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-600"
+                          className="text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400"
                           disabled={isPastSelectedDay}
                         >
                           + {template.name}
                         </button>
                       ))}
                       {quickSuggestions.length === 0 && mealTemplatesForSlot.length === 0 && (
-                        <p className="text-xs text-gray-400">Ingen forslag enda. Logg forste matvare for a bygge forslag.</p>
+                        <p className="text-xs text-white/30">Ingen forslag enda. Logg forste matvare for a bygge forslag.</p>
                       )}
                     </div>
                   )}
@@ -2128,13 +2069,13 @@ export default function HomeScreen() {
                   {items.length > 0 && !lazyMode && (
                     <div>
                       <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">P {Math.round(totals.protein)}g</span>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">K {Math.round(totals.carbs)}g</span>
-                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">F {Math.round(totals.fat)}g</span>
+                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/60">P {Math.round(totals.protein)}g</span>
+                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/60">K {Math.round(totals.carbs)}g</span>
+                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/60">F {Math.round(totals.fat)}g</span>
                       </div>
                       <div className="space-y-1">
                         {visibleItems.map((item) => (
-                          <p key={item.name} className="text-sm text-gray-700 flex justify-between gap-3">
+                          <p key={item.name} className="text-sm text-white/70 flex justify-between gap-3">
                             <span className="truncate">
                               {item.name}
                               {item.count > 1 ? ` x${item.count}` : ''}
@@ -2142,7 +2083,7 @@ export default function HomeScreen() {
                             <span>{item.kcal} kcal</span>
                           </p>
                         ))}
-                        {hiddenItemCount > 0 && <p className="text-xs text-gray-400">+{hiddenItemCount} flere varer</p>}
+                        {hiddenItemCount > 0 && <p className="text-xs text-white/30">+{hiddenItemCount} flere varer</p>}
                       </div>
                     </div>
                   )}
@@ -2151,7 +2092,7 @@ export default function HomeScreen() {
                     <button
                       type="button"
                       onClick={() => addFoodToMeal(meal.id, createQuickPhotoEntry(meal.id, suggestedKcal))}
-                      className="rounded-lg bg-orange-500 text-white text-xs px-3 py-2 font-medium"
+                      className="rounded-lg bg-orange-500/100 text-white text-xs px-3 py-2 font-medium"
                       title="Hurtigfoto"
                       disabled={isPastSelectedDay}
                     >
@@ -2159,7 +2100,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-orange-200 text-orange-600 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
                       onClick={() => setScanHint('AI food recognition blir hovedmodus her.')}
                       title="AI matgjenkjenning"
                       disabled={isPastSelectedDay}
@@ -2169,7 +2110,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-orange-200 text-orange-600 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
                       onClick={() => setScanHint('Strekkodeskanner klar for rask logging.')}
                       title="Strekkodeskanner"
                       disabled={isPastSelectedDay}
@@ -2179,7 +2120,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-gray-200 text-gray-500 text-xs px-3 py-2"
+                      className="rounded-lg border border-white/[0.08] text-white/40 text-xs px-3 py-2"
                       onClick={() => setScanHint('Voice: "To egg og toast" (kommer snart).')}
                       title="Voice input"
                       disabled={isPastSelectedDay}
@@ -2195,8 +2136,8 @@ export default function HomeScreen() {
       </div>
 
       {pendingTemplate && (
-        <div className="mx-4 mb-3 rounded-xl bg-emerald-50 p-3">
-          <p className="text-xs text-emerald-700 mb-2">
+        <div className="mx-4 mb-3 rounded-xl bg-emerald-500/10 p-3">
+          <p className="text-xs text-emerald-400 mb-2">
             Du har logget dette flere ganger. Lagre som "{pendingTemplate.suggestedName}"?
           </p>
           <div className="flex gap-2">
@@ -2223,7 +2164,7 @@ export default function HomeScreen() {
             <button
               type="button"
               onClick={() => setPendingTemplate(null)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-700"
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-400"
             >
               Senere
             </button>
@@ -2235,30 +2176,30 @@ export default function HomeScreen() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
-              <Dumbbell className="w-5 h-5 text-orange-600" />
+              <Dumbbell className="w-5 h-5 text-orange-400" />
             </div>
-            <h3 className="text-lg font-bold text-gray-800">Trening</h3>
+            <h3 className="text-lg font-bold text-white/90">Trening</h3>
           </div>
           <button
             type="button"
             onClick={openWorkoutModal}
-            className="text-sm font-bold text-orange-600 px-3 py-2 rounded-xl bg-orange-50 hover:bg-orange-100 transition-colors duration-200"
+            className="text-sm font-bold text-orange-400 px-3 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-100 transition-colors duration-200"
             disabled={isPastSelectedDay}
           >
             Logg detaljert
           </button>
         </div>
-        <div className="mt-4 rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-5 shadow-inner">
+        <div className="mt-4 rounded-2xl border border-orange-500/20 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-5 shadow-inner">
           <div className="flex items-start gap-5">
             <div className="shrink-0">
-              <div className="flex h-28 w-24 items-center justify-center rounded-2xl bg-white/60 shadow-md border border-orange-100">
+              <div className="flex h-28 w-24 items-center justify-center rounded-2xl bg-white/60 shadow-md border border-orange-500/10">
                 <div className={`flex-arm-emoji ${isTrainingFlexing ? 'training-flex-active' : ''}`} aria-hidden="true" style={{ fontSize: '3.5rem' }}>💪</div>
               </div>
             </div>
             <div className="min-w-0 flex-1 pt-1">
               <p className="text-xs font-bold uppercase tracking-wide text-orange-800 mb-1">Dagens trening</p>
-              <p className="text-xl font-black text-orange-900 mb-2">{dayLog.trainingKcal} kcal logget</p>
-              <p className="text-xs text-orange-700 font-medium leading-relaxed">
+              <p className="text-xl font-black text-orange-200 mb-2">{dayLog.trainingKcal} kcal logget</p>
+              <p className="text-xs text-orange-300 font-medium leading-relaxed">
                 {hasTrainingLogged ? 'Trykk en treningsøkt for flex! 💪' : 'Armen hviler til du logger en økt.'}
               </p>
             </div>
@@ -2268,7 +2209,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => addTraining(420, 'workout:45-intense')}
-            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-200 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
             +45 min
@@ -2276,7 +2217,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => addTraining(300, 'workout:strength')}
-            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-200 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
             +Styrke
@@ -2284,14 +2225,14 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => addTraining(350, 'workout:10k-steps')}
-            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-200 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
             +10k skritt
           </button>
         </div>
         {selectedDayWorkouts.length > 0 && (
-          <div className="mt-4 rounded-xl bg-white/80 border border-orange-100 p-3 shadow-sm">
+          <div className="mt-4 rounded-xl bg-white/[0.06] border border-orange-500/10 p-3 shadow-sm">
             <p className="text-xs font-bold text-orange-800 mb-2 uppercase tracking-wide">Dagens økter</p>
             <div className="space-y-2">
               {selectedDayWorkouts.map((session) => (
@@ -2299,7 +2240,7 @@ export default function HomeScreen() {
                   key={session.id}
                   type="button"
                   onClick={triggerTrainingFlex}
-                  className="w-full text-left text-sm text-orange-800 flex justify-between items-center gap-3 rounded-lg px-3 py-2 bg-orange-50 hover:bg-orange-100 transition-colors font-semibold"
+                  className="w-full text-left text-sm text-orange-800 flex justify-between items-center gap-3 rounded-lg px-3 py-2 bg-orange-500/10 hover:bg-orange-100 transition-colors font-semibold"
                 >
                   <span className="truncate">
                     {session.exerciseName} ({session.durationMin} min)
@@ -2316,20 +2257,20 @@ export default function HomeScreen() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
-              <Droplets className="w-5 h-5 text-cyan-600" />
+              <Droplets className="w-5 h-5 text-cyan-400" />
             </div>
-            <h3 className="text-lg font-bold text-gray-800">Vann</h3>
+            <h3 className="text-lg font-bold text-white/90">Vann</h3>
           </div>
           <div className="text-right">
-            <p className="text-sm font-bold text-cyan-700">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
-            <p className="text-xs text-cyan-600">{Math.round(waterProgress * 100)}% av mål</p>
+            <p className="text-sm font-bold text-cyan-300">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
+            <p className="text-xs text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 p-6 border border-cyan-200 shadow-inner">
+        <div className="mt-4 rounded-2xl bg-gradient-to-br from-cyan-50 via-sky-50 to-blue-50 p-6 border border-cyan-400/20 shadow-inner">
           <div className="flex items-start gap-6">
             <div className="shrink-0 water-bottle-enhanced">
-              <div className="mx-auto h-5 w-9 rounded-t-2xl border-[3px] border-cyan-300 border-b-0 bg-white/90 shadow-sm" />
+              <div className="mx-auto h-5 w-9 rounded-t-2xl border-[3px] border-cyan-300 border-b-0 bg-white/[0.06] shadow-sm" />
               <div className="relative h-40 w-18 overflow-hidden rounded-[2rem] border-4 border-cyan-300 bg-white/85 shadow-lg">
                 <div
                   className="absolute inset-x-0 bottom-0 overflow-hidden bg-gradient-to-t from-cyan-500 via-sky-400 to-cyan-300 transition-[height] duration-700 ease-out"
@@ -2363,7 +2304,7 @@ export default function HomeScreen() {
                   background: `linear-gradient(to right, #06b6d4 0%, #06b6d4 ${(waterMeterMl / 1000) * 100}%, #e0f7fa ${(waterMeterMl / 1000) * 100}%, #e0f7fa 100%)`
                 }}
               />
-              <div className="mt-2 flex justify-between text-xs text-cyan-700 font-medium px-1">
+              <div className="mt-2 flex justify-between text-xs text-cyan-300 font-medium px-1">
                 <span>0 ml</span>
                 <span>500 ml</span>
                 <span>1000 ml</span>
@@ -2385,7 +2326,7 @@ export default function HomeScreen() {
       </div>
 
       {isPastSelectedDay && (
-        <p className="px-4 mt-2 text-xs text-amber-600">
+        <p className="px-4 mt-2 text-xs text-amber-400/80">
           Denne dagen er last fordi den har passert. Dagens score er derfor uforanderlig.
         </p>
       )}
@@ -2416,13 +2357,13 @@ export default function HomeScreen() {
 
       {showWorkoutModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl bg-zinc-900 border border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-800">Logg treningsokt</h3>
+              <h3 className="text-lg font-semibold text-white/90">Logg treningsokt</h3>
               <button
                 type="button"
                 onClick={() => setShowWorkoutModal(false)}
-                className="w-8 h-8 rounded-full bg-gray-100 text-gray-600"
+                className="w-8 h-8 rounded-full bg-white/[0.06] text-white/60"
               >
                 x
               </button>
@@ -2430,45 +2371,45 @@ export default function HomeScreen() {
 
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500">Tidspunkt</label>
+                <label className="text-xs text-white/40">Tidspunkt</label>
                 <input
                   type="datetime-local"
                   value={workoutStartedAt}
                   onChange={(event) => setWorkoutStartedAt(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs text-gray-500">Varighet (min)</label>
+                  <label className="text-xs text-white/40">Varighet (min)</label>
                   <input
                     inputMode="numeric"
                     value={workoutDurationMin}
                     onChange={(event) => setWorkoutDurationMin(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Kcal forbrent</label>
+                  <label className="text-xs text-white/40">Kcal forbrent</label>
                   <input
                     inputMode="numeric"
                     value={workoutCalories}
                     onChange={(event) => setWorkoutCalories(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs text-gray-500">Type</label>
+                <label className="text-xs text-white/40">Type</label>
                 <div className="mt-1 grid grid-cols-3 gap-2">
                   {(['Run', 'Ride', 'Walk', 'Strength', 'HIIT', 'Other'] as WorkoutSession['workoutType'][]).map((type) => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setWorkoutType(type)}
-                      className={`rounded-lg px-2 py-2 text-xs border ${workoutType === type ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-700 border-gray-200'}`}
+                      className={`rounded-lg px-2 py-2 text-xs border ${workoutType === type ? 'bg-orange-500/100 text-white border-orange-500' : 'bg-white/[0.04] text-white/70 border-white/[0.08]'}`}
                     >
                       {type}
                     </button>
@@ -2477,23 +2418,23 @@ export default function HomeScreen() {
               </div>
 
               <div>
-                <label className="text-xs text-gray-500">Ovelse / aktivitet</label>
+                <label className="text-xs text-white/40">Ovelse / aktivitet</label>
                 <input
                   value={workoutExerciseName}
                   onChange={(event) => setWorkoutExerciseName(event.target.value)}
                   placeholder="f.eks. Intervallop, benokt, sykkel"
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                 />
               </div>
 
               <div>
-                <label className="text-xs text-gray-500">Notater (valgfritt)</label>
+                <label className="text-xs text-white/40">Notater (valgfritt)</label>
                 <textarea
                   value={workoutNotes}
                   onChange={(event) => setWorkoutNotes(event.target.value)}
                   rows={3}
                   placeholder="Hvordan kjentes okten?"
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm resize-none"
+                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90 resize-none"
                 />
               </div>
             </div>
@@ -2502,14 +2443,14 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={() => setShowWorkoutModal(false)}
-                className="flex-1 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-700"
+                className="flex-1 rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/70"
               >
                 Avbryt
               </button>
               <button
                 type="button"
                 onClick={saveWorkoutSession}
-                className="flex-1 rounded-lg bg-orange-500 px-3 py-2 text-sm text-white"
+                className="flex-1 rounded-lg bg-orange-500/100 px-3 py-2 text-sm text-white"
               >
                 Lagre okt
               </button>
@@ -2520,13 +2461,13 @@ export default function HomeScreen() {
 
       {editingFood && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl bg-zinc-900 border border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-800">Rediger matpost</h3>
+              <h3 className="text-lg font-semibold text-white/90">Rediger matpost</h3>
               <button
                 type="button"
                 onClick={() => setEditingFood(null)}
-                className="w-8 h-8 rounded-full bg-gray-100 text-gray-600"
+                className="w-8 h-8 rounded-full bg-white/[0.06] text-white/60"
               >
                 x
               </button>
@@ -2534,48 +2475,48 @@ export default function HomeScreen() {
 
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500">Navn</label>
+                <label className="text-xs text-white/40">Navn</label>
                 <input
                   value={editingFood.name}
                   onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, name: event.target.value } : null))}
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs text-gray-500">Kcal</label>
+                  <label className="text-xs text-white/40">Kcal</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.kcal}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, kcal: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Protein</label>
+                  <label className="text-xs text-white/40">Protein</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.protein}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, protein: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Karbo</label>
+                  <label className="text-xs text-white/40">Karbo</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.carbs}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, carbs: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500">Fett</label>
+                  <label className="text-xs text-white/40">Fett</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.fat}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, fat: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
                   />
                 </div>
               </div>
@@ -2585,14 +2526,14 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={() => setEditingFood(null)}
-                className="flex-1 rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-700"
+                className="flex-1 rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/70"
               >
                 Avbryt
               </button>
               <button
                 type="button"
                 onClick={saveFoodEdit}
-                className="flex-1 rounded-lg bg-orange-500 px-3 py-2 text-sm text-white"
+                className="flex-1 rounded-lg bg-orange-500/100 px-3 py-2 text-sm text-white"
               >
                 Lagre endringer
               </button>
@@ -2602,44 +2543,44 @@ export default function HomeScreen() {
       )}
 
       {showQuickAddMenu && (
-        <div className="fixed right-4 bottom-24 z-50 w-72 rounded-2xl bg-white shadow-xl border border-gray-100 p-2">
-          <p className="text-[11px] uppercase text-gray-400 px-3 py-1">Smart quick buttons</p>
+        <div className="fixed right-4 bottom-24 z-50 w-72 rounded-2xl bg-white shadow-xl border border-white/[0.06] p-2">
+          <p className="text-[11px] uppercase text-white/30 px-3 py-1">Smart quick buttons</p>
           {smartQuickActions.slice(0, 6).map((action) => (
             <button
               key={action.id}
               type="button"
               onClick={() => handleQuickAdd(action.id)}
-              className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
+              className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm"
             >
               {action.label}
             </button>
           ))}
 
-          <p className="text-[11px] uppercase text-gray-400 px-3 py-1 mt-1">Intelligent repeat</p>
-          <button type="button" onClick={() => handleQuickAdd('repeat-breakfast')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <p className="text-[11px] uppercase text-white/30 px-3 py-1 mt-1">Intelligent repeat</p>
+          <button type="button" onClick={() => handleQuickAdd('repeat-breakfast')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             Repeat Breakfast
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-lunch')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-lunch')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             Repeat Lunch
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-day-yesterday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-day-yesterday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             Repeat Whole Day
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-last-monday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-last-monday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             Repeat Last Monday
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-frequent')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-frequent')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             Repeat Most Frequent Day
           </button>
 
-          <p className="text-[11px] uppercase text-gray-400 px-3 py-1 mt-1">Macro-only quick log</p>
-          <button type="button" onClick={() => handleQuickAdd('macro-protein')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <p className="text-[11px] uppercase text-white/30 px-3 py-1 mt-1">Macro-only quick log</p>
+          <button type="button" onClick={() => handleQuickAdd('macro-protein')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             +30g protein
           </button>
-          <button type="button" onClick={() => handleQuickAdd('macro-carbs')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <button type="button" onClick={() => handleQuickAdd('macro-carbs')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             +50g carbs
           </button>
-          <button type="button" onClick={() => handleQuickAdd('macro-fat')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-sm">
+          <button type="button" onClick={() => handleQuickAdd('macro-fat')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
             +20g fat
           </button>
         </div>
@@ -2665,7 +2606,7 @@ export default function HomeScreen() {
       <button
         type="button"
         onClick={() => setShowQuickAddMenu((prev) => !prev)}
-        className="fixed right-4 bottom-8 z-50 w-14 h-14 rounded-full bg-orange-500 text-white shadow-lg flex items-center justify-center"
+        className="fixed right-4 bottom-8 z-50 w-14 h-14 rounded-full bg-orange-500/100 text-white shadow-lg flex items-center justify-center"
         title="Quick add"
         disabled={isPastSelectedDay}
       >
