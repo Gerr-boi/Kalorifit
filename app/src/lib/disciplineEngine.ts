@@ -234,16 +234,24 @@ function calculateStreakDays(logsByDate: Record<string, DayLog>, endDate: Date, 
 export function generateWeeklyPerformanceReport(logsByDate: Record<string, DayLog>, weekStartDate: Date): WeeklyPerformanceReport {
   const weekStart = startOfWeekMonday(weekStartDate);
   const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const today = startOfDay(new Date());
   const days = weekDays.map((date) => ({
     dateKey: toDateKey(date),
     score: calculateScoreForDate(logsByDate, date),
   }));
 
-  const avgDisciplineScore = round(days.reduce((sum, day) => sum + day.score, 0) / days.length);
-  const sorted = [...days].sort((a, b) => b.score - a.score);
+  // Ignore future dates for the active week so "best/worst day" never points to tomorrow.
+  const reportDays = days.filter((_, index) => weekDays[index].getTime() <= today.getTime());
+  const scoredDays = reportDays.length > 0 ? reportDays : [days[0]];
+
+  const avgDisciplineScore = round(scoredDays.reduce((sum, day) => sum + day.score, 0) / scoredDays.length);
+  const sorted = [...scoredDays].sort((a, b) => b.score - a.score);
   const bestDay = sorted[0];
   const worstDay = sorted[sorted.length - 1];
-  const weekEndDate = weekDays[6];
+  const weekEndDate =
+    reportDays.length > 0
+      ? weekDays[reportDays.length - 1]
+      : weekDays[0];
 
   const previousWeekStart = addDays(weekStart, -7);
   const previousWeekDays = Array.from({ length: 7 }, (_, index) => addDays(previousWeekStart, index));

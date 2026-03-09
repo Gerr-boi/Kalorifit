@@ -3,6 +3,7 @@ import { ImagePlus, Plus, Search, Soup, Trophy, UserPlus, X } from 'lucide-react
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { addDays, createEmptyDayLog, startOfDay, toDateKey, type DayLog } from '../../lib/disciplineEngine';
+import { getBadgeStyleById } from '../../lib/trophySystem';
 
 type ReactionKey = 'fire' | 'strong' | 'beast' | 'insane' | 'watching';
 type CommunityPostVisibility = 'public' | 'friends' | 'private';
@@ -135,25 +136,13 @@ function normalizeToken(value: string | null | undefined) {
   return (value ?? '').trim().toLowerCase();
 }
 
-function badgeStyleById(id: string) {
-  if (id === 'developer') return 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white border-indigo-300';
-  if (id === 'og') return 'bg-gradient-to-r from-amber-400 to-orange-500 text-white border-amber-300';
-  if (id === 'beta_tester') return 'bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white border-fuchsia-300';
-  if (id === 'dedicated') return 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-emerald-300';
-  if (id === 'consistency_pro') return 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-blue-300';
-  if (id === 'streak_master') return 'bg-gradient-to-r from-red-500 to-rose-500 text-white border-red-300';
-  if (id === 'hydration_hero') return 'bg-gradient-to-r from-cyan-500 to-sky-500 text-white border-cyan-300';
-  if (id === 'active_mover') return 'bg-gradient-to-r from-lime-500 to-green-500 text-white border-lime-300';
-  if (id === 'challenge_hunter') return 'bg-gradient-to-r from-purple-500 to-violet-500 text-white border-purple-300';
-  return 'bg-gradient-to-r from-slate-500 to-gray-600 text-white border-slate-300';
-}
-
 function getPostVisibility(post: CommunityPost): CommunityPostVisibility {
   return post.visibility ?? 'public';
 }
 
 export default function CommunityScreen() {
   const { activeUserId } = useCurrentUser();
+  const badgeStyleById = getBadgeStyleById;
   const [activeTab, setActiveTab] = useState<'feed' | 'friends' | 'pods'>('feed');
   const [newUserName, setNewUserName] = useState('');
   const [showAddPost, setShowAddPost] = useState(false);
@@ -423,13 +412,15 @@ export default function CommunityScreen() {
           <h1 className="text-xl font-bold">Community</h1>
           <button className="social-pill social-pill-light">Progress + Accountability</button>
         </div>
-        <p className="text-sm text-white/85 mb-4">Real posts from your activity log. Add quickly with photo mode.</p>
+        <p className="text-sm text-slate-600 dark:text-white/85 mb-4">Real posts from your activity log. Add quickly with photo mode.</p>
         <div className="flex items-center justify-between gap-3">
           <div className="flex gap-4">
             <button
               onClick={() => setActiveTab('feed')}
               className={`pb-2 border-b-2 font-medium ${
-                activeTab === 'feed' ? 'border-white text-white' : 'border-transparent text-white/60'
+                activeTab === 'feed'
+                  ? 'border-slate-900 text-slate-900 dark:border-white dark:text-white'
+                  : 'border-transparent text-slate-500 dark:text-white/60'
               }`}
             >
               Feed
@@ -437,7 +428,9 @@ export default function CommunityScreen() {
             <button
               onClick={() => setActiveTab('friends')}
               className={`pb-2 border-b-2 font-medium ${
-                activeTab === 'friends' ? 'border-white text-white' : 'border-transparent text-white/60'
+                activeTab === 'friends'
+                  ? 'border-slate-900 text-slate-900 dark:border-white dark:text-white'
+                  : 'border-transparent text-slate-500 dark:text-white/60'
               }`}
             >
               Friends
@@ -445,7 +438,9 @@ export default function CommunityScreen() {
             <button
               onClick={() => setActiveTab('pods')}
               className={`pb-2 border-b-2 font-medium ${
-                activeTab === 'pods' ? 'border-white text-white' : 'border-transparent text-white/60'
+                activeTab === 'pods'
+                  ? 'border-slate-900 text-slate-900 dark:border-white dark:text-white'
+                  : 'border-transparent text-slate-500 dark:text-white/60'
               }`}
             >
               Pods

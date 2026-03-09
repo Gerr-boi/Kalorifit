@@ -21,6 +21,11 @@ import {
   type IdentityReportsByMonth,
 } from '../../lib/identityEngine';
 import {
+  evaluateTrophyBadges,
+  getBadgeStyleById,
+  type TrophyBadgeId,
+} from '../../lib/trophySystem';
+import {
   DEFAULT_NUTRITION_PROFILE,
   normalizeNutritionProfile,
   type ActivityLevel,
@@ -50,23 +55,6 @@ type HealthEntry = {
   stressLevel: number | null;
   steps: number | null;
 };
-type TrophyBadge = {
-  id:
-    | 'beta_tester'
-    | 'developer'
-    | 'og'
-    | 'dedicated'
-    | 'consistency_pro'
-    | 'streak_master'
-    | 'hydration_hero'
-    | 'active_mover'
-    | 'challenge_hunter'
-    | 'logging_legend';
-  label: string;
-  description: string;
-  unlocked: boolean;
-};
-
 type Profile = {
   name: string;
   memberSince: string;
@@ -105,7 +93,7 @@ type Profile = {
   socialHideWeightNumbers: boolean;
   socialHideBodyPhotos: boolean;
   allergies: string[];
-  equippedBadgeIds: TrophyBadge['id'][];
+  equippedBadgeIds: TrophyBadgeId[];
 };
 
 const DEFAULT_PROFILE: Profile = {
@@ -208,7 +196,7 @@ export default function ProfileScreen() {
   const [draftEventDate, setDraftEventDate] = useState(profile.eventDate ?? '');
   const [draftPsychologyType, setDraftPsychologyType] = useState<PsychologyType>(profile.psychologyType ?? DEFAULT_NUTRITION_PROFILE.psychologyType);
   const [draftSpecialPhase, setDraftSpecialPhase] = useState<SpecialPhase>(profile.specialPhase ?? DEFAULT_NUTRITION_PROFILE.specialPhase);
-  const [draftEquippedBadgeIds, setDraftEquippedBadgeIds] = useState<TrophyBadge['id'][]>(profile.equippedBadgeIds ?? []);
+  const [draftEquippedBadgeIds, setDraftEquippedBadgeIds] = useState<TrophyBadgeId[]>(profile.equippedBadgeIds ?? []);
   const [darkMode, setDarkMode] = useLocalStorageState<boolean>('darkMode', false);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
   const [allergyInput, setAllergyInput] = useState('');
@@ -638,115 +626,24 @@ export default function ProfileScreen() {
   };
 
   const trophyBadges = useMemo(() => {
-    const memberYear = Number.parseInt(profile.memberSince, 10);
-    const currentYear = new Date().getFullYear();
-    const isDeveloper = /dev|developer|admin|hrger/i.test(`${currentUser.name} ${profile.name}`);
-    const allLogs = Object.values(logsByDate);
-    const mealsLoggedTotal = allLogs.reduce((sum, log) => sum + Object.values(log.meals).flat().length, 0);
-    const hydrationDays = allLogs.filter((log) => log.waterMl >= 1600).length;
-    const workoutDays = allLogs.filter((log) => log.trainingKcal >= 200).length;
-
-    const hasValidMemberYear = Number.isFinite(memberYear);
-    const betaTesterUnlocked = hasValidMemberYear ? memberYear <= currentYear : monthlyIdentity.level.value >= 2;
-    const ogUnlocked = hasValidMemberYear ? memberYear <= currentYear - 1 : monthlyIdentity.level.value >= 6;
-    const dedicatedUnlocked = monthlyIdentity.bestStreakDays >= 14 || monthlyIdentity.consistencyRate >= 75;
-    const consistencyProUnlocked = monthlyIdentity.consistencyRate >= 85;
-    const streakMasterUnlocked = monthlyIdentity.bestStreakDays >= 30;
-    const hydrationHeroUnlocked = hydrationDays >= 20;
-    const activeMoverUnlocked = workoutDays >= 20;
-    const challengeHunterUnlocked = monthlyIdentity.challengeCompletions >= 25;
-    const loggingLegendUnlocked = mealsLoggedTotal >= 300;
-
-    const badges: TrophyBadge[] = [
-      {
-        id: 'beta_tester',
-        label: 'Beta Tester',
-        description: 'Tidlig bruker som var med pa a teste appen.',
-        unlocked: betaTesterUnlocked,
-      },
-      {
-        id: 'developer',
-        label: 'Developer',
-        description: 'Utvikler-rolle for build/test-miljo.',
-        unlocked: isDeveloper,
-      },
-      {
-        id: 'og',
-        label: 'OG',
-        description: 'Tidlig medlem med lang historikk.',
-        unlocked: ogUnlocked,
-      },
-      {
-        id: 'dedicated',
-        label: 'Dedicated',
-        description: 'Hoy konsistens eller sterk streak.',
-        unlocked: dedicatedUnlocked,
-      },
-      {
-        id: 'consistency_pro',
-        label: 'Consistency Pro',
-        description: '85%+ konsistens i maanedsrapport.',
-        unlocked: consistencyProUnlocked,
-      },
-      {
-        id: 'streak_master',
-        label: 'Streak Master',
-        description: '30+ dagers disiplinstreak.',
-        unlocked: streakMasterUnlocked,
-      },
-      {
-        id: 'hydration_hero',
-        label: 'Hydration Hero',
-        description: '20 dager med minst 1600 ml vann logget.',
-        unlocked: hydrationHeroUnlocked,
-      },
-      {
-        id: 'active_mover',
-        label: 'Active Mover',
-        description: '20 treningsdager med 200+ kcal aktivitet.',
-        unlocked: activeMoverUnlocked,
-      },
-      {
-        id: 'challenge_hunter',
-        label: 'Challenge Hunter',
-        description: '25+ fullforte utfordringer i maaneden.',
-        unlocked: challengeHunterUnlocked,
-      },
-      {
-        id: 'logging_legend',
-        label: 'Logging Legend',
-        description: '300+ maltider logget totalt.',
-        unlocked: loggingLegendUnlocked,
-      },
-    ];
-
-    return badges;
+    return evaluateTrophyBadges({
+      currentUserName: currentUser.name,
+      profileName: profile.name,
+      memberSince: profile.memberSince,
+      logsByDate,
+      monthlyIdentity,
+    });
   }, [
     currentUser.name,
     logsByDate,
-    monthlyIdentity.bestStreakDays,
-    monthlyIdentity.challengeCompletions,
-    monthlyIdentity.consistencyRate,
-    monthlyIdentity.level.value,
+    monthlyIdentity,
     profile.memberSince,
     profile.name,
   ]);
 
   const highlightedBadges = trophyBadges.filter((badge) => badge.unlocked).slice(0, 3);
   const equippedBadges = trophyBadges.filter((badge) => (profile.equippedBadgeIds ?? []).includes(badge.id)).slice(0, 3);
-
-  const badgeStyleById = (id: TrophyBadge['id']) => {
-    if (id === 'developer') return 'bg-gradient-to-r from-indigo-500 to-cyan-500 text-white border-indigo-300';
-    if (id === 'og') return 'bg-gradient-to-r from-amber-400 to-orange-500 text-white border-amber-300';
-    if (id === 'beta_tester') return 'bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white border-fuchsia-300';
-    if (id === 'dedicated') return 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-emerald-300';
-    if (id === 'consistency_pro') return 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white border-blue-300';
-    if (id === 'streak_master') return 'bg-gradient-to-r from-red-500 to-rose-500 text-white border-red-300';
-    if (id === 'hydration_hero') return 'bg-gradient-to-r from-cyan-500 to-sky-500 text-white border-cyan-300';
-    if (id === 'active_mover') return 'bg-gradient-to-r from-lime-500 to-green-500 text-white border-lime-300';
-    if (id === 'challenge_hunter') return 'bg-gradient-to-r from-purple-500 to-violet-500 text-white border-purple-300';
-    return 'bg-gradient-to-r from-slate-500 to-gray-600 text-white border-slate-300';
-  };
+  const badgeStyleById = getBadgeStyleById;
 
   const goalStrategyLabel = String(profile.goalStrategy ?? DEFAULT_NUTRITION_PROFILE.goalStrategy ?? '').split('_').join(' ');
   const dietStyleLabel = String(profile.dietStyle ?? DEFAULT_NUTRITION_PROFILE.dietStyle ?? '').split('_').join(' ');
@@ -1134,10 +1031,10 @@ export default function ProfileScreen() {
           </button>
           <button
             onClick={openPersonalSettings}
-            className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center"
+            className="w-10 h-10 rounded-full bg-white/80 border border-slate-200/80 flex items-center justify-center dark:bg-white/20 dark:border-white/20"
             title="Rediger profil"
           >
-            <Settings className="w-5 h-5 text-white" />
+            <Settings className="w-5 h-5 text-slate-700 dark:text-white" />
           </button>
         </div>
 
@@ -1146,14 +1043,14 @@ export default function ProfileScreen() {
             <div
               className="mb-4 rounded-full p-[4px]"
               style={{
-                background: `conic-gradient(#f59e0b ${xpRingProgress}%, rgba(255,255,255,0.35) ${xpRingProgress}% 100%)`,
+                background: `conic-gradient(#f59e0b ${xpRingProgress}%, rgba(148,163,184,0.35) ${xpRingProgress}% 100%)`,
               }}
             >
               {profile.profileImageDataUrl ? (
                 <img
                   src={profile.profileImageDataUrl}
                   alt={profile.name}
-                  className="w-24 h-24 rounded-full object-cover border-4 border-white/40 bg-white"
+                  className="w-24 h-24 rounded-full object-cover border-4 border-white/70 dark:border-white/40 bg-white"
                 />
               ) : (
                 <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-5xl border-4 border-white/40">
@@ -1165,14 +1062,14 @@ export default function ProfileScreen() {
               LVL {monthlyIdentity.level.value} • {monthlyIdentity.level.currentXp}/{monthlyIdentity.level.nextLevelXp} XP
             </div>
             <div
-              className="absolute bottom-4 right-0 h-4 w-4 rounded-full border-2 border-white bg-green-500 shadow-sm"
+              className="absolute bottom-4 right-0 h-4 w-4 rounded-full border-2 border-slate-100 dark:border-white bg-green-500 shadow-sm"
               title="Aktiv"
               aria-label="Aktiv profilstatus"
             />
           </div>
           <div className="mt-4">
-            <h2 className="text-2xl font-bold mb-1">{profile.name}</h2>
-            <p className="text-white/70">Medlem siden {profile.memberSince}</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-1">{profile.name}</h2>
+            <p className="text-slate-600 dark:text-white/80">Medlem siden {profile.memberSince}</p>
             {equippedBadges.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {equippedBadges.map((badge) => (

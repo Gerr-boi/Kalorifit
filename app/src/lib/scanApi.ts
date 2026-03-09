@@ -64,6 +64,7 @@ type PredictDishOptions<TStage extends string> = {
   trace: Pick<ScanTraceLike<TStage>, 'scanRequestId'>;
   sourceBlob?: Blob;
   externalSignal?: AbortSignal;
+  maxWaitMs?: number;
 };
 
 function parseJsonResponse(text: string, contentType: string, status: number): unknown {
@@ -389,6 +390,7 @@ export async function predictDishOnImage<TStage extends string>({
   trace,
   sourceBlob,
   externalSignal,
+  maxWaitMs = 1800,
 }: PredictDishOptions<TStage>): Promise<{ predictions: ScanApiPrediction[]; latencyMs: number; circuitOpen: boolean }> {
   const blob = sourceBlob ?? await (await fetch(url)).blob();
   const file = new File([blob], 'capture.jpg', { type: blob.type || 'image/jpeg' });
@@ -398,7 +400,7 @@ export async function predictDishOnImage<TStage extends string>({
   form.append('scanRequestId', trace.scanRequestId);
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 9000);
+  const timeoutId = window.setTimeout(() => controller.abort(), maxWaitMs);
   if (externalSignal) {
     externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
   }

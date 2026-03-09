@@ -242,16 +242,19 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
         return {
           ok: false,
           status: response.status,
+          baseUrl: this.baseUrl,
         };
       }
       const data = await response.json();
       return {
         ok: true,
+        baseUrl: this.baseUrl,
         ...data,
       };
     } catch {
       return {
         ok: false,
+        baseUrl: this.baseUrl,
       };
     } finally {
       clearTimeout(timeoutId);

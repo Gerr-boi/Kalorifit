@@ -137,6 +137,8 @@ type HomeProfile = {
 const RING_RADIUS = 90;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const SWIPE_THRESHOLD = 45;
+const WATER_CUP_SIZE_ML = 250;
+const MAX_WATER_CUPS = 8;
 const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
 const EMPTY_HOME_PROFILE: HomeProfile = {};
 const EMPTY_LOG_EVENTS: LogEvent[] = [];
@@ -182,6 +184,20 @@ const mealLabelById: Record<MealId, string> = {
   lunch: 'Lunsj',
   dinner: 'Middag',
   snacks: 'Snacks',
+};
+
+const mealIconToneById: Record<MealId, string> = {
+  breakfast: 'bg-amber-100 dark:bg-amber-500/14 border border-amber-200/80 dark:border-amber-400/25',
+  lunch: 'bg-emerald-100 dark:bg-emerald-500/14 border border-emerald-200/80 dark:border-emerald-400/25',
+  dinner: 'bg-sky-100 dark:bg-sky-500/14 border border-sky-200/80 dark:border-sky-400/25',
+  snacks: 'bg-fuchsia-100 dark:bg-fuchsia-500/14 border border-fuchsia-200/80 dark:border-fuchsia-400/25',
+};
+
+const mealIconGlyphToneById: Record<MealId, string> = {
+  breakfast: 'text-amber-700 dark:text-amber-300/80',
+  lunch: 'text-emerald-700 dark:text-emerald-300/80',
+  dinner: 'text-sky-700 dark:text-sky-300/80',
+  snacks: 'text-fuchsia-700 dark:text-fuchsia-300/80',
 };
 
 const collapsedMeals: Record<MealId, boolean> = {
@@ -369,6 +385,7 @@ export default function HomeScreen() {
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
   const [waterMeterMl, setWaterMeterMl] = useState(250);
+  const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
   const [nutritionBoxExpanded, setNutritionBoxExpanded] = useState(false);
   const [editingFood, setEditingFood] = useState<{
     mealId: MealId;
@@ -382,6 +399,7 @@ export default function HomeScreen() {
   const swipeStartXRef = useRef<number | null>(null);
   const ringLastTapAtRef = useRef(0);
   const trainingFlexTimeoutRef = useRef<number | null>(null);
+  const waterCupAnimationTimersRef = useRef<number[]>([]);
   const mealSwipeStartXRef = useRef<Record<MealId, number | null>>({
     breakfast: null,
     lunch: null,
@@ -626,10 +644,10 @@ export default function HomeScreen() {
     [dayLog.meals],
   );
   const consistencyBadge = useMemo(() => {
-    if (streak >= 30 || weeklyConsistencyScore >= 85) return { label: 'Maskin', tone: 'bg-emerald-400/25 text-emerald-100 border-emerald-200/40' };
-    if (streak >= 14 || weeklyConsistencyScore >= 70) return { label: 'Dedikert', tone: 'bg-cyan-400/25 text-cyan-100 border-cyan-400/20/40' };
-    if (streak >= 7 || weeklyConsistencyScore >= 45) return { label: 'Aktiv', tone: 'bg-amber-300/25 text-amber-50 border-amber-200/40' };
-    return { label: 'Nybegynner', tone: 'bg-white/20 text-white border-white/35' };
+    if (streak >= 30 || weeklyConsistencyScore >= 85) return { label: 'Maskin', tone: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-400/25 dark:text-emerald-100 dark:border-emerald-200/40' };
+    if (streak >= 14 || weeklyConsistencyScore >= 70) return { label: 'Dedikert', tone: 'bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-400/25 dark:text-cyan-100 dark:border-cyan-300/40' };
+    if (streak >= 7 || weeklyConsistencyScore >= 45) return { label: 'Aktiv', tone: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-300/25 dark:text-amber-50 dark:border-amber-200/40' };
+    return { label: 'Nybegynner', tone: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-white/20 dark:text-white dark:border-white/35' };
   }, [streak, weeklyConsistencyScore]);
 
   const historicalMealStats = useMemo(() => {
@@ -778,6 +796,23 @@ export default function HomeScreen() {
     }, 1200);
   };
 
+  const triggerWaterCupFillAnimation = (beforeMl: number, afterMl: number) => {
+    const beforeCups = Math.ceil(beforeMl / WATER_CUP_SIZE_ML);
+    const afterCups = Math.min(MAX_WATER_CUPS, Math.ceil(afterMl / WATER_CUP_SIZE_ML));
+    if (afterCups <= beforeCups) return;
+
+    for (let cupIndex = beforeCups + 1; cupIndex <= afterCups; cupIndex += 1) {
+      const appearTimer = window.setTimeout(() => {
+        setAnimatingWaterCups((prev) => (prev.includes(cupIndex) ? prev : [...prev, cupIndex]));
+        const disappearTimer = window.setTimeout(() => {
+          setAnimatingWaterCups((prev) => prev.filter((value) => value !== cupIndex));
+        }, 720);
+        waterCupAnimationTimersRef.current.push(disappearTimer);
+      }, (cupIndex - (beforeCups + 1)) * 110);
+      waterCupAnimationTimersRef.current.push(appearTimer);
+    }
+  };
+
   useEffect(() => {
     const now = new Date();
     const nextMidnight = new Date(now);
@@ -796,6 +831,8 @@ export default function HomeScreen() {
       if (trainingFlexTimeoutRef.current != null) {
         window.clearTimeout(trainingFlexTimeoutRef.current);
       }
+      waterCupAnimationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      waterCupAnimationTimersRef.current = [];
     };
   }, []);
 
@@ -1130,11 +1167,14 @@ export default function HomeScreen() {
   };
 
   const addWater = (ml: number, actionId = 'water:250') => {
+    const beforeMl = dayLog.waterMl;
+    const afterMl = beforeMl + ml;
     const previousDay = cloneDayLog(dayLog);
     updateDayLog(selectedDateKey, (current) => ({
       ...current,
       waterMl: current.waterMl + ml,
     }));
+    triggerWaterCupFillAnimation(beforeMl, afterMl);
     setUndoAction({
       label: `Vann +${ml} ml`,
       undo: () => setDayLog(selectedDateKey, previousDay),
@@ -1430,7 +1470,7 @@ export default function HomeScreen() {
           />
           <div className="pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-[430px] -translate-x-1/2">
             <aside className="pointer-events-auto h-full w-80 max-w-[86vw] bg-gradient-to-b from-zinc-900 to-zinc-950 shadow-2xl border-r border-orange-500/10 p-4 overflow-y-auto">
-              <div className="rounded-2xl bg-white/[0.06] border border-orange-500/10 p-3">
+              <div className="rounded-2xl bg-slate-100 dark:bg-white/[0.06] border border-orange-500/10 p-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="inline-flex w-9 h-9 items-center justify-center rounded-xl bg-orange-500/100 text-white">
@@ -1438,7 +1478,7 @@ export default function HomeScreen() {
                     </span>
                     <div>
                       <p className="text-[11px] uppercase tracking-wide text-orange-500">Hjem</p>
-                      <h3 className="text-base font-semibold text-white/90">
+                      <h3 className="text-base font-semibold text-slate-900 dark:text-white/90">
                         {sidebarView === 'menu' ? 'Meny' : sidebarView === 'logg' ? 'Logg' : sidebarView === 'goals' ? 'Goal details' : 'Journey'}
                       </h3>
                     </div>
@@ -1448,7 +1488,7 @@ export default function HomeScreen() {
                       <button
                         type="button"
                         onClick={() => setSidebarView('menu')}
-                        className="h-8 rounded-full bg-white/[0.06] px-3 text-xs font-medium text-white/60"
+                        className="h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] px-3 text-xs font-medium text-slate-600 dark:text-white/60"
                         title="Til meny"
                       >
                         Tilbake
@@ -1457,14 +1497,14 @@ export default function HomeScreen() {
                     <button
                       type="button"
                       onClick={() => setShowSidebar(false)}
-                      className="w-8 h-8 rounded-full bg-white/[0.06] text-white/60"
+                      className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60"
                       title="Lukk"
                     >
                       <X className="w-4 h-4 mx-auto" />
                     </button>
                   </div>
                 </div>
-                <p className="mt-2 text-xs text-white/40">
+                <p className="mt-2 text-xs text-slate-500 dark:text-white/40">
                   {sidebarView === 'menu'
                     ? 'Rask navigasjon til logg og maelinnsikt.'
                     : sidebarView === 'logg'
@@ -1480,40 +1520,40 @@ export default function HomeScreen() {
                   <button
                     type="button"
                     onClick={() => setSidebarView('logg')}
-                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-white/[0.06] px-3 py-3 text-sm font-medium text-white/70 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-slate-100 dark:bg-white/[0.06] px-3 py-3 text-sm font-medium text-slate-700 dark:text-white/70 hover:bg-white"
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-white/90">Logg</p>
-                        <p className="text-xs text-white/40">I gar + tidligere matdager</p>
+                        <p className="font-semibold text-slate-900 dark:text-white/90">Logg</p>
+                        <p className="text-xs text-slate-500 dark:text-white/40">I gar + tidligere matdager</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-white/30" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/30" />
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarView('goals')}
-                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-white/[0.06] px-3 py-3 text-sm font-medium text-white/70 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-slate-100 dark:bg-white/[0.06] px-3 py-3 text-sm font-medium text-slate-700 dark:text-white/70 hover:bg-white"
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-white/90">Goal details</p>
-                        <p className="text-xs text-white/40">Energi, makro, progresjon</p>
+                        <p className="font-semibold text-slate-900 dark:text-white/90">Goal details</p>
+                        <p className="text-xs text-slate-500 dark:text-white/40">Energi, makro, progresjon</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-white/30" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/30" />
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarView('journey')}
-                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-white/[0.06] px-3 py-3 text-sm font-medium text-white/70 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-slate-100 dark:bg-white/[0.06] px-3 py-3 text-sm font-medium text-slate-700 dark:text-white/70 hover:bg-white"
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="font-semibold text-white/90">Journey</p>
-                        <p className="text-xs text-white/40">Vektgraf og progresjon</p>
+                        <p className="font-semibold text-slate-900 dark:text-white/90">Journey</p>
+                        <p className="text-xs text-slate-500 dark:text-white/40">Vektgraf og progresjon</p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-white/30" />
+                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/30" />
                     </div>
                   </button>
                 </div>
@@ -1522,25 +1562,25 @@ export default function HomeScreen() {
               {sidebarView === 'logg' && (
                 <div className="mt-4 space-y-3">
                   {historicalMealLog.length === 0 ? (
-                    <p className="text-xs text-white/40">Ingen historisk matlogg enda.</p>
+                    <p className="text-xs text-slate-500 dark:text-white/40">Ingen historisk matlogg enda.</p>
                   ) : (
                     historicalMealLog.map((day) => (
-                      <div key={day.dateKey} className="rounded-xl bg-white/[0.03] p-3">
+                      <div key={day.dateKey} className="rounded-xl bg-slate-100/70 dark:bg-white/[0.03] p-3">
                         <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-white/90">
+                          <p className="text-xs font-semibold text-slate-900 dark:text-white/90">
                             {formatDateKey(day.dateKey)} ({getRelativeDayLabel(day.dateKey)})
                           </p>
-                          <p className="text-[11px] text-white/40">
+                          <p className="text-[11px] text-slate-500 dark:text-white/40">
                             {day.totalFoods} matvarer | {Math.round(day.totalKcal)} kcal | {Math.round(day.totalProtein)} g protein
                           </p>
                         </div>
                         <div className="mt-2 space-y-2">
                           {day.mealSections.map(([mealId, foods]) => (
-                            <div key={`${day.dateKey}-${mealId}`} className="rounded-lg bg-white border border-white/[0.08] p-2">
-                              <p className="text-[11px] font-medium text-white/40 capitalize mb-1">{mealId}</p>
+                            <div key={`${day.dateKey}-${mealId}`} className="rounded-lg bg-white border border-slate-200 dark:border-white/[0.08] p-2">
+                              <p className="text-[11px] font-medium text-slate-500 dark:text-white/40 capitalize mb-1">{mealId}</p>
                               <div className="space-y-1">
                                 {foods.map((food) => (
-                                  <p key={food.id} className="text-xs text-white/70">{food.name} - {Math.round(food.kcal)} kcal</p>
+                                  <p key={food.id} className="text-xs text-slate-700 dark:text-white/70">{food.name} - {Math.round(food.kcal)} kcal</p>
                                 ))}
                               </div>
                             </div>
@@ -1560,23 +1600,23 @@ export default function HomeScreen() {
                       onClick={() => setNutritionBoxExpanded((prev) => !prev)}
                       className="w-full text-left flex items-start justify-between gap-3"
                     >
-                      <p className="text-[11px] text-white/70">
+                      <p className="text-[11px] text-slate-700 dark:text-white/70">
                         Dagens kalorimal: {smartDietPlan.optimizedTargetKcal} kcal
                         {' '}
                         ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} vs grunnmal)
                       </p>
-                      <span className="text-[11px] text-white/40 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
+                      <span className="text-[11px] text-slate-500 dark:text-white/40 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
                     </button>
 
                     {nutritionBoxExpanded && (
                       <>
-                        <p className="text-[11px] text-white/40 mt-2">
+                        <p className="text-[11px] text-slate-500 dark:text-white/40 mt-2">
                           Grunnmal: {smartDietPlan.baseTargetKcal} | Vedlikehold: {smartDietPlan.tdee} | Hvileforbrenning: {smartDietPlan.bmr}
                         </p>
-                        <p className="text-[11px] text-white/40 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
-                        <p className="text-[11px] text-white/40 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-white/40 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
+                        <p className="text-[11px] text-slate-500 dark:text-white/40 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
                         {smartDietPlan.macros && (
-                          <p className="text-[11px] text-white/40 mt-1">
+                          <p className="text-[11px] text-slate-500 dark:text-white/40 mt-1">
                             Dagsmal makro: Protein {smartDietPlan.macros.proteinG} g | Fett {smartDietPlan.macros.fatG} g | Karbo {smartDietPlan.macros.carbsG} g
                           </p>
                         )}
@@ -1585,16 +1625,16 @@ export default function HomeScreen() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 text-xs">
-                    <div className="rounded-lg bg-white/[0.03] p-2">
+                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
                       Goal category: {String(profilePrefs.goalCategory ?? 'fat_loss').split('_').join(' ')}
                     </div>
-                    <div className="rounded-lg bg-white/[0.03] p-2">
+                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
                       Goal strategy: {String(profilePrefs.goalStrategy ?? 'standard_cut').split('_').join(' ')}
                     </div>
-                    <div className="rounded-lg bg-white/[0.03] p-2">
+                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
                       Timeline: {String(profilePrefs.timelineType ?? 'maintenance_open').split('_').join(' ')}
                     </div>
-                    <div className="rounded-lg bg-white/[0.03] p-2">
+                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
                       Projection: {localizeProjectionText(smartDietPlan.projectedProgressText)}
                     </div>
                   </div>
@@ -1604,15 +1644,15 @@ export default function HomeScreen() {
                     <div className="rounded-lg bg-orange-500/10 p-2">Base: {smartDietPlan.baseTargetKcal} kcal</div>
                     <div className="rounded-lg bg-orange-500/10 p-2">Optimized: {smartDietPlan.optimizedTargetKcal} kcal</div>
                   </div>
-                  <p className="mt-2 text-xs text-white/60">
+                  <p className="mt-2 text-xs text-slate-600 dark:text-white/60">
                     Ukentlig justering: {smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} kcal
                   </p>
-                  <p className="text-xs text-white/60 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
+                  <p className="text-xs text-slate-600 dark:text-white/60 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
                   {smartDietPlan.macros && (
                     <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                      <div className="rounded-lg bg-white/[0.03] p-2">Protein: {smartDietPlan.macros.proteinG} g</div>
-                      <div className="rounded-lg bg-white/[0.03] p-2">Karbo: {smartDietPlan.macros.carbsG} g</div>
-                      <div className="rounded-lg bg-white/[0.03] p-2">Fett: {smartDietPlan.macros.fatG} g</div>
+                      <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">Protein: {smartDietPlan.macros.proteinG} g</div>
+                      <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">Karbo: {smartDietPlan.macros.carbsG} g</div>
+                      <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">Fett: {smartDietPlan.macros.fatG} g</div>
                     </div>
                   )}
                 </div>
@@ -1621,10 +1661,10 @@ export default function HomeScreen() {
               {sidebarView === 'journey' && (
                 <div className="mt-4">
                   {journeyWeightSeries.length === 0 ? (
-                    <p className="text-xs text-white/40">Ingen vektdata enda. Logg en maling for graf.</p>
+                    <p className="text-xs text-slate-500 dark:text-white/40">Ingen vektdata enda. Logg en maling for graf.</p>
                   ) : (
-                    <div className="rounded-xl bg-white/[0.03] p-3">
-                      <p className="text-xs font-medium text-white/60 mb-2">Vekttrend (kg)</p>
+                    <div className="rounded-xl bg-slate-100/70 dark:bg-white/[0.03] p-3">
+                      <p className="text-xs font-medium text-slate-600 dark:text-white/60 mb-2">Vekttrend (kg)</p>
                       <svg viewBox="0 0 420 170" className="w-full h-40">
                         {(() => {
                           const values = journeyWeightSeries.map((point) => point.value);
@@ -1650,10 +1690,10 @@ export default function HomeScreen() {
                                   <circle cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
                                 </g>
                               ))}
-                              <text x="15" y="164" fontSize="10" fill="currentColor" className="text-white/40">
+                              <text x="15" y="164" fontSize="10" fill="currentColor" className="text-slate-500 dark:text-white/40">
                                 {formatDateKey(coords[0]?.date ?? todayKey)}
                               </text>
-                              <text x="340" y="164" fontSize="10" fill="currentColor" className="text-white/40">
+                              <text x="340" y="164" fontSize="10" fill="currentColor" className="text-slate-500 dark:text-white/40">
                                 {formatDateKey(coords[coords.length - 1]?.date ?? todayKey)}
                               </text>
                             </>
@@ -1671,42 +1711,50 @@ export default function HomeScreen() {
 
       {/* ===== COMPACT TOP BAR ===== */}
       <div className="screen-header">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setShowSidebar((prev) => {
-                  const next = !prev;
-                  if (next) setSidebarView('menu');
-                  return next;
-                });
-              }}
-              className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center"
-              title="Åpne meny"
-            >
-              {showSidebar ? <X className="w-4 h-4 text-white/70" /> : <Menu className="w-4 h-4 text-white/70" />}
-            </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <Flame className="w-3.5 h-3.5 text-orange-400" />
-                <span className="text-sm font-semibold text-white/90">{streak} dagers streak</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${consistencyBadge.tone}`}>
-                  {consistencyBadge.label}
-                </span>
+        <div className="rounded-2xl border border-slate-200/90 bg-white/85 p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:shadow-none">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSidebar((prev) => {
+                    const next = !prev;
+                    if (next) setSidebarView('menu');
+                    return next;
+                  });
+                }}
+                className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/80 dark:hover:bg-white/[0.1]"
+                title="Åpne meny"
+              >
+                {showSidebar ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+              </button>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex h-6 items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 text-[10px] font-semibold uppercase tracking-wide text-orange-700 dark:border-orange-400/30 dark:bg-orange-500/10 dark:text-orange-300">
+                    <Flame className="h-3.5 w-3.5" />
+                    Streak
+                  </span>
+                  <span className="text-sm font-semibold text-slate-900 dark:text-white/90 truncate">{streak} dagers streak</span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${consistencyBadge.tone}`}>
+                    {consistencyBadge.label}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-white/45">Disiplin {discipline.score}/100 · Konsistens {weeklyConsistencyScore}%</p>
               </div>
-              <p className="text-[11px] text-white/40 mt-0.5">Disiplin {discipline.score}/100 · Konsistens {weeklyConsistencyScore}%</p>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setLazyMode((prev) => !prev)}
-              className="h-9 px-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-[11px] font-semibold text-white/60"
-              title="Enkel modus"
-            >
-              {lazyMode ? 'Enkel ✓' : 'Enkel'}
-            </button>
+            <div className="flex flex-col items-end gap-1.5 shrink-0">
+              <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-white/60">
+                {isTodaySelected ? 'I dag' : dateLabel}
+              </span>
+              <button
+                type="button"
+                onClick={() => setLazyMode((prev) => !prev)}
+                className="h-8 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.1]"
+                title="Enkel modus"
+              >
+                {lazyMode ? 'Enkel ✓' : 'Enkel'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1748,57 +1796,57 @@ export default function HomeScreen() {
             />
           </svg>
           <div className="progress-text">
-            <p className="text-[52px] font-bold text-white leading-none tracking-tight">{progressValue}</p>
-            <p className="text-white/50 text-xs mt-1.5 font-medium tracking-widest uppercase">{progressText}</p>
+            <p className="text-[52px] font-bold text-slate-900 dark:text-white leading-none tracking-tight">{progressValue}</p>
+            <p className="text-slate-500 dark:text-white/50 text-xs mt-1.5 font-medium tracking-widest uppercase">{progressText}</p>
           </div>
         </button>
 
         {/* Stats row */}
         <div className="flex justify-center gap-8 mt-6">
           <div className="text-center">
-            <p className="text-xl font-bold text-white">{optimizedTargetKcal}</p>
-            <p className="text-[10px] text-white/35 font-semibold tracking-wider uppercase mt-0.5">Mål</p>
+            <p className="text-xl font-bold text-slate-900 dark:text-white">{optimizedTargetKcal}</p>
+            <p className="text-[10px] text-slate-500 dark:text-white/35 font-semibold tracking-wider uppercase mt-0.5">Mål</p>
           </div>
-          <div className="w-px h-10 bg-white/[0.08]" />
+          <div className="w-px h-10 bg-slate-200 dark:bg-white/[0.08]" />
           <div className="text-center">
             <p className="text-xl font-bold text-orange-400">{consumed}</p>
-            <p className="text-[10px] text-white/35 font-semibold tracking-wider uppercase mt-0.5">Spist</p>
+            <p className="text-[10px] text-slate-500 dark:text-white/35 font-semibold tracking-wider uppercase mt-0.5">Spist</p>
           </div>
-          <div className="w-px h-10 bg-white/[0.08]" />
+          <div className="w-px h-10 bg-slate-200 dark:bg-white/[0.08]" />
           <div className="text-center">
             <p className="text-xl font-bold text-emerald-400">+{dayLog.trainingKcal}</p>
-            <p className="text-[10px] text-white/35 font-semibold tracking-wider uppercase mt-0.5">Trening</p>
+            <p className="text-[10px] text-slate-500 dark:text-white/35 font-semibold tracking-wider uppercase mt-0.5">Trening</p>
           </div>
         </div>
 
         {/* Macro row when expanded */}
         {ringExpanded && (
           <div className="mt-5 grid grid-cols-4 gap-2">
-            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-white">{Math.round(protein)}<span className="text-xs text-white/40 ml-0.5">g</span></p>
-              <p className="text-[10px] text-white/35 mt-0.5">Protein</p>
+            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{Math.round(protein)}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">g</span></p>
+              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Protein</p>
             </div>
-            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-white">{Math.round(carbs)}<span className="text-xs text-white/40 ml-0.5">g</span></p>
-              <p className="text-[10px] text-white/35 mt-0.5">Karbo</p>
+            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{Math.round(carbs)}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">g</span></p>
+              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Karbo</p>
             </div>
-            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-white">{Math.round(fat)}<span className="text-xs text-white/40 ml-0.5">g</span></p>
-              <p className="text-[10px] text-white/35 mt-0.5">Fett</p>
+            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{Math.round(fat)}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">g</span></p>
+              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Fett</p>
             </div>
-            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-white">{weeklyAverage}</p>
-              <p className="text-[10px] text-white/35 mt-0.5">Snitt/uke</p>
+            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
+              <p className="text-lg font-bold text-slate-900 dark:text-white">{weeklyAverage}</p>
+              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Snitt/uke</p>
             </div>
           </div>
         )}
       </div>
 
       {/* ===== WEEKLY BAR CHART ===== */}
-      <div className="mx-4 mt-2 mb-2 rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
+      <div className="mx-4 mt-2 mb-2 rounded-2xl bg-white border border-slate-200 p-4 dark:bg-white/[0.03] dark:border-white/[0.06]">
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[11px] text-white/40 font-semibold tracking-wider uppercase">Denne uken</p>
-          <p className="text-[11px] text-white/30">Snitt: {weeklyAverage} kcal</p>
+          <p className="text-[11px] text-slate-600 dark:text-white/40 font-semibold tracking-wider uppercase">Denne uken</p>
+          <p className="text-[11px] text-slate-500 dark:text-white/30">Snitt: {weeklyAverage} kcal</p>
         </div>
         <div className="flex items-end justify-between gap-2 h-24">
           {weeklyData.map((day) => {
@@ -1809,18 +1857,22 @@ export default function HomeScreen() {
             const barColor = getWeeklyBarColor(ratio);
             return (
               <div key={day.key} className="flex-1 flex flex-col items-center gap-1.5">
-                <div className="w-full max-w-[14px] h-20 rounded-full bg-white/[0.04] flex flex-col justify-end overflow-hidden">
+                <div className="w-full max-w-[14px] h-20 rounded-full bg-slate-200/70 dark:bg-white/[0.04] flex flex-col justify-end overflow-hidden">
                   <div
                     className="w-full rounded-full transition-all duration-700 ease-out"
                     style={{
                       height: `${fillHeight}%`,
-                      backgroundColor: day.consumed > 0 ? barColor : 'rgba(255,255,255,0.06)',
+                      backgroundColor: day.consumed > 0 ? barColor : 'rgba(148,163,184,0.4)',
                       boxShadow: day.consumed > 0 ? `0 0 8px ${barColor}30` : 'none',
                     }}
                   />
                 </div>
                 <span className={`text-[10px] font-medium ${
-                  day.isSelected ? 'text-orange-400' : day.isToday ? 'text-white/60' : 'text-white/25'
+                  day.isSelected
+                    ? 'text-orange-500 dark:text-orange-400'
+                    : day.isToday
+                      ? 'text-slate-600 dark:text-white/60'
+                      : 'text-slate-400 dark:text-white/25'
                 }`}>
                   {day.label}
                 </span>
@@ -1837,31 +1889,31 @@ export default function HomeScreen() {
       >
         <button 
           type="button" 
-          className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
+          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-slate-200 dark:border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
           onClick={goPreviousDay} 
           title="Forrige dag"
         >
-          <ChevronLeft className="w-4 h-4 text-white/50" />
+          <ChevronLeft className="w-4 h-4 text-slate-500 dark:text-white/50" />
         </button>
-        <div className="bg-white/[0.06] backdrop-blur-sm border border-white/[0.08] rounded-2xl px-6 py-3 shadow-md">
-          <p className="text-white/80 font-medium text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
+        <div className="bg-slate-100 dark:bg-white/[0.06] backdrop-blur-sm border border-slate-200 dark:border-white/[0.08] rounded-2xl px-6 py-3 shadow-md">
+          <p className="text-slate-800 dark:text-white/80 font-medium text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
         </div>
         <button 
           type="button" 
-          className="w-9 h-9 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
+          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-slate-200 dark:border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
           onClick={goNextDay} 
           title="Neste dag"
         >
-          <ChevronRight className="w-4 h-4 text-white/50" />
+          <ChevronRight className="w-4 h-4 text-slate-500 dark:text-white/50" />
         </button>
       </div>
 
       <div className="card">
         <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold text-white/90">Rask matlogging</h3>
-          <span className="text-[11px] text-white/40 font-semibold bg-white/[0.06] px-2 py-1 rounded-full">Ett trykk</span>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Rask matlogging</h3>
+          <span className="text-[11px] text-slate-500 dark:text-white/40 font-semibold bg-slate-100 dark:bg-white/[0.06] px-2 py-1 rounded-full">Ett trykk</span>
         </div>
-        <p className="text-sm text-white/60 mb-4">Logg mat på sekunder med AI-drevne verktøy</p>
+        <p className="text-sm text-slate-600 dark:text-white/60 mb-4">Logg mat på sekunder med AI-drevne verktøy</p>
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
@@ -1875,7 +1927,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => openScanTab('barcode')}
-            className="rounded-2xl border-2 border-orange-200 bg-orange-500/10 text-orange-300 text-sm font-bold px-4 py-3 flex items-center justify-center gap-2 transition-all duration-300 hover:border-orange-300 hover:bg-orange-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-2xl border-2 border-orange-200 bg-orange-500/10 text-orange-700 dark:text-orange-300 text-sm font-bold px-4 py-3 flex items-center justify-center gap-2 transition-all duration-300 hover:border-orange-300 hover:bg-orange-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             <ScanLine className="w-4 h-4" />
@@ -1884,7 +1936,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('repeat-last')}
-            className="rounded-2xl border-2 border-white/[0.08] bg-white/[0.03] text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-2xl border-2 border-slate-200 dark:border-white/[0.08] bg-slate-100/70 dark:bg-white/[0.03] text-slate-700 dark:text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-slate-100 dark:hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay || !lastLoggedFood}
           >
             Gjenta sist
@@ -1892,7 +1944,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('kcal-adaptive')}
-            className="rounded-2xl border-2 border-white/[0.08] bg-white/[0.03] text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-2xl border-2 border-slate-200 dark:border-white/[0.08] bg-slate-100/70 dark:bg-white/[0.03] text-slate-700 dark:text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-slate-100 dark:hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             Smart +kcal
@@ -1902,26 +1954,26 @@ export default function HomeScreen() {
 
       <div className="card">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-white/90">Dagens matlogg</h3>
-          <span className="text-[11px] text-white/40">{todaysLoggedItems.length} varer</span>
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white/90">Dagens matlogg</h3>
+          <span className="text-[11px] text-slate-500 dark:text-white/40">{todaysLoggedItems.length} varer</span>
         </div>
         {todaysLoggedItems.length === 0 ? (
-          <p className="mt-3 text-xs text-white/40">Ingen matvarer logget enda.</p>
+          <p className="mt-3 text-xs text-slate-500 dark:text-white/40">Ingen matvarer logget enda.</p>
         ) : (
           <div className="mt-3 space-y-2">
             {todaysLoggedItems.map(({ mealId, index, entry }) => (
-              <div key={entry.id} className="rounded-lg border border-white/[0.06] px-3 py-2">
+              <div key={entry.id} className="rounded-lg border border-slate-200 dark:border-white/[0.06] px-3 py-2">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-[11px] uppercase text-white/30">{mealLabelById[mealId]} #{index + 1}</p>
-                    <p className="text-sm font-medium text-white/90 truncate">{entry.name}</p>
-                    <p className="text-xs text-white/40">{entry.kcal} kcal | P {entry.protein} | K {entry.carbs} | F {entry.fat}</p>
+                    <p className="text-[11px] uppercase text-slate-400 dark:text-white/30">{mealLabelById[mealId]} #{index + 1}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white/90 truncate">{entry.name}</p>
+                    <p className="text-xs text-slate-500 dark:text-white/40">{entry.kcal} kcal | P {entry.protein} | K {entry.carbs} | F {entry.fat}</p>
                   </div>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => openFoodEdit(mealId, entry)}
-                      className="h-8 w-8 rounded-md border border-white/[0.08] text-white/40 flex items-center justify-center disabled:text-white/20 disabled:border-white/[0.06]"
+                      className="h-8 w-8 rounded-md border border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-white/40 flex items-center justify-center disabled:text-white/20 disabled:border-slate-200 dark:border-white/[0.06]"
                       title="Rediger"
                       disabled={isPastSelectedDay}
                     >
@@ -1973,32 +2025,32 @@ export default function HomeScreen() {
                 onClick={() => toggleMealExpanded(meal.id)}
               >
                 <div className="meal-info">
-                  <div className="meal-icon" style={{ background: meal.color }}>
-                    <MealIcon className="w-6 h-6 text-white/70" />
+                  <div className={`meal-icon ${mealIconToneById[meal.id]}`}>
+                    <MealIcon className={`w-6 h-6 ${mealIconGlyphToneById[meal.id]}`} />
                   </div>
                   <div className="text-left min-w-0">
-                    <h3 className="font-semibold text-white/90">{meal.name}</h3>
-                    <p className="text-sm text-white/40">{items.length ? `${totals.kcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}</p>
+                    <h3 className="font-semibold text-slate-900 dark:text-white/90">{meal.name}</h3>
+                    <p className="text-sm text-slate-500 dark:text-white/40">{items.length ? `${totals.kcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}</p>
                     {mealHistory.avgKcal > 0 && (
-                      <p className="text-[11px] text-white/30">Vanlig: ~{mealHistory.avgKcal} kcal</p>
+                      <p className="text-[11px] text-slate-400 dark:text-white/30">Vanlig: ~{mealHistory.avgKcal} kcal</p>
                     )}
                     {items.length > 0 ? (
-                      <p className="text-xs text-white/40 mt-1 truncate">
+                      <p className="text-xs text-slate-500 dark:text-white/40 mt-1 truncate">
                         {previewItems.map((item) => `${item.name}${item.count > 1 ? ` x${item.count}` : ''}`).join(' + ')}
                         {extraPreviewCount > 0 ? ` + ${extraPreviewCount} til` : ''}
                       </p>
                     ) : (
-                      <p className="text-xs text-white/30 mt-1">Trykk for a legge til mat</p>
+                      <p className="text-xs text-slate-400 dark:text-white/30 mt-1">Trykk for a legge til mat</p>
                     )}
                   </div>
                 </div>
-                <ChevronRight className={`w-4 h-4 text-white/30 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                <ChevronRight className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
               </button>
 
               {isExpanded && (
-                <div className="mt-3 pt-3 border-t border-white/[0.06]">
+                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-white/[0.06]">
                   {mealHistory.lastThree.length > 0 && (
-                    <p className="text-[11px] text-white/40 mb-2">
+                    <p className="text-[11px] text-slate-500 dark:text-white/40 mb-2">
                       Last 3: {mealHistory.lastThree.join(' / ')} kcal
                     </p>
                   )}
@@ -2061,7 +2113,7 @@ export default function HomeScreen() {
                         </button>
                       ))}
                       {quickSuggestions.length === 0 && mealTemplatesForSlot.length === 0 && (
-                        <p className="text-xs text-white/30">Ingen forslag enda. Logg forste matvare for a bygge forslag.</p>
+                        <p className="text-xs text-slate-400 dark:text-white/30">Ingen forslag enda. Logg forste matvare for a bygge forslag.</p>
                       )}
                     </div>
                   )}
@@ -2069,13 +2121,13 @@ export default function HomeScreen() {
                   {items.length > 0 && !lazyMode && (
                     <div>
                       <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/60">P {Math.round(totals.protein)}g</span>
-                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/60">K {Math.round(totals.carbs)}g</span>
-                        <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-white/60">F {Math.round(totals.fat)}g</span>
+                        <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-slate-600 dark:text-white/60">P {Math.round(totals.protein)}g</span>
+                        <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-slate-600 dark:text-white/60">K {Math.round(totals.carbs)}g</span>
+                        <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-slate-600 dark:text-white/60">F {Math.round(totals.fat)}g</span>
                       </div>
                       <div className="space-y-1">
                         {visibleItems.map((item) => (
-                          <p key={item.name} className="text-sm text-white/70 flex justify-between gap-3">
+                          <p key={item.name} className="text-sm text-slate-700 dark:text-white/70 flex justify-between gap-3">
                             <span className="truncate">
                               {item.name}
                               {item.count > 1 ? ` x${item.count}` : ''}
@@ -2083,7 +2135,7 @@ export default function HomeScreen() {
                             <span>{item.kcal} kcal</span>
                           </p>
                         ))}
-                        {hiddenItemCount > 0 && <p className="text-xs text-white/30">+{hiddenItemCount} flere varer</p>}
+                        {hiddenItemCount > 0 && <p className="text-xs text-slate-400 dark:text-white/30">+{hiddenItemCount} flere varer</p>}
                       </div>
                     </div>
                   )}
@@ -2120,7 +2172,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-white/[0.08] text-white/40 text-xs px-3 py-2"
+                      className="rounded-lg border border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-white/40 text-xs px-3 py-2"
                       onClick={() => setScanHint('Voice: "To egg og toast" (kommer snart).')}
                       title="Voice input"
                       disabled={isPastSelectedDay}
@@ -2178,7 +2230,7 @@ export default function HomeScreen() {
             <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
               <Dumbbell className="w-5 h-5 text-orange-400" />
             </div>
-            <h3 className="text-lg font-bold text-white/90">Trening</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Trening</h3>
           </div>
           <button
             type="button"
@@ -2199,7 +2251,7 @@ export default function HomeScreen() {
             <div className="min-w-0 flex-1 pt-1">
               <p className="text-xs font-bold uppercase tracking-wide text-orange-800 mb-1">Dagens trening</p>
               <p className="text-xl font-black text-orange-200 mb-2">{dayLog.trainingKcal} kcal logget</p>
-              <p className="text-xs text-orange-300 font-medium leading-relaxed">
+              <p className="text-xs text-orange-700 dark:text-orange-300 font-medium leading-relaxed">
                 {hasTrainingLogged ? 'Trykk en treningsøkt for flex! 💪' : 'Armen hviler til du logger en økt.'}
               </p>
             </div>
@@ -2232,7 +2284,7 @@ export default function HomeScreen() {
           </button>
         </div>
         {selectedDayWorkouts.length > 0 && (
-          <div className="mt-4 rounded-xl bg-white/[0.06] border border-orange-500/10 p-3 shadow-sm">
+          <div className="mt-4 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-orange-500/10 p-3 shadow-sm">
             <p className="text-xs font-bold text-orange-800 mb-2 uppercase tracking-wide">Dagens økter</p>
             <div className="space-y-2">
               {selectedDayWorkouts.map((session) => (
@@ -2257,44 +2309,48 @@ export default function HomeScreen() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
-              <Droplets className="w-5 h-5 text-cyan-400" />
+              <Droplets className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
             </div>
-            <h3 className="text-lg font-bold text-white/90">Vann</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Vann</h3>
           </div>
           <div className="text-right">
-            <p className="text-sm font-bold text-cyan-300">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
-            <p className="text-xs text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
+            <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
+            <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
           </div>
         </div>
 
         <div className="mt-4">
-          {/* 8 Water Cup Icons */}
+          {/* 8 Water Bottle Icons */}
           <div className="flex justify-center items-center gap-2 mb-4">
-            {Array.from({ length: 8 }, (_, index) => {
+            {Array.from({ length: MAX_WATER_CUPS }, (_, index) => {
               const cupIndex = index + 1;
-              const cupsNeeded = Math.ceil(dayLog.waterMl / 250);
+              const cupsNeeded = Math.ceil(dayLog.waterMl / WATER_CUP_SIZE_ML);
               const isFilled = cupIndex <= cupsNeeded;
               const isFirstUnfilled = cupIndex === cupsNeeded + 1;
+              const isAnimating = animatingWaterCups.includes(cupIndex);
               
               return (
                 <button
                   key={cupIndex}
                   type="button"
-                  onClick={() => !isFilled && addWater(250, 'water:cup:tap')}
-                  className={`relative w-8 h-10 rounded-b-lg border-2 transition-all duration-200 ${
-                    isFilled 
-                      ? 'bg-cyan-400 border-cyan-500' 
-                      : 'bg-white/[0.06] border-white/[0.08] hover:bg-white/[0.1]'
-                  } ${!isFilled && !isPastSelectedDay ? 'cursor-pointer' : 'cursor-default'}`}
+                  onClick={() => !isFilled && addWater(WATER_CUP_SIZE_ML, 'water:cup:tap')}
+                  className={`relative h-14 w-9 transition-all duration-200 ${
+                    !isFilled && !isPastSelectedDay ? 'cursor-pointer' : 'cursor-default'
+                  }`}
                   disabled={isPastSelectedDay || isFilled}
                 >
-                  {/* Cup Icon */}
-                  <div className={`w-full h-full rounded-b-lg ${isFilled ? 'bg-cyan-500' : ''}`} />
+                  <div className={`water-bottle-shell ${isAnimating ? 'water-cup-shell-fill' : ''} ${isFilled ? 'water-bottle-shell-filled' : 'water-bottle-shell-empty'}`}>
+                    <div className="water-bottle-cap" />
+                    <div className="water-bottle-body">
+                      <div className={`water-bottle-liquid-layer ${isFilled ? 'water-bottle-liquid-filled' : ''} ${isAnimating ? 'water-cup-liquid-fill' : ''}`} />
+                      <div className="water-bottle-shine" />
+                    </div>
+                  </div>
                   
                   {/* Plus overlay for first unfilled cup */}
                   {isFirstUnfilled && !isPastSelectedDay && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Plus className="w-4 h-4 text-white/80" />
+                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
+                      <Plus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
                     </div>
                   )}
                 </button>
@@ -2304,20 +2360,20 @@ export default function HomeScreen() {
           
           {/* Water progress text */}
           <div className="text-center">
-            <p className="text-sm text-cyan-300 font-medium">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
+            <p className="text-sm text-cyan-700 dark:text-cyan-300 font-medium">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
           </div>
         </div>
 
       </div>
 
       {/* Weight Graph Section */}
-      <div className="card bg-white/[0.03] border-white/[0.06]">
+      <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <h3 className="text-lg font-bold text-white/90">Kroppsvekt</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kroppsvekt</h3>
           </div>
           <div className="text-right">
-            <p className="text-sm text-white/60">Ingen endring</p>
+            <p className="text-sm text-slate-600 dark:text-white/60">Ingen endring</p>
           </div>
         </div>
 
@@ -2334,7 +2390,7 @@ export default function HomeScreen() {
               className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                 index === 0 
                   ? 'bg-orange-500 text-white' 
-                  : 'bg-white/[0.06] text-white/40 hover:bg-white/[0.1] hover:text-white/60'
+                  : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/40 hover:bg-slate-200 dark:hover:bg-white/[0.1] hover:text-slate-600 dark:hover:text-white/60'
               }`}
             >
               {tab.label}
@@ -2343,7 +2399,7 @@ export default function HomeScreen() {
         </div>
 
         {/* Simple Weight Chart */}
-        <div className="h-32 bg-white/[0.02] rounded-lg border border-white/[0.05] mb-4 flex items-center justify-center">
+        <div className="h-32 bg-slate-50 dark:bg-white/[0.02] rounded-lg border border-slate-200 dark:border-white/[0.05] mb-4 flex items-center justify-center">
           {journeyWeightSeries.length > 0 ? (
             <svg className="w-full h-full p-4" viewBox="0 0 300 100">
               {/* Simple line chart */}
@@ -2370,7 +2426,7 @@ export default function HomeScreen() {
               <text x="5" y="85" fill="#ffffff60" fontSize="10">{Math.min(...journeyWeightSeries.map(p => p.value)).toFixed(1)}</text>
             </svg>
           ) : (
-            <p className="text-white/40 text-sm">Ingen vektdata tilgjengelig</p>
+            <p className="text-slate-500 dark:text-white/40 text-sm">Ingen vektdata tilgjengelig</p>
           )}
         </div>
 
@@ -2415,13 +2471,13 @@ export default function HomeScreen() {
 
       {showWorkoutModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-zinc-900 border border-white/[0.08] p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-white/90">Logg treningsokt</h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Logg treningsokt</h3>
               <button
                 type="button"
                 onClick={() => setShowWorkoutModal(false)}
-                className="w-8 h-8 rounded-full bg-white/[0.06] text-white/60"
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60"
               >
                 x
               </button>
@@ -2429,45 +2485,45 @@ export default function HomeScreen() {
 
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-white/40">Tidspunkt</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Tidspunkt</label>
                 <input
                   type="datetime-local"
                   value={workoutStartedAt}
                   onChange={(event) => setWorkoutStartedAt(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs text-white/40">Varighet (min)</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Varighet (min)</label>
                   <input
                     inputMode="numeric"
                     value={workoutDurationMin}
                     onChange={(event) => setWorkoutDurationMin(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-white/40">Kcal forbrent</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Kcal forbrent</label>
                   <input
                     inputMode="numeric"
                     value={workoutCalories}
                     onChange={(event) => setWorkoutCalories(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs text-white/40">Type</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Type</label>
                 <div className="mt-1 grid grid-cols-3 gap-2">
                   {(['Run', 'Ride', 'Walk', 'Strength', 'HIIT', 'Other'] as WorkoutSession['workoutType'][]).map((type) => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setWorkoutType(type)}
-                      className={`rounded-lg px-2 py-2 text-xs border ${workoutType === type ? 'bg-orange-500/100 text-white border-orange-500' : 'bg-white/[0.04] text-white/70 border-white/[0.08]'}`}
+                      className={`rounded-lg px-2 py-2 text-xs border ${workoutType === type ? 'bg-orange-500/100 text-white border-orange-500' : 'bg-slate-100 dark:bg-white/[0.04] text-slate-700 dark:text-white/70 border-slate-200 dark:border-white/[0.08]'}`}
                     >
                       {type}
                     </button>
@@ -2476,23 +2532,23 @@ export default function HomeScreen() {
               </div>
 
               <div>
-                <label className="text-xs text-white/40">Ovelse / aktivitet</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Ovelse / aktivitet</label>
                 <input
                   value={workoutExerciseName}
                   onChange={(event) => setWorkoutExerciseName(event.target.value)}
                   placeholder="f.eks. Intervallop, benokt, sykkel"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                 />
               </div>
 
               <div>
-                <label className="text-xs text-white/40">Notater (valgfritt)</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Notater (valgfritt)</label>
                 <textarea
                   value={workoutNotes}
                   onChange={(event) => setWorkoutNotes(event.target.value)}
                   rows={3}
                   placeholder="Hvordan kjentes okten?"
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90 resize-none"
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90 resize-none"
                 />
               </div>
             </div>
@@ -2501,7 +2557,7 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={() => setShowWorkoutModal(false)}
-                className="flex-1 rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/70"
+                className="flex-1 rounded-lg bg-slate-100 dark:bg-white/[0.06] px-3 py-2 text-sm text-slate-700 dark:text-white/70"
               >
                 Avbryt
               </button>
@@ -2519,13 +2575,13 @@ export default function HomeScreen() {
 
       {editingFood && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-zinc-900 border border-white/[0.08] p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-white/90">Rediger matpost</h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Rediger matpost</h3>
               <button
                 type="button"
                 onClick={() => setEditingFood(null)}
-                className="w-8 h-8 rounded-full bg-white/[0.06] text-white/60"
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60"
               >
                 x
               </button>
@@ -2533,48 +2589,48 @@ export default function HomeScreen() {
 
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-white/40">Navn</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Navn</label>
                 <input
                   value={editingFood.name}
                   onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, name: event.target.value } : null))}
-                  className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs text-white/40">Kcal</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Kcal</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.kcal}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, kcal: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-white/40">Protein</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Protein</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.protein}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, protein: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-white/40">Karbo</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Karbo</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.carbs}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, carbs: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-white/40">Fett</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Fett</label>
                   <input
                     inputMode="decimal"
                     value={editingFood.fat}
                     onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, fat: event.target.value } : null))}
-                    className="mt-1 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white/90"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
               </div>
@@ -2584,7 +2640,7 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={() => setEditingFood(null)}
-                className="flex-1 rounded-lg bg-white/[0.06] px-3 py-2 text-sm text-white/70"
+                className="flex-1 rounded-lg bg-slate-100 dark:bg-white/[0.06] px-3 py-2 text-sm text-slate-700 dark:text-white/70"
               >
                 Avbryt
               </button>
@@ -2601,44 +2657,44 @@ export default function HomeScreen() {
       )}
 
       {showQuickAddMenu && (
-        <div className="fixed right-4 bottom-24 z-50 w-72 rounded-2xl bg-white shadow-xl border border-white/[0.06] p-2">
-          <p className="text-[11px] uppercase text-white/30 px-3 py-1">Smart quick buttons</p>
+        <div className="fixed right-4 bottom-24 z-50 w-72 rounded-2xl bg-white shadow-xl border border-slate-200 dark:border-white/[0.06] p-2">
+          <p className="text-[11px] uppercase text-slate-400 dark:text-white/30 px-3 py-1">Smart quick buttons</p>
           {smartQuickActions.slice(0, 6).map((action) => (
             <button
               key={action.id}
               type="button"
               onClick={() => handleQuickAdd(action.id)}
-              className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm"
+              className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm"
             >
               {action.label}
             </button>
           ))}
 
-          <p className="text-[11px] uppercase text-white/30 px-3 py-1 mt-1">Intelligent repeat</p>
-          <button type="button" onClick={() => handleQuickAdd('repeat-breakfast')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <p className="text-[11px] uppercase text-slate-400 dark:text-white/30 px-3 py-1 mt-1">Intelligent repeat</p>
+          <button type="button" onClick={() => handleQuickAdd('repeat-breakfast')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             Repeat Breakfast
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-lunch')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-lunch')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             Repeat Lunch
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-day-yesterday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-day-yesterday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             Repeat Whole Day
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-last-monday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-last-monday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             Repeat Last Monday
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-frequent')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <button type="button" onClick={() => handleQuickAdd('repeat-frequent')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             Repeat Most Frequent Day
           </button>
 
-          <p className="text-[11px] uppercase text-white/30 px-3 py-1 mt-1">Macro-only quick log</p>
-          <button type="button" onClick={() => handleQuickAdd('macro-protein')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <p className="text-[11px] uppercase text-slate-400 dark:text-white/30 px-3 py-1 mt-1">Macro-only quick log</p>
+          <button type="button" onClick={() => handleQuickAdd('macro-protein')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             +30g protein
           </button>
-          <button type="button" onClick={() => handleQuickAdd('macro-carbs')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <button type="button" onClick={() => handleQuickAdd('macro-carbs')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             +50g carbs
           </button>
-          <button type="button" onClick={() => handleQuickAdd('macro-fat')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/[0.03] text-sm">
+          <button type="button" onClick={() => handleQuickAdd('macro-fat')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             +20g fat
           </button>
         </div>
@@ -2654,7 +2710,7 @@ export default function HomeScreen() {
               setUndoAction(null);
               setScanHint('Angret');
             }}
-            className="text-orange-300 font-semibold"
+            className="text-orange-700 dark:text-orange-300 font-semibold"
           >
             Undo
           </button>

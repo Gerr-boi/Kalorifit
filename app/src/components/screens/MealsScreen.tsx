@@ -395,6 +395,9 @@ export default function MealsScreen() {
   const selectedMicros = selectedRecipe ? estimateMicros(selectedRecipe) : null;
   const selectedIngredients = selectedRecipe ? getRecipeIngredients(selectedRecipe) : [];
   const selectedSteps = selectedRecipe ? getRecipeSteps(selectedRecipe) : [];
+  const visibleRecommendations = blocksWithItems.reduce((sum, block) => sum + block.items.length, 0);
+  const savedCount = savedMealTemplates.length;
+  const personalizedCount = filteredRecipes.filter((recipe) => recipe.goalCategories.includes(profile.goalCategory)).length;
 
   function toMealId(slot: Exclude<MealSlot, 'alle'>): MealId {
     if (slot === 'frokost') return 'breakfast';
@@ -636,31 +639,32 @@ export default function MealsScreen() {
 
   return (
     <div className="screen">
-      <div className="relative h-56">
+      <div className="relative h-56 overflow-hidden">
         <img src="https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=900&h=420&fit=crop" alt="Personalized meals" className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950/35 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
-          <h1 className="text-2xl font-bold leading-tight">{bannerTitle}</h1>
+          <h1 className="max-w-[18rem] text-2xl font-bold leading-tight">{bannerTitle}</h1>
           <p className="text-sm text-white/85 mt-1">{bannerSubtitle}</p>
-          <p className="text-xs text-cyan-200 mt-2">{weeklyInsight}</p>
-          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm border border-white/20">
+          <p className="mt-2 max-w-[19rem] text-xs leading-relaxed text-cyan-100/90">{weeklyInsight}</p>
+          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur-sm">
             <Sparkles className="w-3.5 h-3.5" />
             <span>{mealFilterLabel} - {activeSortLabel}</span>
           </div>
         </div>
       </div>
 
-      <div className="sticky top-0 bg-white dark:bg-gray-900 z-20 border-b border-gray-200 dark:border-gray-700">
+      <div className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/92 backdrop-blur-md dark:border-gray-800 dark:bg-gray-900/92">
         <div className="px-4 pt-3 flex items-center gap-2 overflow-x-auto">
           <button
             onClick={() => setActiveLibrary('discover')}
-            className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeLibrary === 'discover' ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}
+            className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeLibrary === 'discover' ? 'bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300'}`}
           >
             For deg
           </button>
           <button
             onClick={() => setActiveLibrary('mine')}
-            className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeLibrary === 'mine' ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}
+            className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeLibrary === 'mine' ? 'bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300'}`}
           >
             Mine måltider
           </button>
@@ -670,7 +674,7 @@ export default function MealsScreen() {
             <button
               type="button"
               onClick={() => setShowCreateMealModal(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-md"
+              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm"
             >
               <Plus className="h-4 w-4" />
               Opprett maltid
@@ -679,17 +683,34 @@ export default function MealsScreen() {
         )}
         <div className="scroll-container py-3">
           {(['alle', 'frokost', 'lunsj', 'middag', 'snacks'] as const).map((slot) => (
-            <button key={slot} onClick={() => setActiveMealFilter(slot)} className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeMealFilter === slot ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'}`}>
+            <button key={slot} onClick={() => setActiveMealFilter(slot)} className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeMealFilter === slot ? 'bg-orange-500 text-white shadow-sm' : 'bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300'}`}>
               {slot === 'alle' ? 'For deg' : slot[0].toUpperCase() + slot.slice(1)}
             </button>
           ))}
         </div>
         <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto">
           {smartSortOptions.map((option) => (
-            <button key={option.id} onClick={() => setActiveSort(option.id)} className={`text-xs px-3 py-1.5 rounded-full border whitespace-nowrap ${activeSort === option.id ? 'bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700'}`}>
+            <button key={option.id} onClick={() => setActiveSort(option.id)} className={`text-xs px-3 py-1.5 rounded-full border whitespace-nowrap transition-colors ${activeSort === option.id ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/30' : 'bg-white dark:bg-gray-800 text-slate-600 dark:text-gray-300 border-slate-200 dark:border-gray-700'}`}>
               {option.label}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="px-4 pt-4">
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Vises</p>
+            <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{filteredRecipes.length}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Treff</p>
+            <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{personalizedCount}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Lagret' : 'Boosts'}</p>
+            <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{activeLibrary === 'mine' ? savedCount : visibleRecommendations}</p>
+          </div>
         </div>
       </div>
 
@@ -744,11 +765,14 @@ export default function MealsScreen() {
         </div>
       )}
 
-      <div className="px-4 py-2 flex items-center justify-between">
-        <p className="text-sm text-gray-500 dark:text-gray-400">{filteredRecipes.length} oppskrifter i smart visning</p>
+      <div className="px-4 py-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-slate-700 dark:text-gray-200">Smart visning</p>
+          <p className="text-xs text-slate-500 dark:text-gray-400">{filteredRecipes.length} oppskrifter sortert etter dagens signaler</p>
+        </div>
         <button
           onClick={() => setShowFavoritesOnly((prev) => !prev)}
-          className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${showFavoritesOnly ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'}`}
+          className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${showFavoritesOnly ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'}`}
         >
           {showFavoritesOnly ? 'Viser favoritter' : 'Kun favoritter'}
         </button>
@@ -777,73 +801,108 @@ export default function MealsScreen() {
             activeSort === 'evening' && recipe.signals.eveningFriendly ? 'Kveldvennlig' : null,
           ].filter(Boolean).slice(0, 3) as string[];
           return (
-            <div key={recipe.id} className="recipe-card cursor-pointer" onClick={() => setSelectedRecipe(recipe)}>
+            <div
+              key={recipe.id}
+              className="mx-4 cursor-pointer overflow-hidden rounded-[24px] border border-slate-200/80 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.08)] transition-transform duration-200 dark:border-gray-800 dark:bg-gray-900"
+              onClick={() => setSelectedRecipe(recipe)}
+            >
               <div className="relative">
-                <img src={recipe.image} alt={recipe.title} className="recipe-image" />
+                <img src={recipe.image} alt={recipe.title} className="h-48 w-full object-cover" />
+                <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-950/75 to-transparent" />
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
                     setFavorites((prev) => (prev.has(recipe.id) ? new Set([...prev].filter((id) => id !== recipe.id)) : new Set(prev).add(recipe.id)));
                   }}
-                  className="absolute top-3 right-3 w-10 h-10 bg-white/90 dark:bg-gray-800/90 backdrop-blur rounded-full flex items-center justify-center shadow-md"
+                  className="absolute top-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-md backdrop-blur dark:bg-gray-800/90"
                 >
                   <Star className={`w-5 h-5 ${favorites.has(recipe.id) ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400'}`} />
                 </button>
-                <div className="absolute bottom-3 left-3 flex gap-2">
-                  <span className="recipe-tag bg-black/50 text-white backdrop-blur">{recipe.source}</span>
+                <div className="absolute left-3 top-3 flex gap-2">
+                  <span className="inline-flex rounded-full border border-white/20 bg-black/45 px-3 py-1 text-[11px] font-medium text-white backdrop-blur">
+                    {recipe.source}
+                  </span>
+                </div>
+                <div className="absolute bottom-3 left-3 right-14">
+                  <h3 className="line-clamp-2 text-lg font-semibold text-white">{recipe.title}</h3>
                 </div>
               </div>
 
-              <div className="recipe-content">
-                <h3 className="font-semibold text-gray-800 dark:text-gray-100 text-base mb-2 line-clamp-2">{recipe.title}</h3>
-                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mb-3">
-                  <div className="flex items-center gap-1"><Flame className="w-3.5 h-3.5 text-orange-500" /><span>{recipe.calories} kcal</span></div>
-                  <div className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /><span>{recipe.time}</span></div>
-                  <div className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /><span>{recipe.servings} pers</span></div>
+              <div className="p-4">
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-2xl bg-orange-50 px-3 py-2 text-orange-700 dark:bg-orange-500/10 dark:text-orange-200">
+                    <div className="flex items-center gap-1 text-[11px] uppercase tracking-[0.14em] opacity-70">
+                      <Flame className="h-3.5 w-3.5" />
+                      Kcal
+                    </div>
+                    <p className="mt-1 font-semibold">{recipe.calories}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-100 px-3 py-2 text-slate-700 dark:bg-gray-800 dark:text-gray-200">
+                    <div className="flex items-center gap-1 text-[11px] uppercase tracking-[0.14em] opacity-70">
+                      <Clock className="h-3.5 w-3.5" />
+                      Tid
+                    </div>
+                    <p className="mt-1 font-semibold">{recipe.time}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-100 px-3 py-2 text-slate-700 dark:bg-gray-800 dark:text-gray-200">
+                    <div className="flex items-center gap-1 text-[11px] uppercase tracking-[0.14em] opacity-70">
+                      <Users className="h-3.5 w-3.5" />
+                      Porsj.
+                    </div>
+                    <p className="mt-1 font-semibold">{recipe.servings}</p>
+                  </div>
                 </div>
-                <div className="rounded-xl bg-slate-50 dark:bg-gray-800 border border-slate-100 dark:border-gray-700 p-2 mb-3">
-                  <p className="text-[11px] text-slate-600 dark:text-gray-300 mb-1">Hvorfor anbefalt:</p>
-                  <div className="flex flex-wrap gap-1">
+
+                <div className="mt-3 rounded-2xl border border-slate-200/70 bg-slate-50/90 p-3 dark:border-gray-800 dark:bg-gray-800/60">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-gray-400">Hvorfor denne</p>
+                    <div className="flex items-center gap-1 text-orange-500">
+                      <Star className="w-4 h-4 fill-current" />
+                      <span className="text-sm font-medium">{recipe.rating}</span>
+                      <span className="text-xs text-slate-400 dark:text-gray-500">({recipe.reviews})</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
                     {(recommendationReasons.length > 0 ? recommendationReasons : [recipe.origin === 'community' ? 'Fra Community-oppskrift' : 'Variasjon i planen']).map((reason) => (
-                      <span key={reason} className="text-[11px] px-2 py-0.5 rounded-full bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-700 text-slate-600 dark:text-gray-300">
+                      <span key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
                         {reason}
                       </span>
                     ))}
                   </div>
                 </div>
+
                 {recipe.tags.length > 0 ? (
-                  <div className="flex flex-wrap gap-1.5 mb-3">
+                  <div className="mt-3 flex flex-wrap gap-1.5">
                     {recipe.tags.map((tag) => (
-                      <button key={tag} className="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full" onClick={(event) => { event.stopPropagation(); setActiveTag(tag); }}>
+                      <button key={tag} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:bg-gray-800 dark:text-gray-300" onClick={(event) => { event.stopPropagation(); setActiveTag(tag); }}>
                         {tagInfo[tag].label}
                       </button>
                     ))}
                   </div>
                 ) : null}
-                <div className="flex items-center justify-between">
-                  <div className="text-xs text-gray-500 dark:text-gray-400">Klar pa {recipe.time}</div>
-                  <div className="flex items-center gap-1 text-orange-500"><Star className="w-4 h-4 fill-current" /><span className="text-sm font-medium">{recipe.rating}</span><span className="text-xs text-gray-400 dark:text-gray-500">({recipe.reviews})</span></div>
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedRecipe(recipe);
+                    }}
+                    className="w-full rounded-xl bg-slate-900 py-2.5 text-sm font-medium text-white dark:bg-white dark:text-slate-900"
+                  >
+                    Se detaljer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      addRecipeToDiary(recipe);
+                    }}
+                    className="w-full rounded-xl bg-orange-500 py-2.5 text-sm font-medium text-white"
+                  >
+                    Legg til
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setSelectedRecipe(recipe);
-                  }}
-                  className="mt-3 w-full rounded-lg bg-slate-800 text-white text-sm font-medium py-2"
-                >
-                  Se detaljer
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    addRecipeToDiary(recipe);
-                  }}
-                  className="mt-2 w-full rounded-lg bg-orange-500 text-white text-sm font-medium py-2"
-                >
-                  Legg til i dagbok
-                </button>
               </div>
             </div>
           );

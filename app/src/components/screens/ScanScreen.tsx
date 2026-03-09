@@ -16,6 +16,11 @@ import {
   type AdaptiveRankingSnapshot,
 } from '../../lib/scanApi';
 import { createInitialScanMetrics } from '../../lib/scanMetrics';
+import {
+  evaluateTrophyBadges,
+  getNewlyUnlockedBadges,
+  type TrophyBadge,
+} from '../../lib/trophySystem';
 import FoodDetectionPanel from '../food/FoodDetectionPanel';
 import {
   brandBoostFromOcrText,
@@ -127,13 +132,19 @@ type BarcodeDetectorLike = {
 type ScanVideoConstraints = MediaTrackConstraints;
 type NormalizedRect = { x: number; y: number; w: number; h: number };
 type TextRectDetection = { rect: NormalizedRect; score: number };
-type LevelUpCelebration = {
+type LevelUpCelebrationItem = {
   fromLevel: number;
   toLevel: number;
   label: string;
   currentXp: number;
   nextLevelXp: number;
 };
+type BadgeCelebrationItem = {
+  badge: TrophyBadge;
+};
+type CelebrationQueueItem =
+  | { kind: 'level_up'; payload: LevelUpCelebrationItem; confettiPalette: string[] }
+  | { kind: 'badge_unlock'; payload: BadgeCelebrationItem; confettiPalette: string[] };
 type AddUndoSnapshot = {
   userId: string | null;
   scopedDailyLogsStorageKey: string;
@@ -151,6 +162,7 @@ type BotHealthState = {
   status: 'checking' | 'ok' | 'offline';
   message: string | null;
   checkedAt: number | null;
+  baseUrl: string;
 };
 
 declare global {
@@ -161,16 +173,21 @@ declare global {
 
 export default function ScanScreen() {
   const isDev = import.meta.env.DEV;
-  const { activeUserId } = useCurrentUser();
-  const MAX_VISION_WAIT_MS = 30000;
-  const MAX_RESOLVER_WAIT_MS = 7500;
-  const MAX_TOTAL_MATCH_WAIT_MS = 26000;
-  const MAX_IMAGE_DIMENSION = 1280;
-  const JPEG_QUALITY = 0.82;
+  const { activeUserId, currentUser } = useCurrentUser();
+  const MAX_SCAN_DECISION_MS = 5000;
+  const MAX_VISION_WAIT_MS = 4200;
+  const MAX_DISH_PREDICT_WAIT_MS = 1800;
+  const MAX_OCR_WAIT_MS = 2000;
+  const FAST_TOP_MATCH_RESOLVER_WAIT_MS = 1600;
+  const MAX_RESOLVER_WAIT_MS = 1800;
+  const MAX_TOTAL_MATCH_WAIT_MS = 3200;
+  const MAX_IMAGE_DIMENSION = 1024;
+  const JPEG_QUALITY = 0.76;
   const VISUAL_ANCHOR_STORAGE_KEY = 'kalorifit.visual_anchors.v1';
   const LEGACY_DAILY_LOGS_STORAGE_KEY = 'home.dailyLogs.v2';
   const LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY = 'home.lastLoggedFood.v1';
   const LEGACY_IDENTITY_REPORTS_STORAGE_KEY = 'home.identityReports.v1';
+  const PROFILE_STORAGE_KEY = 'profile';
   const SCAN_TARGET_DATE_KEY_STORAGE_KEY = 'kalorifit.scanTargetDateKey.v1';
   const SCAN_BRAND_AVOID_STORAGE_KEY = 'kalorifit.scan.brand_avoid.v1';
   const RECENT_CAPTURE_STORAGE_KEY = 'kalorifit.scan.recentCapture.v1';
@@ -186,7 +203,7 @@ export default function ScanScreen() {
   const [portionUnit, setPortionUnit] = useState<'g' | 'ml'>('g');
   const [feedback, setFeedback] = useState<{ message: string; kind: 'success' | 'error' | 'info' } | null>(null);
   const [pendingUndo, setPendingUndo] = useState<{ expiresAt: number } | null>(null);
-  const [levelUpCelebration, setLevelUpCelebration] = useState<LevelUpCelebration | null>(null);
+  const [celebrationQueue, setCelebrationQueue] = useState<CelebrationQueueItem[]>([]);
   const [showBarcodeEntry, setShowBarcodeEntry] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
   const [manualBarcodeError, setManualBarcodeError] = useState<string | null>(null);
@@ -204,6 +221,7 @@ export default function ScanScreen() {
   const [scanState, setScanState] = useState<'idle' | 'needs_manual_label' | 'no_match'>('idle');
   const [manualLabel, setManualLabel] = useState<string>('');
   const [manualError, setManualError] = useState<string | null>(null);
+  const [manualSuggestionIndex, setManualSuggestionIndex] = useState(0);
   const [candidates, setCandidates] = useState<NutritionResult[]>([]);
   const [showCandidates, setShowCandidates] = useState(false);
   const [photoCamActive, setPhotoCamActive] = useState(false);
@@ -242,6 +260,7 @@ export default function ScanScreen() {
     status: 'checking',
     message: null,
     checkedAt: null,
+    baseUrl: 'http://127.0.0.1:8001',
   });
   const photoVideoRef = useRef<HTMLVideoElement | null>(null);
   const photoStreamRef = useRef<MediaStream | null>(null);
@@ -332,13 +351,15 @@ export default function ScanScreen() {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const payload = await response.json() as { bot?: { ok?: boolean; error?: string; message?: string } };
+      const payload = await response.json() as { bot?: { ok?: boolean; error?: string; message?: string; baseUrl?: string } };
+      const baseUrl = payload?.bot?.baseUrl || 'http://127.0.0.1:8001';
       const botOk = payload?.bot?.ok === true;
       if (botOk) {
         setBotHealth({
           status: 'ok',
           message: null,
           checkedAt: Date.now(),
+          baseUrl,
         });
         return;
       }
@@ -346,14 +367,15 @@ export default function ScanScreen() {
       const reason =
         payload?.bot?.message ||
         payload?.bot?.error ||
-        'food_detection_bot is not reachable on http://127.0.0.1:8001';
+        `food_detection_bot is not reachable on ${baseUrl}`;
       setBotHealth({
         status: 'offline',
         message: reason,
         checkedAt: Date.now(),
+        baseUrl,
       });
       if (opts.showToastOnOffline) {
-        showFeedback('food_detection_bot er ikke tilgjengelig. Start bot-en pa 127.0.0.1:8001.', 'error');
+        showFeedback(`food_detection_bot er ikke tilgjengelig. Sjekk at bot-en kjører på ${baseUrl}.`, 'error');
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Unknown health check error';
@@ -361,6 +383,7 @@ export default function ScanScreen() {
         status: 'offline',
         message: reason,
         checkedAt: Date.now(),
+        baseUrl: botHealth.baseUrl,
       });
       if (opts.showToastOnOffline) {
         showFeedback('Kunne ikke kontakte /api/health. Sjekk at backend kjører.', 'error');
@@ -1598,10 +1621,16 @@ export default function ScanScreen() {
   useAdaptiveRankingRules(adaptiveRankingRef);
 
   useEffect(() => {
-    if (!levelUpCelebration) return;
-    const t = window.setTimeout(() => setLevelUpCelebration(null), 3800);
+    if (!celebrationQueue.length) return;
+    const t = window.setTimeout(() => {
+      setCelebrationQueue((prev) => prev.slice(1));
+    }, 4000);
     return () => window.clearTimeout(t);
-  }, [levelUpCelebration]);
+  }, [celebrationQueue]);
+
+  useEffect(() => {
+    setManualSuggestionIndex(0);
+  }, [scanState, predictionOptions, dishPredictions]);
 
   const handleScan = async () => {
      if (mode === 'photo') {
@@ -1632,7 +1661,7 @@ export default function ScanScreen() {
   function clearScan(force = false) {
     if (!force && scanLogId && scannedFood && !feedbackSubmitted) {
       setShowCorrectionModal(true);
-      showFeedback('Velg Ser riktig ut, korriger, ikke mat eller daarlig bilde foer du avslutter.', 'info');
+      showFeedback('Velg Ser riktig ut, Korriger, Ikke mat eller Dårlig bilde før du avslutter.', 'info');
       return;
     }
     setScannedFood(null);
@@ -1730,6 +1759,7 @@ export default function ScanScreen() {
       const scopedDailyLogsStorageKey = getScopedStorageKey(LEGACY_DAILY_LOGS_STORAGE_KEY, 'user', activeUserIdFromStorage);
       const scopedLastLoggedFoodStorageKey = getScopedStorageKey(LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY, 'user', activeUserIdFromStorage);
       const scopedIdentityReportsStorageKey = getScopedStorageKey(LEGACY_IDENTITY_REPORTS_STORAGE_KEY, 'user', activeUserIdFromStorage);
+      const scopedProfileStorageKey = getScopedStorageKey(PROFILE_STORAGE_KEY, 'user', activeUserIdFromStorage);
       const targetDateKeyRaw = window.sessionStorage.getItem(SCAN_TARGET_DATE_KEY_STORAGE_KEY);
       const targetDateKey = targetDateKeyRaw && /^\d{4}-\d{2}-\d{2}$/.test(targetDateKeyRaw)
         ? targetDateKeyRaw
@@ -1741,10 +1771,25 @@ export default function ScanScreen() {
       const rawLegacyLastLogged = window.localStorage.getItem(LEGACY_LAST_LOGGED_FOOD_STORAGE_KEY);
       const rawScopedReports = window.localStorage.getItem(scopedIdentityReportsStorageKey);
       const rawLegacyReports = window.localStorage.getItem(LEGACY_IDENTITY_REPORTS_STORAGE_KEY);
+      const rawScopedProfile = window.localStorage.getItem(scopedProfileStorageKey);
+      const rawLegacyProfile = window.localStorage.getItem(PROFILE_STORAGE_KEY);
       const parsedScopedLogs = rawScopedLogs ? (JSON.parse(rawScopedLogs) as Record<string, DayLog>) : {};
       const parsedLegacyLogs = rawLegacyLogs ? (JSON.parse(rawLegacyLogs) as Record<string, DayLog>) : {};
+      const parsedScopedProfile = rawScopedProfile ? (JSON.parse(rawScopedProfile) as { name?: string; memberSince?: string }) : {};
+      const parsedLegacyProfile = rawLegacyProfile ? (JSON.parse(rawLegacyProfile) as { name?: string; memberSince?: string }) : {};
       const parsed = Object.keys(parsedScopedLogs).length > 0 ? parsedScopedLogs : parsedLegacyLogs;
-      const levelBefore = generateMonthlyIdentityReport(parsed, now).level;
+      const profileSource = Object.keys(parsedScopedProfile).length > 0 ? parsedScopedProfile : parsedLegacyProfile;
+      const profileName = String(profileSource.name ?? currentUser.name ?? 'Member');
+      const memberSince = String(profileSource.memberSince ?? String(new Date().getFullYear()));
+      const identityBefore = generateMonthlyIdentityReport(parsed, now);
+      const levelBefore = identityBefore.level;
+      const badgesBefore = evaluateTrophyBadges({
+        currentUserName: currentUser.name,
+        profileName,
+        memberSince,
+        logsByDate: parsed,
+        monthlyIdentity: identityBefore,
+      });
       const dayLog = parsed[targetDateKey] ?? createEmptyDayLog();
       const nextDayLog: DayLog = {
         meals: {
@@ -1782,15 +1827,39 @@ export default function ScanScreen() {
         targetDateKeyRaw,
       };
 
-      const levelAfter = generateMonthlyIdentityReport(nextLogs, now).level;
-      if (levelAfter.value > levelBefore.value) {
-        setLevelUpCelebration({
-          fromLevel: levelBefore.value,
-          toLevel: levelAfter.value,
-          label: levelAfter.label,
-          currentXp: levelAfter.currentXp,
-          nextLevelXp: levelAfter.nextLevelXp,
-        });
+      const identityAfter = generateMonthlyIdentityReport(nextLogs, now);
+      const levelAfter = identityAfter.level;
+      const badgesAfter = evaluateTrophyBadges({
+        currentUserName: currentUser.name,
+        profileName,
+        memberSince,
+        logsByDate: nextLogs,
+        monthlyIdentity: identityAfter,
+      });
+      const newlyUnlockedBadges = getNewlyUnlockedBadges(badgesBefore, badgesAfter);
+      if (newlyUnlockedBadges.length > 0 || levelAfter.value > levelBefore.value) {
+        const queuedCelebrations: CelebrationQueueItem[] = [];
+        for (const badge of newlyUnlockedBadges) {
+          queuedCelebrations.push({
+            kind: 'badge_unlock',
+            payload: { badge },
+            confettiPalette: badge.confettiPalette,
+          });
+        }
+        if (levelAfter.value > levelBefore.value) {
+          queuedCelebrations.push({
+            kind: 'level_up',
+            payload: {
+              fromLevel: levelBefore.value,
+              toLevel: levelAfter.value,
+              label: levelAfter.label,
+              currentXp: levelAfter.currentXp,
+              nextLevelXp: levelAfter.nextLevelXp,
+            },
+            confettiPalette: ['#f97316', '#22c55e', '#0ea5e9', '#eab308', '#f43f5e', '#a855f7'],
+          });
+        }
+        setCelebrationQueue((prev) => [...prev, ...queuedCelebrations]);
       }
 
       try {
@@ -1802,7 +1871,7 @@ export default function ScanScreen() {
         const parsedReports = Object.keys(parsedScopedReports).length > 0 ? parsedScopedReports : parsedLegacyReports;
         const nextReports = {
           ...parsedReports,
-          [monthKey]: generateMonthlyIdentityReport(nextLogs, now),
+          [monthKey]: identityAfter,
         };
         window.localStorage.setItem(scopedIdentityReportsStorageKey, JSON.stringify(nextReports));
         window.localStorage.setItem(LEGACY_IDENTITY_REPORTS_STORAGE_KEY, JSON.stringify(nextReports));
@@ -1832,35 +1901,144 @@ export default function ScanScreen() {
     fileInputRef.current?.click();
   };
 
-  const useRecentPhoto = async () => {
-    if (!recentCaptureDataUrl) {
-      showFeedback('Ingen nylige bilder ennå.', 'info');
-      return;
-    }
-    const trace = createScanTrace({ source: 'recent_photo' });
+  const analyzeImportedImage = async (
+    source: Blob,
+    traceSource: 'file_picker' | 'recent_photo'
+  ) => {
+    const trace = createScanTrace({ source: traceSource });
     trace.mark('SCAN_START');
+    trace.mark('IMAGE_CAPTURED', {
+      width: null,
+      height: null,
+      imageBytes: source.size,
+    });
+
     try {
-      const blob = await (await fetch(recentCaptureDataUrl)).blob();
-      trace.mark('IMAGE_CAPTURED', {
-        width: null,
-        height: null,
-        imageBytes: blob.size,
-      });
-      if (prevUrlRef.current) {
-        try { URL.revokeObjectURL(prevUrlRef.current); } catch { /* ignore */ }
+      let scanBlob = source;
+      let originalWidth: number | null = null;
+      let originalHeight: number | null = null;
+      let processedWidth: number | null = null;
+      let processedHeight: number | null = null;
+
+      try {
+        const preprocessed = await preprocessImage(source);
+        scanBlob = preprocessed.blob;
+        originalWidth = preprocessed.original.width;
+        originalHeight = preprocessed.original.height;
+        processedWidth = preprocessed.processed.width;
+        processedHeight = preprocessed.processed.height;
+      } catch (preprocessErr) {
+        trace.mark('RESULT_PARSED', {
+          stage: 'import_preprocess_failed_fallback_to_original',
+          error: preprocessErr instanceof Error ? preprocessErr.message : String(preprocessErr),
+        });
       }
-      const url = URL.createObjectURL(blob);
+
+      trace.mark('PREPROCESS_DONE', {
+        originalWidth,
+        originalHeight,
+        originalBytes: source.size,
+        processedWidth,
+        processedHeight,
+        processedBytes: scanBlob.size,
+      });
+
+      stopPhotoCamera();
+      stopLiveBarcodeScan();
+      setMode('photo');
+
+      const previousUrl = prevUrlRef.current;
+      if (previousUrl) {
+        try { URL.revokeObjectURL(previousUrl!); } catch { /* ignore */ }
+      }
+
+      const url = URL.createObjectURL(scanBlob);
       prevUrlRef.current = url;
-      await processImageForNutrition(url, trace, blob, blob);
+      try {
+        const recentPreview = await createRecentCapturePreview(scanBlob);
+        const recentDataUrl = await blobToDataUrl(scanBlob);
+        setRecentCapturePreview(recentPreview);
+        setRecentCaptureDataUrl(recentDataUrl);
+        saveRecentCapture(recentPreview, recentDataUrl);
+      } catch (previewErr) {
+        trace.mark('RESULT_PARSED', {
+          stage: 'import_preview_cache_failed_continue_scan',
+          error: previewErr instanceof Error ? previewErr.message : String(previewErr),
+        });
+      }
+
+      try {
+        await processImageForNutrition(url, trace, scanBlob, source, { importedImage: true });
+        return;
+      } catch (scanErr) {
+        trace.mark('UI_UPDATED', {
+          outcome: 'import_scan_failed_retry_original',
+          error: scanErr instanceof Error ? scanErr.message : String(scanErr),
+        });
+
+        if (scanBlob === source) {
+          throw scanErr;
+        }
+
+        stopPhotoCamera();
+        stopLiveBarcodeScan();
+        setMode('photo');
+
+        if (prevUrlRef.current) {
+          try { URL.revokeObjectURL(prevUrlRef.current); } catch { /* ignore */ }
+        }
+
+        const fallbackUrl = URL.createObjectURL(source);
+        prevUrlRef.current = fallbackUrl;
+        trace.mark('RESULT_PARSED', {
+          stage: 'import_retry_with_original_blob',
+          imageBytes: source.size,
+        });
+        await processImageForNutrition(fallbackUrl, trace, source, source, { importedImage: true });
+        return;
+      }
     } catch (err) {
-      showFeedback('Kunne ikke åpne nylig bilde. Prøv kamerarull.', 'error');
+      showFeedback('Kunne ikke forberede bildet. PrÃ¸v igjen.', 'error');
       trace.mark('UI_UPDATED', {
-        outcome: 'recent_photo_error',
+        outcome: 'preprocess_error',
         error: err instanceof Error ? err.message : String(err),
       });
       trace.mark('SCAN_END');
     }
   };
+
+  const useRecentPhoto = async () => {
+    if (!recentCaptureDataUrl) {
+      showFeedback('Ingen nylige bilder ennå.', 'info');
+      return;
+    }
+    try {
+      const blob = await (await fetch(recentCaptureDataUrl!)).blob();
+      const scanBlob = blob;
+      const trace = createScanTrace({ source: 'recent_photo' });
+      trace.mark('SCAN_START');
+      trace.mark('IMAGE_CAPTURED', {
+        width: null,
+        height: null,
+        imageBytes: blob.size,
+      });
+      stopPhotoCamera();
+      stopLiveBarcodeScan();
+      setMode('photo');
+      const previousUrl = prevUrlRef.current;
+      if (previousUrl) {
+        try { URL.revokeObjectURL(previousUrl!); } catch { /* ignore */ }
+      }
+      const url = URL.createObjectURL(scanBlob);
+      prevUrlRef.current = url;
+      await processImageForNutrition(url, trace, scanBlob, blob, { importedImage: true });
+      return;
+    } catch (err) {
+      showFeedback('Kunne ikke åpne nylig bilde. Prøv kamerarull.', 'error');
+      return;
+    }
+  };
+  void useRecentPhoto;
 
 function normalizeBarcode(code: string) {
   return code.replace(/[^\d]/g, '').trim();
@@ -2635,6 +2813,34 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     return hints.some((hint) => lower.includes(hint));
   }
 
+  function deriveCandidateFoodLabel(candidates: NutritionResult[], fallbackLabel: string) {
+    const ignoredTokens = new Set([
+      'med', 'og', 'fra', 'for', 'the', 'and', 'til', 'uten', 'classic',
+      'giant', 'geant', 'sensational', 'president', 'jacquet', 'gourmet',
+      'garden', 'herta', 'lactalis', 'cheddar', 'emmental', 'soja', 'tranches',
+      'burgerbrød', 'menu', 'original', 'big', 'double',
+    ]);
+    const counts = new Map<string, number>();
+
+    for (const candidate of candidates) {
+      const seen = new Set<string>();
+      for (const token of tokenizeForMatch(`${candidate.name} ${candidate.brand ?? ''}`)) {
+        if (ignoredTokens.has(token)) continue;
+        if (seen.has(token)) continue;
+        seen.add(token);
+        counts.set(token, (counts.get(token) ?? 0) + 1);
+      }
+    }
+
+    const bestToken = [...counts.entries()]
+      .sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        return b[0].length - a[0].length;
+      })[0]?.[0];
+
+    return normalizeDishLabel(bestToken ?? fallbackLabel);
+  }
+
   function semanticCandidateScore(predictionLabel: string, candidate: NutritionResult) {
     const predTokens = tokenizeForMatch(predictionLabel);
     const candidateText = `${candidate.name} ${candidate.brand ?? ''}`;
@@ -2947,6 +3153,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         trace,
         sourceBlob,
         externalSignal,
+        maxWaitMs: MAX_DISH_PREDICT_WAIT_MS,
       });
       const filtered = filterDishPredictionSeeds(
         upstream.predictions
@@ -2986,6 +3193,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         }
       }
       const startedAt = performance.now();
+      const deadlineAt = startedAt + MAX_OCR_WAIT_MS;
       const cropped = await cropCenterForOCR(sourceBlob, 0.62);
       if (externalSignal?.aborted) throw new Error('REQUEST_CANCELLED');
       const locale = window.navigator.language || 'en-US';
@@ -3026,7 +3234,12 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       let chosenRawText = '';
       let chosenQuality = { weak: true, textCharCount: 0, bestLineScore: 0, lineScoreSum: 0 };
 
+      const timeRemaining = (reserveMs = 0) => Math.max(0, Math.floor(deadlineAt - performance.now() - reserveMs));
+
       const evaluate = async (mode: OcrPreprocessMode, rotation: 0 | 90) => {
+        if (timeRemaining(250) <= 0) {
+          return chosenQuality;
+        }
         const nextRun = runCount + 1;
         if (nextRun > 1) {
           setScanStatus(`Leser tekst ... (${nextRun}/4)`);
@@ -3038,16 +3251,25 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         if (externalSignal?.aborted) throw new Error('REQUEST_CANCELLED');
         const preprocessed = await preprocessBlobForOcr(rotated, getOcrPreprocessPreset(mode));
         if (externalSignal?.aborted) throw new Error('REQUEST_CANCELLED');
-        let lines = await ocrImageToLines(preprocessed, locale, 7000, { psm: 6, rotateAuto: true });
+        let lines = await ocrImageToLines(preprocessed, locale, Math.max(450, Math.min(1100, timeRemaining(250))), {
+          psm: 6,
+          rotateAuto: true,
+        });
         if (externalSignal?.aborted) throw new Error('REQUEST_CANCELLED');
         if (!lines.length || lines.every((line) => String(line.text ?? '').trim().length < 3)) {
-          lines = await ocrImageToLines(preprocessed, locale, 2800, { psm: 11, rotateAuto: true });
+          lines = await ocrImageToLines(preprocessed, locale, Math.max(300, Math.min(650, timeRemaining(200))), {
+            psm: 11,
+            rotateAuto: true,
+          });
           if (externalSignal?.aborted) throw new Error('REQUEST_CANCELLED');
         }
         let rawText = lines.map((line) => line.text).join(' ').trim();
         let seeds = filterOCRPredictionSeeds(ocrLinesToSeeds(lines, 6));
-        if (!seeds.length) {
-          const text = await ocrImageToText(preprocessed, locale, 3500, { psm: 8, rotateAuto: true });
+        if (!seeds.length && timeRemaining(100) > 0) {
+          const text = await ocrImageToText(preprocessed, locale, Math.max(250, Math.min(500, timeRemaining(50))), {
+            psm: 8,
+            rotateAuto: true,
+          });
           if (externalSignal?.aborted) throw new Error('REQUEST_CANCELLED');
           rawText = `${rawText} ${text}`.trim();
           seeds = filterOCRPredictionSeeds(ocrTextToSeeds(text, 6));
@@ -3177,9 +3399,27 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     trace: ScanTrace,
     blobForVision?: Blob,
     originalBlobForBarcode?: Blob,
-    options?: { burstFrames?: BurstFrameCapture[] }
+    options?: {
+      burstFrames?: BurstFrameCapture[];
+      importedImage?: boolean;
+      restartPhotoCameraOnFailure?: boolean;
+    }
   ) => {
     const run = beginResolveRun();
+    setScanState('idle');
+    setShowCandidates(false);
+    setCandidates([]);
+    const scanAbortController = new AbortController();
+    const abortScanTasks = () => {
+      if (!scanAbortController.signal.aborted) {
+        scanAbortController.abort();
+      }
+    };
+    if (run.signal.aborted) {
+      abortScanTasks();
+    } else {
+      run.signal.addEventListener('abort', abortScanTasks, { once: true });
+    }
     setIsScanning(true);
     setScanState('idle');
     setScanStatus('Analyserer bilde...');
@@ -3230,12 +3470,30 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       ocrStrategy: null,
       shouldPromptRetake: null,
     };
+    const restartPhotoCameraIfNeeded = () => {
+      if (!options?.restartPhotoCameraOnFailure) return;
+      if (mode !== 'photo') return;
+      window.setTimeout(() => {
+        if (!isScanning) {
+          void startPhotoCamera(activeCameraIdRef.current ?? undefined);
+        }
+      }, 0);
+    };
 
     try {
       const sourceBlob = blobForVision ?? await (await fetch(url)).blob();
       const barcodeBlob = originalBlobForBarcode ?? sourceBlob;
       const burstFrames = options?.burstFrames ?? [];
-      const imageHash = await computeDHash(sourceBlob);
+      let imageHash: string;
+      try {
+        imageHash = await computeDHash(sourceBlob);
+      } catch (hashErr) {
+        imageHash = `fallback-${trace.scanRequestId}`;
+        trace.mark('RESULT_PARSED', {
+          stage: 'image_hash_failed_fallback',
+          error: hashErr instanceof Error ? hashErr.message : String(hashErr),
+        });
+      }
       latestImageHashRef.current = imageHash;
       scanMetricsRef.current.imageHash = imageHash;
       resolverSessionCacheRef.current.ensure(imageHash);
@@ -3265,7 +3523,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             candidateBlob,
             trace,
             burstFrames.length ? null : imageHash,
-            run.signal
+            scanAbortController.signal
           );
           ocrRuns.push(result);
           if (result.seedCount >= 3 && result.bestLineScore >= 0.72) break;
@@ -3291,8 +3549,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           bestLineScore: Number(merged.bestLineScore.toFixed(3)),
         });
         return { ocrSeeds: merged.seeds, brandSeeds: merged.brandSeeds };
-      })();
-      const dishPredictionPromise = runDishPredictOnImage(url, trace, sourceBlob, imageHash, run.signal).then((result) => {
+      })().catch((err) => {
+        if (err instanceof Error && err.message === 'REQUEST_CANCELLED') {
+          return { ocrSeeds: [], brandSeeds: [] };
+        }
+        throw err;
+      });
+      const dishPredictionPromise = runDishPredictOnImage(url, trace, sourceBlob, imageHash, scanAbortController.signal).then((result) => {
         if (!isCurrentResolveRun(run.id)) return result.predictions;
         setDishPredictions(result.predictions);
         scanMetricsRef.current.predictLatencyMs = result.latencyMs;
@@ -3305,10 +3568,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           latencyMs: result.latencyMs,
         });
         return result.predictions;
+      }).catch((err) => {
+        if (err instanceof Error && err.message === 'REQUEST_CANCELLED') {
+          return [];
+        }
+        throw err;
       });
-      const rawAIResult = await runVisionOnImage(url, trace, sourceBlob, run.signal);
-      const dishPredictions = await dishPredictionPromise;
-      const ocrResult = await ocrSeedPromise;
+      const rawAIResult = await runVisionOnImage(url, trace, sourceBlob, scanAbortController.signal);
       if (!isCurrentResolveRun(run.id)) return;
       const rawResultObject = rawAIResult && typeof rawAIResult === 'object'
         ? (rawAIResult as {
@@ -3316,6 +3582,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           isDummyProvider?: unknown;
           needsRecapture?: unknown;
           retryGuidance?: unknown;
+          topMatch?: unknown;
           topMatchConfidence?: unknown;
           topMatchMargin?: unknown;
           packagingType?: unknown;
@@ -3329,6 +3596,9 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       const topMatchMargin = typeof rawResultObject?.topMatchMargin === 'number' ? rawResultObject.topMatchMargin : null;
       const packagingType = typeof rawResultObject?.packagingType === 'string' ? rawResultObject.packagingType : null;
       const ocrStrategy = typeof rawResultObject?.ocrStrategy === 'string' ? rawResultObject.ocrStrategy : null;
+      const topMatch = rawResultObject?.topMatch && typeof rawResultObject.topMatch === 'object'
+        ? (rawResultObject.topMatch as { name?: unknown; confidence?: unknown })
+        : null;
       const alternativeCount = Array.isArray(rawResultObject?.alternatives) ? rawResultObject.alternatives.length : 0;
       const bestBurstFrame = burstFrames.length
         ? burstFrames.reduce((best, frame) => (frame.qualityScore > best.qualityScore ? frame : best))
@@ -3350,6 +3620,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         packagingType,
         ocrStrategy,
       });
+      const allowRetakePrompt = !options?.importedImage;
       scanMetricsRef.current.frontVisibilityScore = frontVisibilityScore;
       scanMetricsRef.current.packagingType = packagingType;
       scanMetricsRef.current.topMatchConfidence = topMatchConfidence;
@@ -3382,10 +3653,11 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         return true;
       };
       setScanLogId(nextScanLogId);
-      if (rawResultObject?.needsRecapture === true) {
+      if (allowRetakePrompt && rawResultObject?.needsRecapture === true) {
         setPredictionOptions([]);
         setDishPredictions([]);
         setScanState('idle');
+        restartPhotoCameraIfNeeded();
         showFeedback(
           typeof rawResultObject.retryGuidance === 'string' && rawResultObject.retryGuidance.trim()
             ? rawResultObject.retryGuidance
@@ -3399,7 +3671,95 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         showFeedback('Bildegjenkjenning kjører i dummy-modus. Sett PROVIDER=yolo i food_detection_bot/.env for ekte deteksjon.', 'info');
       }
 
+      const strongTopMatchName = typeof topMatch?.name === 'string' ? topMatch.name.trim() : '';
+      const strongTopMatchConfidence =
+        typeof topMatch?.confidence === 'number'
+          ? topMatch.confidence
+          : (topMatchConfidence ?? 0);
+      const canUseDirectTopMatch =
+        Boolean(strongTopMatchName) &&
+        strongTopMatchConfidence >= 0.78 &&
+        !(allowRetakePrompt && shouldPromptRetake) &&
+        (topMatchMargin == null || topMatchMargin >= 0.08);
+      if (canUseDirectTopMatch) {
+        const elapsedMs = scanMetricsRef.current.scanStartedAtMs == null
+          ? 0
+          : Math.round(performance.now() - scanMetricsRef.current.scanStartedAtMs);
+        const remainingBudgetMs = Math.max(500, Math.min(FAST_TOP_MATCH_RESOLVER_WAIT_MS, MAX_SCAN_DECISION_MS - elapsedMs));
+        setScanStatus('Bekrefter treff...');
+        const directTopMatch = await withTimeout(
+          resolveLabelAcrossDatasets(strongTopMatchName, { limitPerSource: 2, includeFoodRepo: true }),
+          remainingBudgetMs
+        );
+        if (!isCurrentResolveRun(run.id)) return;
+        if (!isTimedOut(directTopMatch) && directTopMatch.best) {
+          if (shouldSuppressResolvedName(directTopMatch.best.name, 'duplicate_top_match_fast_path')) {
+            abortScanTasks();
+            return;
+          }
+          const combined = combineConfidence(Math.max(0.55, strongTopMatchConfidence), directTopMatch.best.confidence);
+          scanMetricsRef.current.resolveLatencyMs = Math.max(0, Math.round(performance.now() - scanMetricsRef.current.scanStartedAtMs!));
+          scanMetricsRef.current.resolverChosenItemId = makeResolvedItemId(directTopMatch.best);
+          scanMetricsRef.current.resolverChosenScore = combined;
+          scanMetricsRef.current.resolverChosenConfidence = directTopMatch.best.confidence;
+          scanMetricsRef.current.resolverSuccessSeedIndex = 1;
+          scanMetricsRef.current.resolverSuccessSeedSource = 'vision_prediction';
+          setScannedFood({
+            name: directTopMatch.best.name,
+            calories: directTopMatch.best.per100g?.kcal ?? 0,
+            protein: directTopMatch.best.per100g?.protein_g ?? 0,
+            carbs: directTopMatch.best.per100g?.carbs_g ?? 0,
+            fat: directTopMatch.best.per100g?.fat_g ?? 0,
+            per100g: directTopMatch.best.per100g ?? null,
+            confidence: Math.round(combined * 100),
+            image: url,
+          });
+          markResolvedName(directTopMatch.best.name);
+          resolverSessionCacheRef.current.setBest(imageHash, {
+            name: directTopMatch.best.name,
+            calories: directTopMatch.best.per100g?.kcal ?? 0,
+            protein: directTopMatch.best.per100g?.protein_g ?? 0,
+            carbs: directTopMatch.best.per100g?.carbs_g ?? 0,
+            fat: directTopMatch.best.per100g?.fat_g ?? 0,
+            per100g: directTopMatch.best.per100g ?? null,
+            confidence: Math.round(combined * 100),
+            image: url,
+          });
+          markFirstCandidateShown();
+          trace.mark('UI_UPDATED', {
+            outcome: 'top_match_fast_path_success',
+            resolvedName: directTopMatch.best.name,
+            totalElapsedMs: elapsedMs,
+          });
+          abortScanTasks();
+          noPredictionCountRef.current = 0;
+          return;
+        }
+      }
+
       console.log('AI raw response:', rawAIResult);
+
+      const elapsedBeforeFallbackMs = scanMetricsRef.current.scanStartedAtMs == null
+        ? 0
+        : Math.round(performance.now() - scanMetricsRef.current.scanStartedAtMs);
+      const remainingDecisionBudgetMs = Math.max(250, MAX_SCAN_DECISION_MS - elapsedBeforeFallbackMs);
+      const [dishPredictionsResult, ocrResultRaw] = await Promise.all([
+        withTimeout(dishPredictionPromise, remainingDecisionBudgetMs),
+        withTimeout(ocrSeedPromise, remainingDecisionBudgetMs),
+      ]);
+      const dishPredictions = isTimedOut(dishPredictionsResult) ? [] : dishPredictionsResult;
+      const ocrResult = isTimedOut(ocrResultRaw)
+        ? { ocrSeeds: [], brandSeeds: [] }
+        : ocrResultRaw;
+      if (isTimedOut(dishPredictionsResult) || isTimedOut(ocrResultRaw)) {
+        trace.mark('RESULT_PARSED', {
+          stage: 'aux_timeout_budget_exceeded',
+          dishTimedOut: isTimedOut(dishPredictionsResult),
+          ocrTimedOut: isTimedOut(ocrResultRaw),
+          remainingDecisionBudgetMs,
+        });
+      }
+      if (!isCurrentResolveRun(run.id)) return;
 
       const predictions = extractPredictionsFromAI(rawAIResult, 6).map((entry) => ({
         label: normalizeDishLabel(entry.label),
@@ -3409,7 +3769,8 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       const finalPredictions = resolverSeeds.map((entry) => ({ label: entry.label, confidence: entry.confidence }));
 
       setPredictionOptions(finalPredictions.slice(0, 6));
-      if (shouldPromptRetake) {
+      if (allowRetakePrompt && shouldPromptRetake) {
+        restartPhotoCameraIfNeeded();
         showFeedback(
           buildBetterShotMessage({
             packagingType,
@@ -3459,10 +3820,38 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           });
           return;
         }
+        const fallbackPredictionOptions = [
+          ...(strongTopMatchName
+            ? [{
+                label: strongTopMatchName,
+                confidence: Math.max(0.35, strongTopMatchConfidence),
+              }]
+            : []),
+          ...predictions,
+          ...dishPredictions,
+        ].filter((option, index, arr) => {
+          const key = option.label.trim().toLowerCase();
+          return key && arr.findIndex((entry) => entry.label.trim().toLowerCase() === key) === index;
+        });
+        if (fallbackPredictionOptions.length > 0) {
+          setPredictionOptions(fallbackPredictionOptions.slice(0, 6));
+          setManualSuggestionIndex(0);
+          setManualLabel(fallbackPredictionOptions[0]?.label ?? '');
+          setManualError(null);
+          setScanState('needs_manual_label');
+          restartPhotoCameraIfNeeded();
+          showFeedback('Jeg fant ikke sikkert treff i databasen, men la inn AI-forslag du kan søke med.', 'info');
+          trace.mark('UI_UPDATED', {
+            outcome: 'manual_label_from_weak_ai_signal',
+            suggestionCount: fallbackPredictionOptions.length,
+          });
+          return;
+        }
         noPredictionCountRef.current += 1;
         setScanState('idle');
+        restartPhotoCameraIfNeeded();
         showFeedback(
-          shouldPromptRetake
+          allowRetakePrompt && shouldPromptRetake
             ? buildBetterShotMessage({
                 packagingType,
                 topMatchMargin,
@@ -3480,11 +3869,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       noPredictionCountRef.current = 0;
 
       if (
+        allowRetakePrompt &&
         packagingType &&
         ['can', 'bottle', 'carton', 'wrapper', 'pouch'].includes(packagingType.toLowerCase()) &&
         frontVisibilityScore < 0.46
       ) {
         setScanState('idle');
+        restartPhotoCameraIfNeeded();
         showFeedback(
           buildBetterShotMessage({
             packagingType,
@@ -3673,6 +4064,28 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         }
       }
 
+      const hasPackageEvidence =
+        packagingType != null &&
+        ['can', 'bottle', 'carton', 'wrapper', 'pouch'].includes(packagingType.toLowerCase());
+      const shouldPreferGenericFoodMatch =
+        !scanMetricsRef.current.ocrBrandBoostUsed &&
+        !activeCanonical &&
+        !hasPackageEvidence &&
+        tokenizeForMatch(resolverSeeds[0]?.label ?? '').length <= 3;
+      if (shouldPreferGenericFoodMatch) {
+        adjustedRankedResult = adjustedRankedResult
+          .map((entry) => {
+            const hasBrand = Boolean(String(entry.item.brand ?? '').trim());
+            return {
+              ...entry,
+              combined: hasBrand
+                ? Math.max(0, entry.combined * 0.94)
+                : Math.min(0.99, entry.combined * 1.03),
+            };
+          })
+          .sort((a, b) => b.combined - a.combined);
+      }
+
       const adaptiveRules = adaptiveRankingRef.current;
       scanMetricsRef.current.adaptiveRankingEnabled = adaptiveRules?.enabled ?? false;
       scanMetricsRef.current.adaptiveRankingKillSwitch = adaptiveRules?.killSwitch ?? true;
@@ -3805,25 +4218,86 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       if (err instanceof Error && err.message === 'REQUEST_CANCELLED') {
         return;
       }
+      restartPhotoCameraIfNeeded();
       const timedOut = err instanceof Error && err.message === 'SCAN_TIMEOUT';
+      const errorMessage = timedOut
+        ? 'SCAN_TIMEOUT'
+        : (err instanceof Error ? err.message : 'Skanning feilet. Prov igjen.');
       if (timedOut) {
         showFeedback('Scan timed out. Please retry.', 'error');
       } else {
-        const errorMessage = err instanceof Error ? err.message : 'Skanning feilet. Prov igjen.';
         showFeedback(errorMessage, 'error');
       }
       trace.mark('UI_UPDATED', {
         outcome: timedOut ? 'scan_timeout_error' : 'scan_error',
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage,
       });
     } finally {
-      if (!isCurrentResolveRun(run.id)) return;
-      setScanStatus('');
-      setIsScanning(false);
-      trace.mark('SCAN_END');
-      if (activeScanTraceRef.current?.scanRequestId === trace.scanRequestId) {
-        activeScanTraceRef.current = null;
+      abortScanTasks();
+      if (isCurrentResolveRun(run.id)) {
+        setScanStatus('');
+        setIsScanning(false);
+        trace.mark('SCAN_END');
+        if (activeScanTraceRef.current?.scanRequestId === trace.scanRequestId) {
+          activeScanTraceRef.current = null;
+        }
       }
+    }
+  };
+
+  const scanRecentPhotoDirect = async () => {
+    if (!recentCaptureDataUrl) {
+      showFeedback('Ingen nylige bilder ennå.', 'info');
+      return;
+    }
+
+    try {
+      const blob = await (await fetch(recentCaptureDataUrl!)).blob();
+      const trace = createScanTrace({ source: 'recent_photo_direct' });
+      trace.mark('SCAN_START');
+      trace.mark('IMAGE_CAPTURED', {
+        width: null,
+        height: null,
+        imageBytes: blob.size,
+      });
+      let scanBlob = blob;
+      try {
+        const preprocessed = await preprocessImage(blob);
+        scanBlob = preprocessed.blob;
+        trace.mark('PREPROCESS_DONE', {
+          originalWidth: preprocessed.original.width,
+          originalHeight: preprocessed.original.height,
+          originalBytes: blob.size,
+          processedWidth: preprocessed.processed.width,
+          processedHeight: preprocessed.processed.height,
+          processedBytes: preprocessed.processed.bytes,
+        });
+      } catch (preprocessErr) {
+        trace.mark('RESULT_PARSED', {
+          stage: 'recent_preprocess_failed_fallback_to_original',
+          error: preprocessErr instanceof Error ? preprocessErr.message : String(preprocessErr),
+        });
+        trace.mark('PREPROCESS_DONE', {
+          originalWidth: null,
+          originalHeight: null,
+          originalBytes: blob.size,
+          processedWidth: null,
+          processedHeight: null,
+          processedBytes: blob.size,
+        });
+      }
+      stopPhotoCamera();
+      stopLiveBarcodeScan();
+      setMode('photo');
+      const previousUrl = prevUrlRef.current;
+      if (previousUrl) {
+        try { URL.revokeObjectURL(previousUrl!); } catch { /* ignore */ }
+      }
+      const url = URL.createObjectURL(scanBlob);
+      prevUrlRef.current = url;
+      await processImageForNutrition(url, trace, scanBlob, blob, { importedImage: true });
+    } catch (err) {
+      showFeedback('Kunne ikke åpne nylig bilde. Prøv et annet nylig bilde.', 'error');
     }
   };
 
@@ -3843,6 +4317,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       stopPhotoCamera();
       if (!burstFrames.length) {
         showFeedback('Kunne ikke lagre bildet.', 'error');
+        void startPhotoCamera(activeCameraIdRef.current ?? undefined);
         trace.mark('UI_UPDATED', { outcome: 'capture_blob_failed' });
         trace.mark('SCAN_END');
         return;
@@ -3879,8 +4354,9 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         burstFrameCount: preprocessedFrames.length,
       });
 
-      if (prevUrlRef.current) {
-        try { URL.revokeObjectURL(prevUrlRef.current); } catch { /* ignore */ }
+      const previousUrl = prevUrlRef.current;
+      if (previousUrl) {
+        try { URL.revokeObjectURL(previousUrl!); } catch { /* ignore */ }
       }
       const imageUrl = URL.createObjectURL(preprocessed.blob);
       prevUrlRef.current = imageUrl;
@@ -3895,13 +4371,14 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         trace,
         preprocessed.blob,
         selectedProcessedFrame.originalBlob,
-        { burstFrames }
+        { burstFrames, restartPhotoCameraOnFailure: true }
       );
     } catch (err) {
+      void startPhotoCamera(activeCameraIdRef.current ?? undefined);
       showFeedback('Kunne ikke forberede bildet. Prøv igjen.', 'error');
       trace.mark('UI_UPDATED', {
         outcome: 'preprocess_error',
-        error: err instanceof Error ? err.message : String(err),
+        error: 'preprocess_error',
       });
       trace.mark('SCAN_END');
     }
@@ -3910,44 +4387,14 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
   const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const trace = createScanTrace({ source: 'file_picker' });
-    trace.mark('SCAN_START');
-    trace.mark('IMAGE_CAPTURED', {
-      width: null,
-      height: null,
-      imageBytes: file.size,
-    });
-
+    const selectedFile = file;
     try {
-      const preprocessed = await preprocessImage(file);
-      trace.mark('PREPROCESS_DONE', {
-        originalWidth: preprocessed.original.width,
-        originalHeight: preprocessed.original.height,
-        originalBytes: file.size,
-        processedWidth: preprocessed.processed.width,
-        processedHeight: preprocessed.processed.height,
-        processedBytes: preprocessed.processed.bytes,
-      });
-
-      if (prevUrlRef.current) {
-        try { URL.revokeObjectURL(prevUrlRef.current); } catch { /* ignore */ }
-      }
-
-      const url = URL.createObjectURL(preprocessed.blob);
-      prevUrlRef.current = url;
-      const recentPreview = await createRecentCapturePreview(preprocessed.blob);
-      const recentDataUrl = await blobToDataUrl(preprocessed.blob);
-      setRecentCapturePreview(recentPreview);
-      setRecentCaptureDataUrl(recentDataUrl);
-      saveRecentCapture(recentPreview, recentDataUrl);
-      await processImageForNutrition(url, trace, preprocessed.blob, file);
-    } catch (err) {
-      showFeedback('Kunne ikke forberede bildet. Prøv igjen.', 'error');
-      trace.mark('UI_UPDATED', {
-        outcome: 'preprocess_error',
-        error: err instanceof Error ? err.message : String(err),
-      });
-      trace.mark('SCAN_END');
+      await analyzeImportedImage(selectedFile, 'file_picker');
+      return;
+    } catch {
+      return;
+    } finally {
+      e.target.value = '';
     }
   };
 
@@ -4017,16 +4464,25 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
     scanMetricsRef.current.manualSearchUsed = true;
     const run = beginResolveRun();
+    setScanState('idle');
+    setScanStatus(`Søker i databasen etter "${label}"...`);
+    setShowCandidates(false);
+    setCandidates([]);
     const outcome = await resolveLabelToScannedFood(label, run.id);
     if (outcome === 'no_match') {
+      setScanState('no_match');
+      setScanStatus('');
       setManualError('Fant ingen treff. Prøv et annet navn.');
       return;
     }
     if (outcome === 'error') {
+      setScanState('needs_manual_label');
+      setScanStatus('');
       setManualError('Søket feilet. Prøv igjen.');
       return;
     }
     setManualLabel('');
+    setScanStatus('');
   };
 
   const selectDishSeed = async (label: string) => {
@@ -4049,6 +4505,122 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     }
 
     await resolveLabelToScannedFood(normalized, run.id);
+  };
+
+  const chooseCandidateResult = async (candidate: NutritionResult) => {
+    scanMetricsRef.current.hadCorrectionTap = true;
+    const combinedFromDetection =
+      candidate.raw && typeof candidate.raw === 'object' && typeof (candidate.raw as Record<string, unknown>).combinedConfidence === 'number'
+        ? ((candidate.raw as Record<string, unknown>).combinedConfidence as number)
+        : null;
+    const combined = combinedFromDetection ?? Math.min(0.98, Math.max(0.35, 0.8 * candidate.confidence));
+    setScannedFood({
+      name: candidate.name,
+      calories: candidate.per100g?.kcal ?? 0,
+      protein: candidate.per100g?.protein_g ?? 0,
+      carbs: candidate.per100g?.carbs_g ?? 0,
+      fat: candidate.per100g?.fat_g ?? 0,
+      per100g: candidate.per100g ?? null,
+      confidence: Math.round(combined * 100),
+      image: prevUrlRef.current ?? undefined,
+    });
+    const selectedFinalId = makeResolvedItemId(candidate);
+    const chosenId = scanMetricsRef.current.resolverChosenItemId;
+    const canonical = scanMetricsRef.current.ocrBrandBoostTopCanonical;
+    if (
+      scanMetricsRef.current.ocrBrandBoostUsed &&
+      canonical &&
+      chosenId &&
+      chosenId !== selectedFinalId
+    ) {
+      addBrandAvoid(canonical, chosenId);
+    }
+    void sendScanFeedback({
+      userConfirmed: false,
+      userCorrectedTo: candidate.name,
+      feedbackContext: {
+        userFinalItemId: selectedFinalId,
+      },
+    });
+    void storeVisualAnchorFromCurrentImage(candidate);
+    setShowCandidates(false);
+    setCandidates([]);
+  };
+
+  const chooseGenericFoodTypeFromCandidates = async () => {
+    const label = candidateDrivenFoodLabel.trim();
+    if (!label) {
+      setShowCandidates(false);
+      setCandidates([]);
+      setScanState('needs_manual_label');
+      setManualError(null);
+      return;
+    }
+
+    scanMetricsRef.current.hadCorrectionTap = true;
+    scanMetricsRef.current.manualSearchUsed = true;
+    setShowCandidates(false);
+    setCandidates([]);
+    setManualError(null);
+    setManualLabel(label);
+    setScanState('idle');
+    setScanStatus(`Finner generisk næringsinnhold for "${label}"...`);
+
+    try {
+      const { candidates: genericCandidates } = await resolveLabelAcrossDatasets(label, {
+        limitPerSource: 4,
+        includeFoodRepo: true,
+      });
+      const rankedGenericCandidates = genericCandidates
+        .map((candidate) => {
+          const hasBrand = Boolean(String(candidate.brand ?? '').trim());
+          const tokenOverlap = tokenizeForMatch(candidate.name).filter((token) => tokenizeForMatch(label).includes(token)).length;
+          let score = candidate.confidence;
+          if (!hasBrand) score += 0.18;
+          if (candidate.source === 'matvaretabellen') score += 0.16;
+          if (candidate.source === 'food101' || candidate.source === 'manual') score += 0.08;
+          if (hasBrand) score -= 0.1;
+          score += Math.min(0.08, tokenOverlap * 0.03);
+          return { candidate, score };
+        })
+        .filter(({ candidate }) => !String(candidate.brand ?? '').trim() || candidate.source === 'matvaretabellen' || candidate.source === 'food101' || candidate.source === 'manual')
+        .sort((a, b) => b.score - a.score);
+
+      const bestGeneric = rankedGenericCandidates[0]?.candidate ?? null;
+      if (!bestGeneric) {
+        setScanState('needs_manual_label');
+        setScanStatus('');
+        setManualError('Fant ingen tydelig generisk matvare. Prøv å beskrive maten litt mer.');
+        return;
+      }
+
+      const combinedConfidence = Math.min(0.96, Math.max(0.45, rankedGenericCandidates[0]!.score));
+      setScannedFood({
+        name: bestGeneric.name,
+        calories: bestGeneric.per100g?.kcal ?? 0,
+        protein: bestGeneric.per100g?.protein_g ?? 0,
+        carbs: bestGeneric.per100g?.carbs_g ?? 0,
+        fat: bestGeneric.per100g?.fat_g ?? 0,
+        per100g: bestGeneric.per100g ?? null,
+        confidence: Math.round(combinedConfidence * 100),
+        image: prevUrlRef.current ?? undefined,
+      });
+      setManualLabel('');
+      setScanStatus('');
+      void sendScanFeedback({
+        userConfirmed: false,
+        userCorrectedTo: bestGeneric.name,
+        feedbackContext: {
+          userFinalItemId: makeResolvedItemId(bestGeneric),
+          seedWinSource: 'manual_search',
+        },
+      });
+      return;
+    } catch (err) {
+      setScanState('needs_manual_label');
+      setScanStatus('');
+      setManualError(err instanceof Error ? err.message : 'Søket feilet. Prøv igjen.');
+    }
   };
 
   const applyCorrection = async (correctedLabel?: string) => {
@@ -4084,6 +4656,42 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     setCorrectionBadPhoto(false);
     setCorrectionNotFood(false);
     showFeedback('Takk! Korrigeringen er lagret for trening.', 'success');
+  };
+
+  const submitClassificationFeedback = async (kind: 'not_food' | 'bad_photo') => {
+    if (!scanLogId) {
+      showFeedback('Ingen scan-logg for denne deteksjonen.', 'info');
+      return;
+    }
+
+    setSubmittingCorrection(true);
+    scanMetricsRef.current.hadCorrectionTap = true;
+    const ok = await sendScanFeedback({
+      userConfirmed: false,
+      userCorrectedTo: null,
+      notFood: kind === 'not_food',
+      badPhoto: kind === 'bad_photo',
+    });
+    setSubmittingCorrection(false);
+    if (!ok) return;
+    setShowCorrectionModal(false);
+    setManualCorrectionLabel('');
+    setCorrectionBadPhoto(false);
+    setCorrectionNotFood(false);
+    showFeedback(
+      kind === 'not_food'
+        ? 'Takk! Skannet er merket som ikke mat.'
+        : 'Takk! Skannet er merket som dårlig bilde.',
+      'success'
+    );
+  };
+
+  const openCorrectionFlow = (prefill = '') => {
+    scanMetricsRef.current.hadCorrectionTap = true;
+    setCorrectionBadPhoto(false);
+    setCorrectionNotFood(false);
+    setManualCorrectionLabel(prefill);
+    setShowCorrectionModal(true);
   };
 
   useEffect(() => {
@@ -4308,6 +4916,69 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
   }
 
   const perServing = scannedFood?.per100g ? calcServing(scannedFood.per100g, portionAmount) : null;
+  const manualSearchSuggestions = [
+    ...predictionOptions.map((option) => ({
+      label: option.label,
+      confidence: option.confidence,
+      source: 'Detektor',
+    })),
+    ...dishPredictions.map((option) => ({
+      label: option.label,
+      confidence: option.confidence,
+      source: 'MÃ¥ltids-AI',
+    })),
+  ].filter((option, index, arr) => {
+    const key = option.label.trim().toLowerCase();
+    return key && arr.findIndex((entry) => entry.label.trim().toLowerCase() === key) === index;
+  });
+  const hasActiveManualSuggestion = manualSearchSuggestions.length > 0;
+  const activeManualSuggestion =
+    hasActiveManualSuggestion
+      ? manualSearchSuggestions[Math.min(manualSuggestionIndex, manualSearchSuggestions.length - 1)]
+      : { label: '', confidence: 0, source: '' };
+  const hasBrandEvidence =
+    Boolean(scanMetricsRef.current.ocrBrandBoostUsed) ||
+    Boolean(scanMetricsRef.current.ocrBrandBoostTopCanonical) ||
+    (
+      scanMetricsRef.current.packagingType != null &&
+      ['can', 'bottle', 'carton', 'wrapper', 'pouch'].includes(scanMetricsRef.current.packagingType.toLowerCase())
+    );
+  const normalizedResolvedName = normalizeDishLabel(scannedFood?.name ?? '');
+  const primaryDetectorGuess = normalizeDishLabel(
+    selectedDishSeed
+      ?? predictionOptions[0]?.label
+      ?? dishPredictions[0]?.label
+      ?? ''
+  );
+  const genericDisambiguationLabel = normalizeDishLabel(
+    selectedDishSeed
+      ?? predictionOptions[0]?.label
+      ?? dishPredictions[0]?.label
+      ?? activeManualSuggestion.label
+      ?? ''
+  );
+  const candidateDrivenFoodLabel = deriveCandidateFoodLabel(candidates, genericDisambiguationLabel);
+  const correctionSuggestions = [
+    ...predictionOptions,
+    ...dishPredictions,
+  ].filter((option, index, arr) => {
+    const normalized = normalizeDishLabel(option.label);
+    if (!normalized || normalized === normalizedResolvedName) return false;
+    return arr.findIndex((entry) => normalizeDishLabel(entry.label) === normalized) === index;
+  });
+  const primaryCorrectionSuggestion = correctionSuggestions[0]?.label ?? '';
+  const detectorGuessedWrong =
+    Boolean(primaryDetectorGuess) &&
+    Boolean(normalizedResolvedName) &&
+    primaryDetectorGuess !== normalizedResolvedName;
+  const candidatePromptTitle =
+    !hasBrandEvidence && candidateDrivenFoodLabel
+      ? `Hvilken ${candidateDrivenFoodLabel} er dette?`
+      : 'Hvilken mente du?';
+  const candidatePromptBody =
+    !hasBrandEvidence && candidateDrivenFoodLabel
+      ? 'Jeg har ikke nok merke- eller pakningssignal. Velg nærmeste mattype, eller bruk hjemmelaget/generisk hvis dette ikke er en merkevare.'
+      : 'Velg det som passer best.';
   const nutritionPer100Rows = [
     { label: 'Fiber', value: formatGrams(scannedFood?.per100g?.fiber_g) },
     { label: 'Sukker', value: formatGrams(scannedFood?.per100g?.sugars_g) },
@@ -4316,6 +4987,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     { label: 'Natrium', value: formatMilligrams(scannedFood?.per100g?.sodium_mg) },
   ].filter((row) => row.value !== '—');
   const showCameraSwitch = (mode === 'photo' && photoCamActive) || (mode === 'barcode' && liveScanActive);
+  const currentCelebration = celebrationQueue[0] ?? null;
 
   return (
     <div className="screen">
@@ -4344,39 +5016,59 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           </div>
         </div>
       )}
-      {levelUpCelebration && (
+      {currentCelebration && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center px-5 pointer-events-none">
-          <div className="absolute inset-0 bg-black/35 levelup-overlay" />
-          <div className="levelup-card relative w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl pointer-events-auto">
+          <div className="absolute inset-0 bg-black/35 celebration-overlay" />
+          <div className="celebration-card relative w-full max-w-sm bg-white rounded-2xl p-5 shadow-2xl pointer-events-auto">
             <button
-              onClick={() => setLevelUpCelebration(null)}
+              onClick={() => setCelebrationQueue((prev) => prev.slice(1))}
               className="absolute top-2 right-2 p-1.5 text-gray-500 hover:text-gray-700"
-              aria-label="Close level up popup"
+              aria-label="Close celebration popup"
             >
               <X className="w-4 h-4" />
             </button>
             <div className="absolute inset-0 overflow-hidden rounded-2xl pointer-events-none">
-              <span className="levelup-confetti levelup-confetti-a" />
-              <span className="levelup-confetti levelup-confetti-b" />
-              <span className="levelup-confetti levelup-confetti-c" />
-              <span className="levelup-confetti levelup-confetti-d" />
+              {Array.from({ length: 10 }, (_, idx) => (
+                <span
+                  key={`confetti-${idx}`}
+                  className="celebration-confetti"
+                  style={{
+                    left: `${10 + idx * 8}%`,
+                    background: currentCelebration.confettiPalette[idx % currentCelebration.confettiPalette.length] ?? '#f97316',
+                    animationDelay: `${(idx % 5) * 70}ms`,
+                  }}
+                />
+              ))}
             </div>
             <div className="relative text-center">
-              <div className="levelup-badge mx-auto mb-3">LEVEL UP</div>
-              <h3 className="text-xl font-extrabold text-gray-900">Gratulerer!</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                Du gikk fra level {levelUpCelebration.fromLevel} til level {levelUpCelebration.toLevel}
-              </p>
-              <p className="text-sm font-semibold text-orange-600 mt-1">{levelUpCelebration.label}</p>
-              <div className="mt-4 bg-gray-100 rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-orange-400 to-amber-500 levelup-progress"
-                  style={{ width: `${Math.max(4, levelUpCelebration.nextLevelXp ? (levelUpCelebration.currentXp / levelUpCelebration.nextLevelXp) * 100 : 0)}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                {levelUpCelebration.currentXp}/{levelUpCelebration.nextLevelXp} XP mot neste level
-              </p>
+              {currentCelebration.kind === 'level_up' ? (
+                <>
+                  <div className="celebration-badge celebration-badge-level mx-auto mb-3">LEVEL UP</div>
+                  <h3 className="text-xl font-extrabold text-gray-900">Gratulerer!</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Du gikk fra level {currentCelebration.payload.fromLevel} til level {currentCelebration.payload.toLevel}
+                  </p>
+                  <p className="text-sm font-semibold text-orange-600 mt-1">{currentCelebration.payload.label}</p>
+                  <div className="mt-4 bg-gray-100 rounded-full h-2 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-orange-400 to-amber-500 celebration-progress"
+                      style={{ width: `${Math.max(4, currentCelebration.payload.nextLevelXp ? (currentCelebration.payload.currentXp / currentCelebration.payload.nextLevelXp) * 100 : 0)}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {currentCelebration.payload.currentXp}/{currentCelebration.payload.nextLevelXp} XP mot neste level
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className={`celebration-badge mx-auto mb-3 ${currentCelebration.payload.badge.styleClass}`}>BADGE UNLOCKED</div>
+                  <h3 className="text-xl font-extrabold text-gray-900">Ny trophy!</h3>
+                  <p className={`inline-flex mt-2 text-sm px-3 py-1 rounded-full border ${currentCelebration.payload.badge.styleClass}`}>
+                    {currentCelebration.payload.badge.label}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-3">{currentCelebration.payload.badge.description}</p>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -4516,7 +5208,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             </div>
 
             {mode === 'barcode' && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-2 rounded-full">
+              <div className="absolute bottom-28 left-1/2 z-[32] max-w-[82%] -translate-x-1/2 rounded-full bg-black/60 px-3 py-2 text-center text-xs text-white">
                 {liveScanError
                   ? liveScanError
                   : liveScanReady
@@ -4525,7 +5217,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
               </div>
             )}
             {mode === 'photo' && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-2 rounded-full">
+              <div className="absolute bottom-28 left-1/2 z-[32] max-w-[82%] -translate-x-1/2 rounded-full bg-black/60 px-3 py-2 text-center text-xs text-white">
                 {isScanning
                   ? (scanStatus || 'Analyserer bilde...')
                   : photoCamError
@@ -4623,12 +5315,174 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
               <div className="w-full px-4 flex flex-col items-center gap-3">
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  {false && activeManualSuggestion && (
+                    <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Boten trodde</p>
+                        {manualSearchSuggestions.length > 1 && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev <= 0 ? manualSearchSuggestions.length - 1 : prev - 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Forrige
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev >= manualSearchSuggestions.length - 1 ? 0 : prev + 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Neste
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="rounded-md bg-white px-3 py-2 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-gray-900">{activeManualSuggestion?.label}</p>
+                            <p className="text-xs text-gray-500">
+                              {activeManualSuggestion.source} • {Math.round(activeManualSuggestion.confidence * 100)}%
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManualLabel(activeManualSuggestion?.label ?? '');
+                              setManualError(null);
+                            }}
+                            className="shrink-0 rounded-md bg-orange-500 px-3 py-1.5 text-xs font-medium text-white"
+                          >
+                            Bruk
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {false && activeManualSuggestion && (
+                    <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Boten trodde</p>
+                        {manualSearchSuggestions.length > 1 && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev <= 0 ? manualSearchSuggestions.length - 1 : prev - 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Forrige
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev >= manualSearchSuggestions.length - 1 ? 0 : prev + 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Neste
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="rounded-md bg-white px-3 py-2 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-gray-900">{activeManualSuggestion.label}</p>
+                            <p className="text-xs text-gray-500">
+                              {activeManualSuggestion.source} • {Math.round(activeManualSuggestion.confidence * 100)}%
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManualLabel(activeManualSuggestion.label);
+                              setManualError(null);
+                            }}
+                            className="shrink-0 rounded-md bg-orange-500 px-3 py-1.5 text-xs font-medium text-white"
+                          >
+                            Bruk
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {false && activeManualSuggestion && (
+                    <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Boten trodde</p>
+                        {manualSearchSuggestions.length > 1 && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev <= 0 ? manualSearchSuggestions.length - 1 : prev - 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Forrige
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev >= manualSearchSuggestions.length - 1 ? 0 : prev + 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Neste
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="rounded-md bg-white px-3 py-2 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-gray-900">{activeManualSuggestion.label}</p>
+                            <p className="text-xs text-gray-500">
+                              {activeManualSuggestion.source} • {Math.round(activeManualSuggestion.confidence * 100)}%
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManualLabel(activeManualSuggestion.label);
+                              setManualError(null);
+                            }}
+                            className="shrink-0 rounded-md bg-orange-500 px-3 py-1.5 text-xs font-medium text-white"
+                          >
+                            Bruk
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <input
                     type="text"
                     placeholder="Søk etter matvare..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-12 pr-4 py-3 bg-white/10 rounded-full text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full pl-12 pr-4 py-3 rounded-full bg-white/85 text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500 dark:bg-white/10 dark:text-white dark:placeholder-white/50"
                   />
                 </div>
                 <FoodDetectionPanel />
@@ -4639,11 +5493,11 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
               <div className="flex justify-start">
                 <button
                   onClick={openCameraRoll}
-                  className="h-14 min-w-[98px] rounded-2xl border border-white/25 bg-black/45 text-white backdrop-blur flex items-center gap-2 px-2 transition hover:bg-black/55 active:scale-95"
+                  className="h-14 min-w-[98px] rounded-2xl border border-slate-200/90 bg-white/85 text-slate-900 backdrop-blur flex items-center gap-2 px-2 transition hover:bg-white active:scale-95 dark:border-white/25 dark:bg-black/45 dark:text-white dark:hover:bg-black/55"
                   title="Åpne kamerarull"
                   aria-label="Åpne kamerarull"
                 >
-                  <span className="h-9 w-9 rounded-full border border-white/20 bg-black/20 flex items-center justify-center">
+                  <span className="h-9 w-9 rounded-full border border-slate-300/80 bg-slate-100/90 flex items-center justify-center dark:border-white/20 dark:bg-black/20">
                     <ImagePlus className="w-4 h-4" />
                   </span>
                   <span className="text-[11px] font-semibold">Camera roll</span>
@@ -4665,21 +5519,21 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
               <div className="flex justify-end">
                 <button
-                  onClick={() => { void useRecentPhoto(); }}
-                  className="h-14 min-w-[98px] rounded-2xl border border-white/25 bg-black/45 text-white backdrop-blur flex items-center gap-2 px-2 transition hover:bg-black/55 active:scale-95"
+                  onClick={() => { void scanRecentPhotoDirect(); }}
+                  className="h-14 min-w-[98px] rounded-2xl border border-slate-200/90 bg-white/85 text-slate-900 backdrop-blur flex items-center gap-2 px-2 transition hover:bg-white active:scale-95 dark:border-white/25 dark:bg-black/45 dark:text-white dark:hover:bg-black/55"
                   title={recentCapturePreview ? 'Bruk nylig bilde' : 'Ingen nylige'}
                   aria-label="Bruk nylig bilde"
                 >
                   {recentCapturePreview ? (
                     <>
-                      <span className="h-9 w-9 overflow-hidden rounded-full border border-white/20">
+                      <span className="h-9 w-9 overflow-hidden rounded-full border border-slate-300/80 dark:border-white/20">
                         <img src={recentCapturePreview} alt="Nylig" className="h-full w-full object-cover" />
                       </span>
                       <span className="text-[11px] font-semibold">Recent</span>
                     </>
                   ) : (
                     <>
-                      <span className="h-9 w-9 rounded-full border border-white/20 bg-black/20 flex items-center justify-center">
+                      <span className="h-9 w-9 rounded-full border border-slate-300/80 bg-slate-100/90 flex items-center justify-center dark:border-white/20 dark:bg-black/20">
                         <ImagePlus className="w-4 h-4" />
                       </span>
                       <span className="text-[10px] font-semibold leading-3 text-left">Ingen nylige</span>
@@ -4697,7 +5551,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                     setManualBarcodeError(null);
                     setShowBarcodeEntry(true);
                   }}
-                  className="h-11 rounded-2xl border border-white/20 bg-black/35 px-4 text-[11px] font-semibold text-white backdrop-blur"
+                  className="h-11 rounded-2xl border border-slate-200/90 bg-white/85 px-4 text-[11px] font-semibold text-slate-900 backdrop-blur dark:border-white/20 dark:bg-black/35 dark:text-white"
                 >
                   Manuell kode
                 </button>
@@ -4714,7 +5568,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             />
 
             {dishPredictions.length > 0 && !scannedFood && (
-              <div className="absolute left-3 right-3 bottom-24 z-[34] rounded-xl bg-white/90 p-3 shadow-md">
+              <div className="absolute left-3 right-3 bottom-52 z-[34] max-h-[20vh] overflow-y-auto rounded-xl bg-white/90 p-3 shadow-md">
                 <p className="text-xs font-semibold text-gray-700 mb-2">
                   {dishPredictions[0] && dishPredictions[0].confidence < 0.55 ? 'Forslag (usikkert)' : 'Top meal guesses'}
                 </p>
@@ -4752,8 +5606,8 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
             {/* Manual barcode modal */}
             {showBarcodeEntry && (
-              <div className="absolute inset-0 z-[35] flex items-center justify-center p-6">
-                <div className="w-full max-w-md bg-white/95 rounded-xl p-4 shadow-lg">
+              <div className="absolute inset-0 z-[35] flex items-start justify-center px-6 pt-4 pb-24">
+                <div className="w-full max-w-md max-h-[72vh] overflow-y-auto bg-white/95 rounded-xl p-4 shadow-lg">
                   <h3 className="text-lg font-semibold mb-2">Skriv inn strekkode</h3>
                   <p className="text-sm text-gray-600 mb-3">Skriv EAN/UPC-koden fra pakken.</p>
                   <input
@@ -4788,10 +5642,64 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
             {/* Manual label modal (shown when vision not configured or no match) */}
             {scanState !== 'idle' && !scannedFood && (
-              <div className="absolute inset-0 z-30 flex items-center justify-center p-6">
-                <div className="w-full max-w-md bg-white/95 rounded-xl p-4 shadow-lg">
+              <div className="absolute inset-0 z-30 overflow-y-auto px-4 pt-0 pb-32">
+                <div className="mx-auto w-full max-w-md max-h-[70vh] overflow-y-auto bg-white/95 rounded-xl p-4 shadow-lg">
                   <h3 className="text-lg font-semibold mb-2">Kan ikke gjenkjenne automatisk</h3>
                   <p className="text-sm text-gray-600 mb-3">Skriv inn hva bildet viser, så søker jeg i databasen.</p>
+
+                  {hasActiveManualSuggestion && (
+                    <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-orange-700">Boten trodde</p>
+                        {manualSearchSuggestions.length > 1 && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev <= 0 ? manualSearchSuggestions.length - 1 : prev - 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Forrige
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualSuggestionIndex((prev) => (
+                                  prev >= manualSearchSuggestions.length - 1 ? 0 : prev + 1
+                                ));
+                              }}
+                              className="rounded-md border border-orange-200 bg-white px-2 py-1 text-xs text-orange-700"
+                            >
+                              Neste
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <div className="rounded-md bg-white px-3 py-2 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-gray-900">{activeManualSuggestion.label}</p>
+                            <p className="text-xs text-gray-500">
+                              {activeManualSuggestion.source} • {Math.round(activeManualSuggestion.confidence * 100)}%
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManualLabel(activeManualSuggestion.label);
+                              setManualError(null);
+                            }}
+                            className="shrink-0 rounded-md bg-orange-500 px-3 py-1.5 text-xs font-medium text-white"
+                          >
+                            Bruk
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <input
                     value={manualLabel}
@@ -4803,8 +5711,8 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                   {manualError && <div className="text-sm text-red-600 mb-2">{manualError}</div>}
 
                   <div className="flex gap-2 justify-end">
-                    <button onClick={() => { setScanState('idle'); setManualError(null); }} className="px-4 py-2 rounded-md bg-gray-200">Avbryt</button>
-                    <button onClick={submitManualLabel} className="px-4 py-2 rounded-md bg-orange-500 text-white">Søk</button>
+                    <button onClick={() => { setScanState('idle'); setManualError(null); setScanStatus(''); }} className="px-4 py-2 rounded-md bg-gray-200" type="button">Avbryt</button>
+                    <button onClick={() => { void submitManualLabel(); }} className="px-4 py-2 rounded-md bg-orange-500 text-white" type="button">Søk i database</button>
                   </div>
                 </div>
               </div>
@@ -4812,53 +5720,15 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
                   {/* Candidates modal (top-3) */}
                   {showCandidates && candidates.length > 0 && (
-                    <div className="absolute inset-0 z-40 flex items-center justify-center p-6">
-                      <div className="w-full max-w-md bg-white rounded-xl p-4 shadow-lg">
-                        <h3 className="text-lg font-semibold mb-2">Hvilken mente du?</h3>
-                        <p className="text-sm text-gray-600 mb-3">Velg det som passer best.</p>
+                    <div className="absolute inset-0 z-40 overflow-y-auto px-4 pt-0 pb-32">
+                      <div className="mx-auto w-full max-w-md max-h-[70vh] overflow-y-auto bg-white rounded-xl p-4 shadow-lg">
+                        <h3 className="text-lg font-semibold mb-2">{candidatePromptTitle}</h3>
+                        <p className="text-sm text-gray-600 mb-3">{candidatePromptBody}</p>
                         <div className="flex flex-col gap-2">
                           {candidates.map((c, i) => (
                             <button
                               key={i}
-                              onClick={() => {
-                                scanMetricsRef.current.hadCorrectionTap = true;
-                                const combinedFromDetection =
-                                  c.raw && typeof c.raw === 'object' && typeof (c.raw as Record<string, unknown>).combinedConfidence === 'number'
-                                    ? ((c.raw as Record<string, unknown>).combinedConfidence as number)
-                                    : null;
-                                const combined = combinedFromDetection ?? Math.min(0.98, Math.max(0.35, 0.8 * c.confidence));
-                                setScannedFood({
-                                  name: c.name,
-                                  calories: c.per100g?.kcal ?? 0,
-                                  protein: c.per100g?.protein_g ?? 0,
-                                  carbs: c.per100g?.carbs_g ?? 0,
-                                  fat: c.per100g?.fat_g ?? 0,
-                                  per100g: c.per100g ?? null,
-                                  confidence: Math.round(combined * 100),
-                                  image: prevUrlRef.current ?? undefined,
-                                });
-                                const selectedFinalId = makeResolvedItemId(c);
-                                const chosenId = scanMetricsRef.current.resolverChosenItemId;
-                                const canonical = scanMetricsRef.current.ocrBrandBoostTopCanonical;
-                                if (
-                                  scanMetricsRef.current.ocrBrandBoostUsed &&
-                                  canonical &&
-                                  chosenId &&
-                                  chosenId !== selectedFinalId
-                                ) {
-                                  addBrandAvoid(canonical, chosenId);
-                                }
-                                void sendScanFeedback({
-                                  userConfirmed: false,
-                                  userCorrectedTo: c.name,
-                                  feedbackContext: {
-                                    userFinalItemId: selectedFinalId,
-                                  },
-                                });
-                                void storeVisualAnchorFromCurrentImage(c);
-                                setShowCandidates(false);
-                                setCandidates([]);
-                              }}
+                              onClick={() => { void chooseCandidateResult(c); }}
                               className="text-left p-3 rounded-md bg-gray-100"
                             >
                               <div className="flex justify-between">
@@ -4868,7 +5738,29 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                             </button>
                           ))}
                         </div>
-                        <div className="flex justify-end mt-3">
+                        <div className="mt-3 flex flex-wrap justify-end gap-2">
+                          {!hasBrandEvidence && candidateDrivenFoodLabel && (
+                            <button
+                              onClick={() => { void chooseGenericFoodTypeFromCandidates(); }}
+                              className="px-4 py-2 rounded-md bg-orange-100 text-orange-700"
+                            >
+                              Hjemmelaget / ikke merkevare
+                            </button>
+                          )}
+                          {!hasBrandEvidence && candidateDrivenFoodLabel && (
+                            <button
+                              onClick={() => {
+                                setShowCandidates(false);
+                                setCandidates([]);
+                                setManualLabel(candidateDrivenFoodLabel);
+                                setManualError(null);
+                                setScanState('needs_manual_label');
+                              }}
+                              className="px-4 py-2 rounded-md bg-orange-100 text-orange-700"
+                            >
+                              Søk bare på {candidateDrivenFoodLabel}
+                            </button>
+                          )}
                           <button onClick={() => { setShowCandidates(false); setCandidates([]); }} className="px-4 py-2 rounded-md bg-gray-200">Avbryt</button>
                         </div>
                       </div>
@@ -4878,11 +5770,11 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             <div className="mt-4 rounded-2xl border border-orange-200 bg-white/90 p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">Training Mode</p>
               <p className="mt-2 text-sm text-gray-700">
-                On localhost, each scan is currently saved for model training. Finish the scan with
+                På localhost lagres hvert skann for modelltrening. Avslutt skannet med
                 {' '}<span className="font-medium">Ser riktig ut</span>,{' '}
                 <span className="font-medium">Korriger</span>,{' '}
-                <span className="font-medium">Ikke mat</span>, or{' '}
-                <span className="font-medium">Darlig bilde</span> so the data becomes usable.
+                <span className="font-medium">Ikke mat</span> eller{' '}
+                <span className="font-medium">Dårlig bilde</span> for at dataene skal kunne brukes.
               </p>
             </div>
           </div>
@@ -4929,11 +5821,60 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                   {submittingConfirm ? 'Lagrer...' : 'Ser riktig ut'}
                 </button>
                 <button
-                  onClick={() => setShowCorrectionModal(true)}
+                  onClick={() => openCorrectionFlow(primaryCorrectionSuggestion)}
                   className="text-sm px-3 py-1 rounded-full bg-orange-100 text-orange-700 font-medium"
                 >
                   Feil gjenkjenning? Korriger
                 </button>
+                <button
+                  onClick={() => { void submitClassificationFeedback('not_food'); }}
+                  disabled={submittingCorrection}
+                  className="text-sm px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-medium disabled:opacity-60"
+                >
+                  Ikke mat
+                </button>
+                <button
+                  onClick={() => { void submitClassificationFeedback('bad_photo'); }}
+                  disabled={submittingCorrection}
+                  className="text-sm px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-medium disabled:opacity-60"
+                >
+                  Dårlig bilde
+                </button>
+              </div>
+            )}
+            {scanLogId && primaryDetectorGuess && (
+              <div className={`mb-4 rounded-2xl border p-3 text-sm ${
+                detectorGuessedWrong
+                  ? 'border-amber-200 bg-amber-50 text-amber-900'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              }`}>
+                <p className="font-medium">
+                  Modellen trodde: {primaryDetectorGuess}
+                </p>
+                {detectorGuessedWrong ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => openCorrectionFlow(primaryCorrectionSuggestion)}
+                      className="rounded-full bg-white px-3 py-1 text-xs font-medium text-amber-900"
+                    >
+                      Dette er feil
+                    </button>
+                    {correctionSuggestions.slice(0, 3).map((option, idx) => (
+                      <button
+                        key={`${option.label}-${idx}-quick-correction`}
+                        onClick={() => { void applyCorrection(option.label); }}
+                        disabled={submittingCorrection}
+                        className="rounded-full bg-white px-3 py-1 text-xs font-medium text-amber-900 disabled:opacity-60"
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-xs">
+                    Stemmer dette ikke, bruk Korriger for å lære modellen riktig vare.
+                  </p>
+                )}
               </div>
             )}
             {scanLogId && predictionOptions.length > 0 && (
@@ -5049,10 +5990,17 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           </div>
 
           {showCorrectionModal && scanLogId && (
-            <div className="absolute inset-0 z-40 flex items-center justify-center p-6 bg-black/30">
-              <div className="w-full max-w-md bg-white rounded-xl p-4 shadow-lg">
+            <div className="absolute inset-0 z-40 flex items-start justify-center px-6 pt-4 pb-24 bg-black/30">
+              <div className="w-full max-w-md max-h-[78vh] overflow-y-auto bg-white rounded-xl p-4 shadow-lg">
                 <h3 className="text-lg font-semibold mb-2">Korriger resultat</h3>
-                <p className="text-sm text-gray-600 mb-3">Velg riktig vare eller skriv inn manuelt.</p>
+                <p className="text-sm text-gray-600 mb-3">
+                  Velg riktig vare eller skriv inn det modellen faktisk burde ha lært av dette bildet.
+                </p>
+                {primaryDetectorGuess && (
+                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    Modellen trodde: <span className="font-semibold">{primaryDetectorGuess}</span>
+                  </div>
+                )}
                 {predictionOptions.length > 0 && (
                   <div className="flex flex-col gap-2 mb-3">
                     {predictionOptions.map((option, idx) => (
@@ -5091,7 +6039,12 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                 </label>
                 <div className="flex gap-2 justify-end">
                   <button
-                    onClick={() => setShowCorrectionModal(false)}
+                    onClick={() => {
+                      setShowCorrectionModal(false);
+                      setManualCorrectionLabel('');
+                      setCorrectionNotFood(false);
+                      setCorrectionBadPhoto(false);
+                    }}
                     className="px-4 py-2 rounded-md bg-gray-200"
                     disabled={submittingCorrection}
                   >
@@ -5100,7 +6053,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                   <button
                     onClick={() => { void applyCorrection(); }}
                     className="px-4 py-2 rounded-md bg-orange-500 text-white"
-                    disabled={submittingCorrection}
+                    disabled={submittingCorrection || (!manualCorrectionLabel.trim() && !correctionNotFood && !correctionBadPhoto)}
                   >
                     {submittingCorrection ? 'Lagrer...' : 'Lagre'}
                   </button>
@@ -5134,32 +6087,32 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         .animate-live-pulse {
           animation: livePulse 1.8s ease-in-out infinite;
         }
-        @keyframes levelupOverlay {
+        @keyframes celebrationOverlay {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        @keyframes levelupCardIn {
+        @keyframes celebrationCardIn {
           0% { transform: translateY(18px) scale(0.92); opacity: 0; }
           70% { transform: translateY(-3px) scale(1.02); opacity: 1; }
           100% { transform: translateY(0) scale(1); opacity: 1; }
         }
-        @keyframes levelupBadgePop {
+        @keyframes celebrationBadgePop {
           0% { transform: scale(0.7) rotate(-8deg); opacity: 0; }
           65% { transform: scale(1.08) rotate(2deg); opacity: 1; }
           100% { transform: scale(1) rotate(0); opacity: 1; }
         }
-        @keyframes levelupConfetti {
+        @keyframes celebrationConfetti {
           0% { transform: translateY(-140%) rotate(0deg); opacity: 0; }
           15% { opacity: 1; }
           100% { transform: translateY(360%) rotate(240deg); opacity: 0; }
         }
-        .levelup-overlay {
-          animation: levelupOverlay 180ms ease-out;
+        .celebration-overlay {
+          animation: celebrationOverlay 180ms ease-out;
         }
-        .levelup-card {
-          animation: levelupCardIn 360ms cubic-bezier(0.2, 0.9, 0.2, 1);
+        .celebration-card {
+          animation: celebrationCardIn 360ms cubic-bezier(0.2, 0.9, 0.2, 1);
         }
-        .levelup-badge {
+        .celebration-badge {
           display: inline-flex;
           align-items: center;
           justify-content: center;
@@ -5167,22 +6120,21 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           padding: 0.45rem 0.9rem;
           font-size: 0.7rem;
           letter-spacing: 0.12em;
+          font-weight: 700;
+          animation: celebrationBadgePop 430ms ease-out;
+        }
+        .celebration-badge-level {
           color: #fff;
           background: linear-gradient(135deg, #fb923c, #f59e0b);
-          animation: levelupBadgePop 430ms ease-out;
         }
-        .levelup-confetti {
+        .celebration-confetti {
           position: absolute;
           width: 10px;
           height: 16px;
           border-radius: 2px;
-          animation: levelupConfetti 1.7s ease-out forwards;
+          animation: celebrationConfetti 1.7s ease-out forwards;
         }
-        .levelup-confetti-a { left: 18%; background: #f97316; animation-delay: 0ms; }
-        .levelup-confetti-b { left: 34%; background: #22c55e; animation-delay: 120ms; }
-        .levelup-confetti-c { left: 62%; background: #0ea5e9; animation-delay: 60ms; }
-        .levelup-confetti-d { left: 78%; background: #eab308; animation-delay: 180ms; }
-        .levelup-progress {
+        .celebration-progress {
           transform-origin: left center;
         }
       `}</style>
