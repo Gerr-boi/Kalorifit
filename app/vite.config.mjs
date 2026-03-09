@@ -7,7 +7,7 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const tsconfigRaw = {
   compilerOptions: {
     baseUrl: '.',
-    jsx: 'react-jsx' as const,
+    jsx: 'react-jsx',
     paths: {
       '@/*': ['./src/*'],
     },
@@ -23,11 +23,6 @@ export default defineConfig({
   },
   esbuild: {
     tsconfigRaw,
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      tsconfigRaw,
-    },
   },
   preview: {
     proxy: {

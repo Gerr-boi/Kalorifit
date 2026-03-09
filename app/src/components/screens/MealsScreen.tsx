@@ -27,6 +27,19 @@ const smartSortOptions: Array<{ id: SmartSortId; label: string }> = [
   { id: 'anti_inflammatory', label: 'Anti-inflammatorisk' },
 ];
 
+const libraryOptions = [
+  { id: 'discover', label: 'For deg' },
+  { id: 'mine', label: 'Mine maltider' },
+] as const;
+
+const mealFilterOptions = [
+  { id: 'alle', label: 'Alle' },
+  { id: 'frokost', label: 'Frokost' },
+  { id: 'lunsj', label: 'Lunsj' },
+  { id: 'middag', label: 'Middag' },
+  { id: 'snacks', label: 'Snacks' },
+] as const satisfies Array<{ id: MealSlot; label: string }>;
+
 const tagInfo: Record<NutritionTagId, { label: string; explanation: string; article: string; url: string; supplement: string; training: string }> = {
   gut_health: {
     label: '#GutHealth',
@@ -389,15 +402,24 @@ export default function MealsScreen() {
   }, [activeLibrary, activeMealFilter, activeSort, favorites, hardWorkoutToday, lowFiberToday, myRecipes, profile.dietStyle, profile.goalCategory, profile.goalStrategy, profilePrefs.allergies, profilePrefs.intolerances, recentMealKeywords, savedMeals, showFavoritesOnly]);
 
   const blocksWithItems = useMemo(() => recommendationBlocks.map((block) => ({ ...block, items: filteredRecipes.filter(block.match).slice(0, 3) })), [filteredRecipes, recommendationBlocks]);
+  const visibleRecommendationBlocks = useMemo(
+    () => blocksWithItems.filter((block) => block.items.length > 0),
+    [blocksWithItems],
+  );
   const activeSortLabel = smartSortOptions.find((item) => item.id === activeSort)?.label ?? 'Anbefalt for deg';
   const mealFilterLabel = activeMealFilter === 'alle' ? 'For deg' : activeMealFilter[0].toUpperCase() + activeMealFilter.slice(1);
   const selectedMacros = selectedRecipe ? estimateMacros(selectedRecipe) : null;
   const selectedMicros = selectedRecipe ? estimateMicros(selectedRecipe) : null;
   const selectedIngredients = selectedRecipe ? getRecipeIngredients(selectedRecipe) : [];
   const selectedSteps = selectedRecipe ? getRecipeSteps(selectedRecipe) : [];
-  const visibleRecommendations = blocksWithItems.reduce((sum, block) => sum + block.items.length, 0);
+  const visibleRecommendations = visibleRecommendationBlocks.reduce((sum, block) => sum + block.items.length, 0);
   const savedCount = savedMealTemplates.length;
   const personalizedCount = filteredRecipes.filter((recipe) => recipe.goalCategories.includes(profile.goalCategory)).length;
+  const mineCount = savedMeals.length + myRecipes.length;
+  const collectionTitle = activeLibrary === 'mine' ? 'Dine maltider' : 'Alle forslag';
+  const collectionDescription = activeLibrary === 'mine'
+    ? `${mineCount} lagrede eller egne maltider.`
+    : `${filteredRecipes.length} forslag sortert for deg.`;
 
   function toMealId(slot: Exclude<MealSlot, 'alle'>): MealId {
     if (slot === 'frokost') return 'breakfast';
@@ -654,8 +676,82 @@ export default function MealsScreen() {
         </div>
       </div>
 
-      <div className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/92 backdrop-blur-md dark:border-gray-800 dark:bg-gray-900/92">
-        <div className="px-4 pt-3 flex items-center gap-2 overflow-x-auto">
+      <div className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-gray-800 dark:bg-gray-900/95">
+        <div className="px-4 py-3 space-y-3">
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Visning</p>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 dark:bg-gray-800">
+              {libraryOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => setActiveLibrary(option.id)}
+                  className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+                    activeLibrary === option.id
+                      ? 'bg-white text-slate-900 shadow-sm dark:bg-gray-900 dark:text-gray-100'
+                      : 'text-slate-600 dark:text-gray-300'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {activeLibrary === 'mine' && (
+            <button
+              type="button"
+              onClick={() => setShowCreateMealModal(true)}
+              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              Opprett maltid
+            </button>
+          )}
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Måltidstype</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400">{mealFilterLabel}</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {mealFilterOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => setActiveMealFilter(option.id)}
+                  className={`rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
+                    activeMealFilter === option.id
+                      ? 'bg-orange-500 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-700 dark:bg-gray-800 dark:text-gray-300'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Sortering</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400">{activeSortLabel}</p>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory">
+              {smartSortOptions.map((option) => (
+                <button
+                  key={option.id}
+                  onClick={() => setActiveSort(option.id)}
+                  className={`snap-start rounded-full border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
+                    activeSort === option.id
+                      ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/30'
+                      : 'bg-white dark:bg-gray-800 text-slate-600 dark:text-gray-300 border-slate-200 dark:border-gray-700'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        {false && (
+        <>
+        <div className="px-4 py-3 space-y-3">
           <button
             onClick={() => setActiveLibrary('discover')}
             className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeLibrary === 'discover' ? 'bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300'}`}
@@ -695,28 +791,39 @@ export default function MealsScreen() {
             </button>
           ))}
         </div>
+        </>
+        )}
       </div>
 
       <div className="px-4 pt-4">
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Vises</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Tilgjengelige' : 'Vises nå'}</p>
             <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{filteredRecipes.length}</p>
           </div>
           <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Treff</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Klare å logge' : 'Matcher deg'}</p>
             <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{personalizedCount}</p>
           </div>
           <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Lagret' : 'Boosts'}</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Lagret' : 'Aktive løft'}</p>
             <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{activeLibrary === 'mine' ? savedCount : visibleRecommendations}</p>
           </div>
         </div>
       </div>
 
-      {blocksWithItems.length > 0 && (
+      {activeLibrary === 'discover' && visibleRecommendationBlocks.length > 0 && (
         <div className="px-4 py-4 space-y-3">
-          {blocksWithItems.map((block, idx) => (
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900 dark:text-gray-100">Prioritert nå</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400">{mealFilterLabel} • {activeSortLabel}</p>
+            </div>
+            <div className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-gray-800 dark:text-gray-300">
+              {visibleRecommendations} raske valg
+            </div>
+          </div>
+          {visibleRecommendationBlocks.map((block, idx) => (
             <div
               key={block.id}
               className={`rounded-2xl border p-3 ${
@@ -767,8 +874,8 @@ export default function MealsScreen() {
 
       <div className="px-4 py-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-medium text-slate-700 dark:text-gray-200">Smart visning</p>
-          <p className="text-xs text-slate-500 dark:text-gray-400">{filteredRecipes.length} oppskrifter sortert etter dagens signaler</p>
+          <p className="text-sm font-medium text-slate-700 dark:text-gray-200">{collectionTitle}</p>
+          <p className="text-xs text-slate-500 dark:text-gray-400">{collectionDescription}</p>
         </div>
         <button
           onClick={() => setShowFavoritesOnly((prev) => !prev)}
@@ -825,6 +932,9 @@ export default function MealsScreen() {
                 </div>
                 <div className="absolute bottom-3 left-3 right-14">
                   <h3 className="line-clamp-2 text-lg font-semibold text-white">{recipe.title}</h3>
+                  <p className="mt-1 text-xs text-white/80">
+                    {recipe.mealSlots.map((slot) => slot[0].toUpperCase() + slot.slice(1)).join(' • ')}
+                  </p>
                 </div>
               </div>
 
