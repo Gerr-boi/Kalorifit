@@ -6,7 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  MoreHorizontal,
   Pencil,
   Plus,
   ScanLine,

@@ -1,4 +1,4 @@
-import { Activity, ArrowLeft, Bell, ChevronRight, Globe, HelpCircle, LogOut, Moon, Settings, Shield, Trophy, X } from 'lucide-react';
+import { Activity, ArrowLeft, Bell, ChevronDown, ChevronRight, Globe, HelpCircle, LogOut, Moon, Settings, Shield, Trophy, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
@@ -233,7 +233,6 @@ export default function ProfileScreen() {
   const latestMeasurement = bmiHistory[0] ?? null;
   const previousMeasurement = bmiHistory[1] ?? null;
   const latestHealth = healthHistory[0] ?? null;
-  const previousHealth = healthHistory[1] ?? null;
   const weightDeltaFromLast =
     latestMeasurement && previousMeasurement
       ? Number((latestMeasurement.weightKg - previousMeasurement.weightKg).toFixed(1))
@@ -331,13 +330,6 @@ export default function ProfileScreen() {
     setProfile((prev) => ({
       ...prev,
       notificationsEnabled: !prev.notificationsEnabled,
-    }));
-  };
-
-  const togglePrivacyMode = () => {
-    setProfile((prev) => ({
-      ...prev,
-      privacyMode: prev.privacyMode === 'Standard' ? 'Privat' : 'Standard',
     }));
   };
 

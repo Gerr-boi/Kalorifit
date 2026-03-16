@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { NutritionTagId } from '../data/mealRecipes';
 import { getFavoriteTagMatches, inferMealMetadata, scoreMealRecommendation } from './mealLibrary';
 
 describe('inferMealMetadata', () => {
@@ -53,7 +54,7 @@ describe('scoreMealRecommendation', () => {
       lowFiberToday: false,
       recentMealKeywords: ['bowl', 'kimchi'],
       favoriteRecipeIds: new Set<string>(['fav-1']),
-      favoriteTags: ['gut_health', 'high_protein'] as const,
+      favoriteTags: ['gut_health', 'high_protein'] as NutritionTagId[],
       activeTagFilter: 'gut_health' as const,
     };
 
