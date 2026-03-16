@@ -8,7 +8,15 @@ import { useAdaptiveRankingRules } from '../../hooks/useAdaptiveRankingRules';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { emitLocalStorageStateChanged, getActiveUserIdFromStorage, getScopedStorageKey } from '../../hooks/useLocalStorageState';
 import { useScanFeedback } from '../../hooks/useScanFeedback';
-import { createEmptyDayLog, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
+import {
+  classifyBeverageType,
+  createEmptyDayLog,
+  getHydrationFactor,
+  toDateKey,
+  type DayLog,
+  type FoodEntry,
+  type MealId,
+} from '../../lib/disciplineEngine';
 import { generateMonthlyIdentityReport, getCurrentMonthKey } from '../../lib/identityEngine';
 import {
   detectFoodOnImage,
@@ -162,7 +170,7 @@ type BotHealthState = {
   status: 'checking' | 'ok' | 'offline';
   message: string | null;
   checkedAt: number | null;
-  baseUrl: string;
+  baseUrl: string | null;
 };
 
 declare global {
@@ -260,7 +268,7 @@ export default function ScanScreen() {
     status: 'checking',
     message: null,
     checkedAt: null,
-    baseUrl: 'http://127.0.0.1:8001',
+    baseUrl: null,
   });
   const photoVideoRef = useRef<HTMLVideoElement | null>(null);
   const photoStreamRef = useRef<MediaStream | null>(null);
@@ -276,6 +284,8 @@ export default function ScanScreen() {
   const liveDevicesRef = useRef<MediaDeviceInfo[]>([]);
   const activeCameraIdRef = useRef<string | null>(null);
   const activeScanTraceRef = useRef<ScanTrace | null>(null);
+  const isScanningRef = useRef(false);
+  const pendingPhotoRestartRef = useRef(false);
   const ocrTrackCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const ocrSampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const ocrTrackingRectRef = useRef<NormalizedRect | null>(null);
@@ -351,8 +361,11 @@ export default function ScanScreen() {
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
-      const payload = await response.json() as { bot?: { ok?: boolean; error?: string; message?: string; baseUrl?: string } };
-      const baseUrl = payload?.bot?.baseUrl || 'http://127.0.0.1:8001';
+      const payload = await response.json() as { bot?: { ok?: boolean; error?: string; message?: string; baseUrl?: string | null } };
+      const baseUrl =
+        typeof payload?.bot?.baseUrl === 'string' && payload.bot.baseUrl.trim()
+          ? payload.bot.baseUrl
+          : null;
       const botOk = payload?.bot?.ok === true;
       if (botOk) {
         setBotHealth({
@@ -367,7 +380,7 @@ export default function ScanScreen() {
       const reason =
         payload?.bot?.message ||
         payload?.bot?.error ||
-        `food_detection_bot is not reachable on ${baseUrl}`;
+        (baseUrl ? `food_detection_bot is not reachable on ${baseUrl}` : 'food_detection_bot is not reachable.');
       setBotHealth({
         status: 'offline',
         message: reason,
@@ -375,7 +388,12 @@ export default function ScanScreen() {
         baseUrl,
       });
       if (opts.showToastOnOffline) {
-        showFeedback(`food_detection_bot er ikke tilgjengelig. Sjekk at bot-en kjører på ${baseUrl}.`, 'error');
+        showFeedback(
+          baseUrl
+            ? `food_detection_bot er ikke tilgjengelig. Sjekk at bot-en kjører på ${baseUrl}.`
+            : 'food_detection_bot er ikke tilgjengelig. Sjekk scanner-konfigurasjonen.',
+          'error'
+        );
       }
     } catch (err) {
       const reason = err instanceof Error ? err.message : 'Unknown health check error';
@@ -411,6 +429,10 @@ export default function ScanScreen() {
   useEffect(() => {
     selectedDishSeedRef.current = selectedDishSeed;
   }, [selectedDishSeed]);
+
+  useEffect(() => {
+    isScanningRef.current = isScanning;
+  }, [isScanning]);
 
   useEffect(() => {
     const recent = loadRecentCapture();
@@ -1731,6 +1753,8 @@ export default function ScanScreen() {
     if (!scannedFood) return;
     const amount = Number.isFinite(portionAmount) && portionAmount > 0 ? portionAmount : 100;
     const factor = amount / 100;
+    const beverageType = classifyBeverageType(scannedFood.name);
+    const drinkMl = beverageType ? amount : undefined;
     const loggedEntry: FoodEntry = {
       id: window.crypto?.randomUUID ? window.crypto.randomUUID() : `food-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
       name: amount !== 100 ? `${scannedFood.name} (${amount}${portionUnit})` : scannedFood.name,
@@ -1738,6 +1762,9 @@ export default function ScanScreen() {
       protein: Math.round((scannedFood.per100g?.protein_g ?? scannedFood.protein ?? 0) * factor * 10) / 10,
       carbs: Math.round((scannedFood.per100g?.carbs_g ?? scannedFood.carbs ?? 0) * factor * 10) / 10,
       fat: Math.round((scannedFood.per100g?.fat_g ?? scannedFood.fat ?? 0) * factor * 10) / 10,
+      drinkMl,
+      beverageType: beverageType ?? undefined,
+      hydrationFactor: beverageType ? getHydrationFactor(beverageType) : undefined,
     };
     const mealId: MealId = (() => {
       const hour = new Date().getHours();
@@ -2179,10 +2206,13 @@ async function startPhotoCamera(preferredDeviceId?: string) {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoInputs = devices.filter((d) => d.kind === 'videoinput');
       const sortedVideoInputs = [...videoInputs].sort((a, b) => {
+        const aRear = /back|rear|environment|triple camera|dual camera/i.test(a.label);
+        const bRear = /back|rear|environment|triple camera|dual camera/i.test(b.label);
+        if (aRear !== bRear) return aRear ? -1 : 1;
         const aFront = /front|facetime|webcam|integrated|user/i.test(a.label);
         const bFront = /front|facetime|webcam|integrated|user/i.test(b.label);
-        if (aFront === bFront) return 0;
-        return aFront ? -1 : 1;
+        if (aFront !== bFront) return aFront ? 1 : -1;
+        return 0;
       });
       liveDevicesRef.current = sortedVideoInputs;
 
@@ -2197,8 +2227,8 @@ async function startPhotoCamera(preferredDeviceId?: string) {
       // device listing may fail before permission; fallback below still works
     }
 
-    cameraHints.push({ ...highQualityProfile, facingMode: { ideal: 'user' } });
     cameraHints.push({ ...highQualityProfile, facingMode: { ideal: 'environment' } });
+    cameraHints.push({ ...highQualityProfile, facingMode: { ideal: 'user' } });
 
     for (const hint of cameraHints) {
       try {
@@ -3473,8 +3503,10 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     const restartPhotoCameraIfNeeded = () => {
       if (!options?.restartPhotoCameraOnFailure) return;
       if (mode !== 'photo') return;
+      pendingPhotoRestartRef.current = true;
       window.setTimeout(() => {
-        if (!isScanning) {
+        if (!isScanningRef.current) {
+          pendingPhotoRestartRef.current = false;
           void startPhotoCamera(activeCameraIdRef.current ?? undefined);
         }
       }, 0);
@@ -4706,6 +4738,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
   useEffect(() => {
     if (mode !== 'photo') {
+      pendingPhotoRestartRef.current = false;
       // Photo/manual detection overlays should not block barcode/search flows.
       setScanState('idle');
       setManualError(null);
@@ -4716,8 +4749,12 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
     if (mode === 'photo') {
       stopLiveBarcodeScan();
-      if (!scannedFood && !photoCamActive) {
+      if (!scannedFood && !photoCamActive && !isScanning) {
+        pendingPhotoRestartRef.current = false;
         void startPhotoCamera();
+      } else if (!isScanning && pendingPhotoRestartRef.current && !photoCamActive) {
+        pendingPhotoRestartRef.current = false;
+        void startPhotoCamera(activeCameraIdRef.current ?? undefined);
       }
       return;
     }
@@ -4732,7 +4769,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
     stopPhotoCamera();
     stopLiveBarcodeScan();
-  }, [mode, scannedFood, photoCamActive]);
+  }, [mode, scannedFood, photoCamActive, isScanning]);
 
   useEffect(() => {
     if (mode !== 'photo' || !photoCamActive || !photoCamReady || isScanning) {
@@ -5079,7 +5116,9 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             <div className="absolute top-3 left-3 right-3 z-[42] rounded-xl border border-red-300 bg-red-50/95 px-3 py-2 text-sm text-red-800 backdrop-blur">
               <div className="font-semibold">Scanner backend er utilgjengelig</div>
               <p className="mt-1">
-                food_detection_bot ser ut til å være nede på <code>http://127.0.0.1:8001</code>.
+                {botHealth.baseUrl
+                  ? <>food_detection_bot ser ut til å være nede på <code>{botHealth.baseUrl}</code>.</>
+                  : <>food_detection_bot er ikke konfigurert med en gyldig, tilgjengelig URL.</>}
               </p>
               {botHealth.message && (
                 <p className="mt-1 text-xs text-red-700 break-words">Detalj: {botHealth.message}</p>

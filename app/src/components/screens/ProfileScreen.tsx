@@ -7,6 +7,7 @@ import {
   calculateDailyDisciplineScore,
   createEmptyDayLog,
   ensureWeeklyReportForSunday,
+  getTotalHydrationMl,
   generateWeeklyPerformanceReport,
   startOfDay,
   startOfWeekMonday,
@@ -170,6 +171,7 @@ export default function ProfileScreen() {
   const [showDietExplorer, setShowDietExplorer] = useState(false);
   const [showIdentity, setShowIdentity] = useState(false);
   const [showJourney, setShowJourney] = useState(false);
+  const [privacyExpanded, setPrivacyExpanded] = useState(false);
   const [heightCm, setHeightCm] = useState<string>(String(profile.heightCm));
   const [weightKg, setWeightKg] = useState<string>(String(profile.weightKg));
   const [draftName, setDraftName] = useState(profile.name);
@@ -267,7 +269,7 @@ export default function ProfileScreen() {
 
   const stats = useMemo(() => {
     const allLogs = Object.values(logsByDate);
-    const activeDays = allLogs.filter((log) => Object.values(log.meals).flat().length > 0 || log.waterMl > 0 || log.trainingKcal > 0).length;
+    const activeDays = allLogs.filter((log) => Object.values(log.meals).flat().length > 0 || getTotalHydrationMl(log) > 0 || log.trainingKcal > 0).length;
     const mealsLogged = allLogs.reduce((sum, log) => sum + Object.values(log.meals).flat().length, 0);
     const caloriesLogged = allLogs.reduce(
       (sum, log) => sum + Object.values(log.meals).flat().reduce((daySum, food) => daySum + food.kcal, 0),
@@ -1085,103 +1087,106 @@ export default function ProfileScreen() {
 
       <div className="stats-grid">
         {stats.map((stat, index) => (
-          <div key={index} className="stat-card dark:bg-gray-800 dark:border-gray-700">
+          <div key={index} className="stat-card backdrop-blur-sm bg-white/80 dark:bg-white/[0.06] border border-white/70 dark:border-white/[0.1] shadow-lg">
             <p className={`stat-value ${stat.color}`}>{stat.value}</p>
-            <p className="stat-label dark:text-gray-300">{stat.label}</p>
+            <p className="stat-label">{stat.label}</p>
           </div>
         ))}
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Smart diet profile</p>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{goalStrategyLabel}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {dietStyleLabel} | {settingsTierLabel}
-            </p>
+      <div className="card mt-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] text-slate-400 dark:text-white/35 uppercase tracking-widest font-bold mb-1">Smart diet profil</p>
+            <p className="text-base font-bold text-slate-800 dark:text-white/90 leading-tight">{goalStrategyLabel}</p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">{dietStyleLabel}</span>
+              <span className="text-slate-300 dark:text-white/15 text-xs">·</span>
+              <span className="text-[11px] text-slate-500 dark:text-white/40">{settingsTierLabel}</span>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setShowDietExplorer(true)}
-              className="text-xs rounded-lg bg-emerald-100 text-emerald-700 px-3 py-1.5"
-            >
-              Explore diets
-            </button>
-          </div>
-        </div>
-        <div className="mt-3 border-t border-gray-100 dark:border-gray-700 pt-3">
-          <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase">Allergier</p>
-          <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">Filtreres automatisk i Maltider.</p>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <input
-            value={allergyInput}
-            onChange={(e) => setAllergyInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addAllergy(allergyInput);
-              }
-            }}
-            placeholder="f.eks. fish, gluten, nuts"
-            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
-          />
           <button
             type="button"
-            onClick={() => addAllergy(allergyInput)}
-            className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white"
+            onClick={() => setShowDietExplorer(true)}
+            className="shrink-0 text-xs rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 px-3 py-2 font-semibold"
+          >
+            Explore diets
+          </button>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-slate-100 dark:border-white/[0.06]">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-slate-600 dark:text-white/60">Allergier</p>
+            <p className="text-[11px] text-slate-400 dark:text-white/30">Filtreres automatisk i Maltider.</p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={allergyInput}
+              onChange={(e) => setAllergyInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addAllergy(allergyInput);
+                }
+              }}
+              placeholder="f.eks. fish, gluten, nuts"
+              className="flex-1 rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+            />
+            <button
+              type="button"
+              onClick={() => addAllergy(allergyInput)}
+              className="rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white"
             >
               Legg til
             </button>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {(profile.allergies ?? []).length > 0 ? (
-            (profile.allergies ?? []).map((allergy) => (
+          </div>
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {(profile.allergies ?? []).length > 0 ? (
+              (profile.allergies ?? []).map((allergy) => (
+                <button
+                  key={allergy}
+                  type="button"
+                  onClick={() => removeAllergy(allergy)}
+                  className="text-xs px-2.5 py-1 rounded-full bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 font-medium"
+                  title="Fjern allergi"
+                >
+                  {allergy} ×
+                </button>
+              ))
+            ) : (
+              <p className="text-xs text-slate-400 dark:text-white/30">Ingen allergier lagt til.</p>
+            )}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {['gluten', 'milk', 'egg', 'nuts', 'fish', 'shellfish', 'soy', 'peanuts'].map((item) => (
               <button
-                key={allergy}
+                key={item}
                 type="button"
-                onClick={() => removeAllergy(allergy)}
-                className="text-xs px-2 py-1 rounded-full bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300"
-                title="Fjern allergi"
+                onClick={() => addAllergy(item)}
+                className="text-xs px-2.5 py-1 rounded-full bg-slate-100 dark:bg-white/[0.05] border border-slate-200 dark:border-white/[0.07] text-slate-500 dark:text-white/50 hover:bg-slate-200 dark:hover:bg-white/[0.09] transition-colors"
               >
-                {allergy} x
+                + {item}
               </button>
-            ))
-          ) : (
-            <p className="text-xs text-gray-500 dark:text-gray-400">Ingen allergier lagt til.</p>
-          )}
-        </div>
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {['gluten', 'milk', 'egg', 'nuts', 'fish', 'shellfish', 'soy', 'peanuts'].map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => addAllergy(item)}
-              className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
-            >
-              + {item}
-            </button>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
+      <div className="card mt-4">
         <button onClick={() => setShowIdentity(true)} className="w-full text-left">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Identity</p>
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{monthlyIdentity.primaryTitle}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Level {monthlyIdentity.level.value} - {monthlyIdentity.level.label}
+          <p className="text-[10px] text-slate-400 dark:text-white/35 uppercase tracking-widest font-bold mb-2.5">Identitet</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-lg font-bold text-slate-800 dark:text-white/90 leading-tight">{monthlyIdentity.primaryTitle}</h3>
+              <p className="text-sm text-slate-500 dark:text-white/45 mt-0.5">
+                Level {monthlyIdentity.level.value} · {monthlyIdentity.level.label}
               </p>
               {highlightedBadges.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {highlightedBadges.map((badge) => (
                     <span
                       key={badge.id}
-                      className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-200"
+                      className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 font-semibold"
                     >
                       {badge.label}
                     </span>
@@ -1189,70 +1194,56 @@ export default function ProfileScreen() {
                 </div>
               )}
             </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-amber-500">{monthlyIdentity.level.currentXp}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">/ {monthlyIdentity.level.nextLevelXp} XP</p>
+            <div className="text-right shrink-0">
+              <p className="text-2xl font-bold text-amber-500 leading-tight">{monthlyIdentity.level.currentXp}</p>
+              <p className="text-xs text-slate-400 dark:text-white/35 font-medium">/ {monthlyIdentity.level.nextLevelXp} XP</p>
             </div>
           </div>
-          <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full mt-3 overflow-hidden">
-            <div className="h-full bg-amber-500 rounded-full" style={{ width: `${monthlyIdentity.level.progressPct}%` }} />
+          <div className="h-2 bg-slate-100 dark:bg-white/[0.06] rounded-full mt-3 overflow-hidden">
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${monthlyIdentity.level.progressPct}%`,
+                background: 'linear-gradient(90deg, #f59e0b, #fbbf24)',
+              }}
+            />
           </div>
         </button>
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-center gap-2 mb-3">
-          <Shield className="w-4 h-4 text-orange-500" />
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200">Social safety controls</h3>
-        </div>
-        <div className="privacy-grid">
-          <button
-            type="button"
-            onClick={toggleSocialAnonymous}
-            className={`privacy-toggle dark:bg-gray-700 dark:text-gray-200 ${profile.socialAnonymousPosting ? 'privacy-on' : ''}`}
-          >
-            Anonymous posting: {profile.socialAnonymousPosting ? 'On' : 'Off'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleHideWeightNumbers}
-            className={`privacy-toggle dark:bg-gray-700 dark:text-gray-200 ${profile.socialHideWeightNumbers ? 'privacy-on' : ''}`}
-          >
-            Hide weight numbers: {profile.socialHideWeightNumbers ? 'On' : 'Off'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleHideBodyPhotos}
-            className={`privacy-toggle dark:bg-gray-700 dark:text-gray-200 ${profile.socialHideBodyPhotos ? 'privacy-on' : ''}`}
-          >
-            Hide body photos: {profile.socialHideBodyPhotos ? 'On' : 'Off'}
-          </button>
-        </div>
-      </div>
-
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-end justify-between gap-3 mb-4">
+      <div className="card mt-4">
+        <div className="flex items-center justify-between gap-3 mb-5">
           <div>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">Daily Discipline Score</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Automatisk basert pa dagens logging</p>
+            <p className="text-[10px] text-slate-400 dark:text-white/35 uppercase tracking-widest font-bold mb-0.5">Disiplin Score</p>
+            <p className="text-xs text-slate-500 dark:text-white/40">Automatisk basert på dagens logging</p>
           </div>
           <div className="text-right">
-            <p className="text-3xl font-bold text-orange-500">{dailyDiscipline.score}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{dailyDiscipline.grade}</p>
+            <p className="text-4xl font-bold text-orange-500 leading-none">{dailyDiscipline.score}</p>
+            <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5 font-medium">{dailyDiscipline.grade}</p>
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-3.5">
           {dailyDiscipline.metrics.map((metric) => (
             <div key={metric.key}>
-              <div className="flex justify-between mb-1">
-                <span className="text-sm text-gray-600 dark:text-gray-300">{metric.label}</span>
-                <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{metric.percent}%</span>
+              <div className="flex justify-between items-baseline mb-1.5">
+                <span className="text-sm font-medium text-slate-700 dark:text-white/70">{metric.label}</span>
+                <span className="text-sm font-bold text-slate-800 dark:text-white/90">{metric.percent}%</span>
               </div>
-              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                <div className="h-full bg-orange-500 rounded-full" style={{ width: `${metric.percent}%` }} />
+              <div className="h-1.5 bg-slate-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${metric.percent}%`,
+                    background: metric.percent >= 85
+                      ? 'linear-gradient(90deg, #22c55e, #4ade80)'
+                      : metric.percent >= 50
+                        ? 'linear-gradient(90deg, #f97316, #fb923c)'
+                        : 'linear-gradient(90deg, #f97316, #fb923c)',
+                  }}
+                />
               </div>
-              <div className="mt-1 flex justify-between text-[11px] text-gray-500 dark:text-gray-400">
+              <div className="mt-1 flex justify-between text-[11px] text-slate-400 dark:text-white/30">
                 <span>{metric.progressLabel}</span>
                 <span>{metric.targetLabel}</span>
               </div>
@@ -1260,117 +1251,173 @@ export default function ProfileScreen() {
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3">
-          <div className="rounded-xl bg-green-50 dark:bg-green-900/20 p-3">
-            <p className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase mb-1">Accomplished</p>
+        <div className="mt-4 grid grid-cols-2 gap-2.5">
+          <div className="rounded-xl bg-emerald-500/8 dark:bg-emerald-500/[0.08] border border-emerald-500/15 p-3">
+            <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-1.5">Accomplished</p>
             {dailyDiscipline.accomplished.length > 0 ? (
               <div className="space-y-1">
                 {dailyDiscipline.accomplished.map((item) => (
-                  <p key={item} className="text-xs text-green-700 dark:text-green-200">
-                    {item}
-                  </p>
+                  <p key={item} className="text-xs text-emerald-700 dark:text-emerald-300 leading-snug">✓ {item}</p>
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-green-700 dark:text-green-200">Ingen omrader over 85% enda i dag.</p>
+              <p className="text-xs text-emerald-600 dark:text-emerald-400/70">Ingen områder over 85% enda i dag.</p>
             )}
           </div>
-
-          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 p-3">
-            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase mb-1">Missing</p>
+          <div className="rounded-xl bg-amber-500/8 dark:bg-amber-500/[0.08] border border-amber-500/15 p-3">
+            <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-1.5">Missing</p>
             <div className="space-y-1">
-              {(dailyDiscipline.missing.length > 0 ? dailyDiscipline.missing : ['Alle mal er dekket i dag.']).map((item) => (
-                <p key={item} className="text-xs text-amber-700 dark:text-amber-200">
-                  {item}
-                </p>
+              {(dailyDiscipline.missing.length > 0 ? dailyDiscipline.missing : ['Alle mål er dekket!']).map((item) => (
+                <p key={item} className="text-xs text-amber-700 dark:text-amber-300 leading-snug">{item}</p>
               ))}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="card mt-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
           <div>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">Weekly Performance Report</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Auto-genereres hver sondag</p>
+            <p className="text-[10px] text-slate-400 dark:text-white/35 uppercase tracking-widest font-bold mb-0.5">Ukentlig rapport</p>
+            <p className="text-xs text-slate-500 dark:text-white/40">Auto-genereres hver søndag</p>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {latestWeeklyReport.weekStartKey} til {latestWeeklyReport.weekEndKey}
+          <p className="text-[11px] text-slate-400 dark:text-white/30 font-medium">
+            {latestWeeklyReport.weekStartKey} → {latestWeeklyReport.weekEndKey}
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-300">Avg discipline score</p>
-            <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{latestWeeklyReport.avgDisciplineScore}</p>
+        <div className="grid grid-cols-2 gap-2.5 mb-3">
+          <div className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3">
+            <p className="text-[11px] text-slate-400 dark:text-white/35 font-medium mb-0.5">Snitt disiplin</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white/90">{latestWeeklyReport.avgDisciplineScore}</p>
           </div>
-          <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-300">Trend direction</p>
-            <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{trendLabel}</p>
+          <div className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3">
+            <p className="text-[11px] text-slate-400 dark:text-white/35 font-medium mb-0.5">Trend</p>
+            <p className="text-2xl font-bold text-slate-800 dark:text-white/90">{trendLabel}</p>
           </div>
-          <div className="rounded-xl bg-green-50 dark:bg-green-900/20 p-3">
-            <p className="text-xs text-green-700 dark:text-green-300">Best day</p>
-            <p className="text-base font-semibold text-green-700 dark:text-green-100">
-              {formatDateKey(latestWeeklyReport.bestDay.dateKey)} ({latestWeeklyReport.bestDay.score})
+          <div className="rounded-xl bg-emerald-500/8 dark:bg-emerald-500/[0.08] border border-emerald-500/15 p-3">
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mb-0.5">Best dag</p>
+            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-300">
+              {formatDateKey(latestWeeklyReport.bestDay.dateKey)}
             </p>
+            <p className="text-xs text-emerald-600 dark:text-emerald-400">{latestWeeklyReport.bestDay.score} poeng</p>
           </div>
-          <div className="rounded-xl bg-red-50 dark:bg-red-900/20 p-3">
-            <p className="text-xs text-red-700 dark:text-red-300">Worst day</p>
-            <p className="text-base font-semibold text-red-700 dark:text-red-100">
-              {formatDateKey(latestWeeklyReport.worstDay.dateKey)} ({latestWeeklyReport.worstDay.score})
+          <div className="rounded-xl bg-slate-100/80 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] p-3">
+            <p className="text-[11px] text-slate-400 dark:text-white/35 font-medium mb-0.5">Svakeste dag</p>
+            <p className="text-sm font-bold text-slate-600 dark:text-white/60">
+              {formatDateKey(latestWeeklyReport.worstDay.dateKey)}
             </p>
+            <p className="text-xs text-slate-400 dark:text-white/35">{latestWeeklyReport.worstDay.score} poeng</p>
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-orange-50 dark:bg-orange-900/20 p-3">
-          <p className="text-xs text-orange-700 dark:text-orange-300">Streak status</p>
-          <p className="text-base font-semibold text-orange-700 dark:text-orange-100">{latestWeeklyReport.streakStatus}</p>
+        <div className="rounded-xl bg-orange-500/8 dark:bg-orange-500/[0.08] border border-orange-500/15 px-4 py-3 mb-3">
+          <p className="text-[11px] text-orange-500 dark:text-orange-400 font-semibold mb-0.5">Streak status</p>
+          <p className="text-sm font-semibold text-orange-700 dark:text-orange-200">{latestWeeklyReport.streakStatus}</p>
         </div>
 
-        <div className="mt-3 grid grid-cols-5 gap-1">
-          {latestWeeklyReport.days.map((day) => (
-            <div key={day.dateKey} className="rounded-lg bg-gray-100 dark:bg-gray-700 p-2 text-center">
-              <p className="text-[10px] text-gray-500 dark:text-gray-300">{formatDateKey(day.dateKey)}</p>
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-100">{day.score}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="card mt-4 p-0 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
-        {getMenuItems().map((item, index) => (
-          <button
-            key={index}
-            onClick={() => {
-              if (item.id === 'bmi') setShowBmi(true);
-              if (item.id === 'personal') openPersonalSettings();
-              if (item.id === 'journey') setShowJourney(true);
-              if (item.id === 'darkmode') toggleDarkMode();
-              if (item.id === 'notifications') toggleNotifications();
-              if (item.id === 'privacy') togglePrivacyMode();
-              if (item.id === 'language') toggleLanguage();
-            }}
-            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b last:border-b-0 dark:border-gray-600"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-600 rounded-full flex items-center justify-center">
-                <item.icon className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+        <div className="grid grid-cols-7 gap-1">
+          {latestWeeklyReport.days.map((day) => {
+            const pct = Math.min(day.score, 100);
+            return (
+              <div key={day.dateKey} className="flex flex-col items-center gap-1">
+                <p className="text-[9px] text-slate-400 dark:text-white/30 font-medium">{formatDateKey(day.dateKey).split('.')[0]}.</p>
+                <div className="w-full h-12 bg-slate-100 dark:bg-white/[0.05] rounded-lg overflow-hidden flex items-end">
+                  <div
+                    className="w-full rounded-lg"
+                    style={{
+                      height: `${Math.max(pct, 8)}%`,
+                      background: pct >= 70 ? 'linear-gradient(180deg, #4ade80, #22c55e)' : pct >= 40 ? 'linear-gradient(180deg, #fb923c, #f97316)' : 'rgba(148,163,184,0.4)',
+                    }}
+                  />
+                </div>
+                <p className="text-[10px] font-bold text-slate-600 dark:text-white/60">{day.score}</p>
               </div>
-              <span className="font-medium text-gray-700 dark:text-gray-200">{item.label}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {item.value && (
-                <span className="text-sm text-gray-500 dark:text-gray-400">{item.value}</span>
-              )}
-              <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500" />
-            </div>
-          </button>
-        ))}
+            );
+          })}
+        </div>
       </div>
 
-      <button className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium">
-        <LogOut className="w-5 h-5" />
+      <div className="card mt-4 p-0 overflow-hidden">
+        {getMenuItems().map((item, index) => {
+          const iconColors = [
+            'bg-orange-100 dark:bg-orange-500/15 text-orange-500',
+            'bg-blue-100 dark:bg-blue-500/15 text-blue-500',
+            'bg-purple-100 dark:bg-purple-500/15 text-purple-500',
+            'bg-slate-100 dark:bg-white/[0.08] text-slate-500 dark:text-white/60',
+            'bg-green-100 dark:bg-green-500/15 text-green-600',
+            'bg-amber-100 dark:bg-amber-500/15 text-amber-500',
+            'bg-cyan-100 dark:bg-cyan-500/15 text-cyan-600',
+            'bg-rose-100 dark:bg-rose-500/15 text-rose-500',
+          ];
+          const colorClass = iconColors[index % iconColors.length];
+          const isToggle = ['darkmode', 'notifications', 'language'].includes(item.id);
+          const isPrivacy = item.id === 'privacy';
+          return (
+            <div key={index} className="border-b border-slate-100/80 dark:border-white/[0.06] last:border-b-0">
+              <button
+                onClick={() => {
+                  if (item.id === 'bmi') setShowBmi(true);
+                  if (item.id === 'personal') openPersonalSettings();
+                  if (item.id === 'journey') setShowJourney(true);
+                  if (item.id === 'darkmode') toggleDarkMode();
+                  if (item.id === 'notifications') toggleNotifications();
+                  if (item.id === 'privacy') setPrivacyExpanded((prev) => !prev);
+                  if (item.id === 'language') toggleLanguage();
+                }}
+                className="w-full flex items-center justify-between px-4 py-3.5 active:bg-slate-50 dark:active:bg-white/[0.04] transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${colorClass}`}>
+                    <item.icon className="w-4.5 h-4.5" />
+                  </div>
+                  <span className="font-medium text-slate-700 dark:text-white/80">{item.label}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {item.value && !isPrivacy && (
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                      item.value === 'Pa'
+                        ? 'bg-orange-100 dark:bg-orange-500/15 text-orange-600 dark:text-orange-300'
+                        : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/40'
+                    }`}>{item.value}</span>
+                  )}
+                  {isPrivacy
+                    ? <ChevronDown className={`w-4 h-4 text-slate-300 dark:text-white/20 transition-transform ${privacyExpanded ? 'rotate-180' : ''}`} />
+                    : !isToggle && <ChevronRight className="w-4 h-4 text-slate-300 dark:text-white/20" />}
+                </div>
+              </button>
+
+              {isPrivacy && privacyExpanded && (
+                <div className="px-4 pb-3 space-y-2">
+                  {([
+                    { label: 'Anonym posting', sub: 'Vis ikke navn i community', on: profile.socialAnonymousPosting, toggle: toggleSocialAnonymous },
+                    { label: 'Skjul vekttall', sub: 'Vises ikke i deling', on: profile.socialHideWeightNumbers, toggle: toggleHideWeightNumbers },
+                    { label: 'Skjul kroppsbilder', sub: 'Privat gallery', on: profile.socialHideBodyPhotos, toggle: toggleHideBodyPhotos },
+                  ] as const).map(({ label, sub, on, toggle }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={toggle}
+                      className="w-full flex items-center justify-between rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] px-3 py-2.5"
+                    >
+                      <div className="text-left">
+                        <p className="text-sm font-medium text-slate-700 dark:text-white/80">{label}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-white/30">{sub}</p>
+                      </div>
+                      <div className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ml-3 ${on ? 'bg-orange-500' : 'bg-slate-200 dark:bg-white/[0.1]'}`}>
+                        <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${on ? 'translate-x-5' : 'translate-x-0'}`} />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <button className="w-full flex items-center justify-center gap-2 mx-0 mt-4 mb-2 py-4 rounded-2xl border border-red-200 dark:border-red-500/20 bg-red-50 dark:bg-red-500/[0.08] text-red-500 font-semibold active:scale-[0.98] transition-transform">
+        <LogOut className="w-4 h-4" />
         Logg ut
       </button>
 
@@ -1553,44 +1600,37 @@ export default function ProfileScreen() {
       )}
 
       {showJourney && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-xl max-h-[88vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="w-full max-w-2xl rounded-t-3xl sm:rounded-2xl bg-white dark:bg-zinc-900 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-5 pt-5 pb-4 bg-white dark:bg-zinc-900 border-b border-slate-100 dark:border-white/[0.06]">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Your journey</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Visual oversikt over progresjonen din</p>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white/90">Your journey</h3>
+                <p className="text-xs text-slate-500 dark:text-white/40">Visuell oversikt over progresjonen din</p>
               </div>
               <button
                 onClick={() => setShowJourney(false)}
-                className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-600 flex items-center justify-center"
-                title="Lukk"
+                className="w-9 h-9 rounded-full bg-slate-100 dark:bg-white/[0.07] flex items-center justify-center"
               >
-                <X className="w-4 h-4 text-gray-700 dark:text-gray-200" />
+                <X className="w-4 h-4 text-slate-600 dark:text-white/70" />
               </button>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3 text-sm">
-              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-300">Malinger logget</p>
-                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{journeyWeightSeries.length}</p>
-              </div>
-              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-300">Endring vekt</p>
-                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">
-                  {weightDeltaJourney === null ? '--' : `${weightDeltaJourney > 0 ? '+' : ''}${weightDeltaJourney} kg`}
-                </p>
-              </div>
-              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-300">Snitt disiplin (14d)</p>
-                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">
-                  {Math.round(journeyDisciplineSeries.reduce((sum, p) => sum + p.score, 0) / Math.max(1, journeyDisciplineSeries.length))}
-                </p>
-              </div>
+            <div className="p-5">
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              {[
+                { label: 'Målinger logget', value: journeyWeightSeries.length },
+                { label: 'Vektendring', value: weightDeltaJourney === null ? '--' : `${weightDeltaJourney > 0 ? '+' : ''}${weightDeltaJourney} kg` },
+                { label: 'Snitt disiplin', value: Math.round(journeyDisciplineSeries.reduce((sum, p) => sum + p.score, 0) / Math.max(1, journeyDisciplineSeries.length)) },
+              ].map(({ label, value }) => (
+                <div key={label} className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3 text-center">
+                  <p className="text-xl font-bold text-slate-800 dark:text-white/90">{value}</p>
+                  <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5 leading-tight">{label}</p>
+                </div>
+              ))}
             </div>
 
-            <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mb-3">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Vekttrend (kg)</p>
-              <svg viewBox="0 0 420 170" className="w-full h-40">
+            <div className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-4 mb-3">
+              <p className="text-sm font-semibold text-slate-700 dark:text-white/70 mb-3">Vekttrend (kg)</p>
+              <svg viewBox="0 0 420 170" className="w-full h-36">
                 {(() => {
                   const values = journeyWeightSeries.map((point) => point.value);
                   const min = Math.min(...values);
@@ -1598,225 +1638,192 @@ export default function ProfileScreen() {
                   const range = Math.max(1, max - min);
                   const coords = journeyWeightSeries.map((point, index) => {
                     const x = journeyWeightSeries.length === 1 ? 210 : (index / (journeyWeightSeries.length - 1)) * 390 + 15;
-                    const y = 145 - ((point.value - min) / range) * 120;
+                    const y = 140 - ((point.value - min) / range) * 115;
                     return { x, y, value: point.value, date: point.date };
                   });
                   return (
                     <>
-                      <line x1="15" y1="145" x2="405" y2="145" stroke="rgba(148,163,184,0.5)" strokeWidth="1" />
-                      <polyline
-                        fill="none"
-                        stroke="#f97316"
-                        strokeWidth="3"
-                        points={coords.map((c) => `${c.x},${c.y}`).join(' ')}
-                      />
+                      <line x1="15" y1="140" x2="405" y2="140" stroke="rgba(148,163,184,0.3)" strokeWidth="1" />
+                      <polyline fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={coords.map((c) => `${c.x},${c.y}`).join(' ')} />
                       {coords.map((c) => (
-                        <g key={`${c.date}-${c.value}`}>
-                          <circle cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
-                        </g>
+                        <circle key={`${c.date}-${c.value}`} cx={c.x} cy={c.y} r="3" fill="#f97316" />
                       ))}
-                      <text x="15" y="164" fontSize="10" fill="currentColor" className="text-gray-500 dark:text-gray-300">
-                        {formatDateKey(coords[0]?.date ?? toDateKey(today))}
-                      </text>
-                      <text x="340" y="164" fontSize="10" fill="currentColor" className="text-gray-500 dark:text-gray-300">
-                        {formatDateKey(coords[coords.length - 1]?.date ?? toDateKey(today))}
-                      </text>
+                      <text x="15" y="158" fontSize="9" fill="rgba(148,163,184,0.8)">{formatDateKey(coords[0]?.date ?? toDateKey(today))}</text>
+                      <text x="340" y="158" fontSize="9" fill="rgba(148,163,184,0.8)">{formatDateKey(coords[coords.length - 1]?.date ?? toDateKey(today))}</text>
                     </>
                   );
                 })()}
               </svg>
             </div>
 
-            <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Disiplin siste 14 dager</p>
-              <div className="grid grid-cols-14 gap-1 items-end h-28">
+            <div className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-4">
+              <p className="text-sm font-semibold text-slate-700 dark:text-white/70 mb-3">Disiplin siste 14 dager</p>
+              <div className="grid grid-cols-14 gap-1 items-end h-20">
                 {journeyDisciplineSeries.map((point) => (
                   <div key={point.dateKey} className="flex flex-col items-center justify-end h-full">
                     <div
-                      className="w-full rounded-sm bg-orange-500/85"
-                      style={{ height: `${Math.max(6, Math.round((point.score / 100) * 90))}%` }}
+                      className="w-full rounded-sm"
+                      style={{
+                        height: `${Math.max(6, Math.round((point.score / 100) * 90))}%`,
+                        background: point.score >= 70 ? '#f97316' : 'rgba(148,163,184,0.35)',
+                      }}
                       title={`${formatDateKey(point.dateKey)}: ${point.score}`}
                     />
                   </div>
                 ))}
               </div>
-              <div className="mt-2 flex justify-between text-[11px] text-gray-500 dark:text-gray-400">
+              <div className="mt-2 flex justify-between text-[11px] text-slate-400 dark:text-white/30">
                 <span>{formatDateKey(journeyDisciplineSeries[0]?.dateKey ?? toDateKey(today))}</span>
                 <span>{formatDateKey(journeyDisciplineSeries[journeyDisciplineSeries.length - 1]?.dateKey ?? toDateKey(today))}</span>
               </div>
             </div>
           </div>
         </div>
+      </div>
       )}
 
       {showBmi && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 -mt-24">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Mine malinger</h3>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-t-3xl sm:rounded-2xl bg-white dark:bg-zinc-900 shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div className="sticky top-0 z-10 flex items-center justify-between px-5 pt-5 pb-4 bg-white dark:bg-zinc-900 border-b border-slate-100 dark:border-white/[0.06]">
+              <div>
+                <h3 className="text-base font-bold text-slate-800 dark:text-white/90">Mine målinger</h3>
+                <p className="text-xs text-slate-400 dark:text-white/35">Vekt, BMI og helse-logging</p>
+              </div>
               <button
                 onClick={() => setShowBmi(false)}
-                className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-600 flex items-center justify-center"
+                className="w-9 h-9 rounded-full bg-slate-100 dark:bg-white/[0.07] flex items-center justify-center"
               >
-                x
+                <X className="w-4 h-4 text-slate-600 dark:text-white/70" />
               </button>
             </div>
 
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Siste vekt</p>
-                  <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+            <div className="px-5 pb-6 space-y-4 pt-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3">
+                  <p className="text-[11px] text-slate-400 dark:text-white/35 font-medium">Siste vekt</p>
+                  <p className="text-xl font-bold text-slate-800 dark:text-white/90 mt-0.5">
                     {latestMeasurement ? `${latestMeasurement.weightKg} kg` : `${profile.weightKg} kg`}
                   </p>
                 </div>
-                <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Endring siden sist</p>
-                  <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                <div className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3">
+                  <p className="text-[11px] text-slate-400 dark:text-white/35 font-medium">Endring siden sist</p>
+                  <p className={`text-xl font-bold mt-0.5 ${weightDeltaFromLast === null ? 'text-slate-400' : weightDeltaFromLast < 0 ? 'text-emerald-500' : 'text-orange-500'}`}>
                     {weightDeltaFromLast === null ? '--' : `${weightDeltaFromLast > 0 ? '+' : ''}${weightDeltaFromLast} kg`}
                   </p>
                 </div>
               </div>
 
-              <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Hoyde (cm)</label>
-                <input
-                  inputMode="decimal"
-                  value={heightCm}
-                  onChange={(e) => setHeightCm(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="f.eks. 180"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-white/45 uppercase tracking-wide">Høyde (cm)</label>
+                  <input
+                    inputMode="decimal"
+                    value={heightCm}
+                    onChange={(e) => setHeightCm(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-3 py-2.5 text-sm font-medium text-slate-900 dark:text-white/90 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+                    placeholder="f.eks. 180"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 dark:text-white/45 uppercase tracking-wide">Vekt (kg)</label>
+                  <input
+                    inputMode="decimal"
+                    value={weightKg}
+                    onChange={(e) => setWeightKg(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-3 py-2.5 text-sm font-medium text-slate-900 dark:text-white/90 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+                    placeholder="f.eks. 72"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Vekt (kg)</label>
-                <input
-                  inputMode="decimal"
-                  value={weightKg}
-                  onChange={(e) => setWeightKg(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="f.eks. 82"
-                />
-              </div>
-
-              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
-                {bmi === null ? (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Skriv inn hoyde og vekt for a beregne malinger.</p>
-                ) : (
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Din BMI akkurat na</p>
-                      <p className="text-2xl font-bold text-gray-800 dark:text-gray-200">{bmi.toFixed(1)}</p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{bmiCategory(bmi)}</p>
-                    </div>
+              {bmi !== null && (
+                <div className="rounded-xl bg-orange-500/[0.08] border border-orange-500/15 p-4 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[11px] text-orange-500 dark:text-orange-400 font-semibold uppercase tracking-wide mb-0.5">Din BMI akkurat nå</p>
+                    <p className="text-3xl font-bold text-slate-800 dark:text-white/90">{bmi.toFixed(1)}</p>
+                    <p className="text-sm text-slate-500 dark:text-white/50 mt-0.5">{bmiCategory(bmi)}</p>
                     {healthyWeightRange && (
-                      <p className="text-xs text-gray-600 dark:text-gray-300">
-                        Sunn vekt for din hoyde: ca. {healthyWeightRange.min}-{healthyWeightRange.max} kg
+                      <p className="text-[11px] text-slate-400 dark:text-white/30 mt-1">
+                        Sunn vekt: ca. {healthyWeightRange.min}–{healthyWeightRange.max} kg
                       </p>
                     )}
-                    <button
-                      onClick={saveBmi}
-                      className="rounded-xl bg-orange-500 px-4 py-2 text-white font-medium"
-                    >
-                      Lagre maling
-                    </button>
                   </div>
-                )}
-              </div>
-
-              <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Helse-logging (valgfritt)</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400">Midje (cm)</label>
-                    <input
-                      inputMode="decimal"
-                      value={waistCmInput}
-                      onChange={(e) => setWaistCmInput(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
-                      placeholder="f.eks. 84"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400">Sovn (timer)</label>
-                    <input
-                      inputMode="decimal"
-                      value={sleepHoursInput}
-                      onChange={(e) => setSleepHoursInput(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
-                      placeholder="f.eks. 7.5"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400">Hvilepuls (bpm)</label>
-                    <input
-                      inputMode="numeric"
-                      value={restingHrInput}
-                      onChange={(e) => setRestingHrInput(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
-                      placeholder="f.eks. 58"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-600 dark:text-gray-400">Stress (1-10)</label>
-                    <input
-                      inputMode="numeric"
-                      value={stressLevelInput}
-                      onChange={(e) => setStressLevelInput(e.target.value)}
-                      className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
-                      placeholder="f.eks. 4"
-                    />
-                  </div>
+                  <button
+                    onClick={saveBmi}
+                    className="shrink-0 rounded-xl bg-orange-500 px-4 py-2.5 text-sm text-white font-semibold shadow-sm"
+                  >
+                    Lagre
+                  </button>
                 </div>
-                <div className="mt-2">
-                  <label className="text-xs text-gray-600 dark:text-gray-400">Skritt (dag)</label>
+              )}
+              {bmi === null && (
+                <p className="text-sm text-slate-400 dark:text-white/30 text-center py-2">Skriv inn høyde og vekt for å beregne BMI.</p>
+              )}
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 dark:text-white/45 uppercase tracking-wide mb-3">Helse-logging (valgfritt)</p>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {([
+                    { label: 'Midje (cm)', value: waistCmInput, set: setWaistCmInput, mode: 'decimal', ph: 'f.eks. 84' },
+                    { label: 'Søvn (timer)', value: sleepHoursInput, set: setSleepHoursInput, mode: 'decimal', ph: 'f.eks. 7.5' },
+                    { label: 'Hvilepuls (bpm)', value: restingHrInput, set: setRestingHrInput, mode: 'numeric', ph: 'f.eks. 58' },
+                    { label: 'Stress (1–10)', value: stressLevelInput, set: setStressLevelInput, mode: 'numeric', ph: 'f.eks. 4' },
+                  ] as const).map(({ label, value, set, mode, ph }) => (
+                    <div key={label}>
+                      <label className="text-[11px] text-slate-400 dark:text-white/35 font-medium">{label}</label>
+                      <input
+                        inputMode={mode}
+                        value={value}
+                        onChange={(e) => set(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
+                        placeholder={ph}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2.5">
+                  <label className="text-[11px] text-slate-400 dark:text-white/35 font-medium">Skritt (dag)</label>
                   <input
                     inputMode="numeric"
                     value={stepsInput}
                     onChange={(e) => setStepsInput(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200"
+                    className="mt-1 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90 focus:outline-none focus:ring-2 focus:ring-orange-500/30"
                     placeholder="f.eks. 9000"
                   />
                 </div>
               </div>
 
               {latestHealth && (
-                <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Siste helsepunkt</p>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <p className="text-gray-600 dark:text-gray-300">Midje: <span className="font-semibold">{latestHealth.waistCm ?? '--'}{latestHealth.waistCm != null ? ' cm' : ''}</span></p>
-                    <p className="text-gray-600 dark:text-gray-300">Sovn: <span className="font-semibold">{latestHealth.sleepHours ?? '--'}{latestHealth.sleepHours != null ? ' t' : ''}</span></p>
-                    <p className="text-gray-600 dark:text-gray-300">Hvilepuls: <span className="font-semibold">{latestHealth.restingHr ?? '--'}{latestHealth.restingHr != null ? ' bpm' : ''}</span></p>
-                    <p className="text-gray-600 dark:text-gray-300">Stress: <span className="font-semibold">{latestHealth.stressLevel ?? '--'}</span></p>
-                    <p className="text-gray-600 dark:text-gray-300 col-span-2">Skritt: <span className="font-semibold">{latestHealth.steps ?? '--'}</span></p>
+                <div className="rounded-xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3">
+                  <p className="text-xs font-semibold text-slate-600 dark:text-white/60 mb-2">Siste helsepunkt</p>
+                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                    {([
+                      ['Midje', latestHealth.waistCm != null ? `${latestHealth.waistCm} cm` : '--'],
+                      ['Søvn', latestHealth.sleepHours != null ? `${latestHealth.sleepHours} t` : '--'],
+                      ['Hvilepuls', latestHealth.restingHr != null ? `${latestHealth.restingHr} bpm` : '--'],
+                      ['Stress', String(latestHealth.stressLevel ?? '--')],
+                    ] as const).map(([k, v]) => (
+                      <p key={k} className="text-slate-500 dark:text-white/45">{k}: <span className="font-semibold text-slate-700 dark:text-white/70">{v}</span></p>
+                    ))}
+                    <p className="col-span-2 text-slate-500 dark:text-white/45">Skritt: <span className="font-semibold text-slate-700 dark:text-white/70">{latestHealth.steps ?? '--'}</span></p>
                   </div>
-                  {previousHealth && (
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2">
-                      Trend siden sist:
-                      {' '}
-                      Midje {latestHealth.waistCm != null && previousHealth.waistCm != null ? `${latestHealth.waistCm - previousHealth.waistCm > 0 ? '+' : ''}${(latestHealth.waistCm - previousHealth.waistCm).toFixed(1)} cm` : '--'},
-                      {' '}
-                      Hvilepuls {latestHealth.restingHr != null && previousHealth.restingHr != null ? `${latestHealth.restingHr - previousHealth.restingHr > 0 ? '+' : ''}${(latestHealth.restingHr - previousHealth.restingHr).toFixed(0)} bpm` : '--'},
-                      {' '}
-                      Sovn {latestHealth.sleepHours != null && previousHealth.sleepHours != null ? `${latestHealth.sleepHours - previousHealth.sleepHours > 0 ? '+' : ''}${(latestHealth.sleepHours - previousHealth.sleepHours).toFixed(1)} t` : '--'}.
-                    </p>
-                  )}
                 </div>
               )}
 
-              <p className="text-xs text-gray-500 dark:text-gray-500">
-                Tips: Logg malinger 1-2 ganger i uka pa samme tidspunkt. Kombiner vekt + midje + hvilepuls for bedre helsetrend.
+              <p className="text-[11px] text-slate-400 dark:text-white/25 text-center pb-1">
+                Tips: Logg 1–2 ganger i uka på samme tidspunkt for best helsetrend.
               </p>
 
               {bmiHistory.length > 0 && (
-                <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Siste malinger</p>
-                  <div className="space-y-1">
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 dark:text-white/45 uppercase tracking-wide mb-2">Siste målinger</p>
+                  <div className="space-y-1.5">
                     {bmiHistory.slice(0, 3).map((entry) => (
-                      <p key={`${entry.date}-${entry.bmi}`} className="text-xs text-gray-600 dark:text-gray-300">
-                        {entry.date}: {entry.weightKg} kg, {entry.heightCm} cm, BMI {entry.bmi}
-                      </p>
+                      <div key={`${entry.date}-${entry.bmi}`} className="rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/[0.05] px-3 py-2 flex justify-between text-xs">
+                        <span className="text-slate-500 dark:text-white/40">{entry.date}</span>
+                        <span className="font-semibold text-slate-700 dark:text-white/70">{entry.weightKg} kg · BMI {entry.bmi}</span>
+                      </div>
                     ))}
                   </div>
                 </div>

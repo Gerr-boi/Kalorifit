@@ -1,4 +1,4 @@
-import { calculateDailyDisciplineScore, type DayLog } from './disciplineEngine';
+import { calculateDailyDisciplineScore, getTotalHydrationMl, type DayLog } from './disciplineEngine';
 import type { MonthlyIdentityReport } from './identityEngine';
 
 export type TrophyBadgeId =
@@ -170,7 +170,7 @@ export function evaluateTrophyBadges(input: TrophySystemInput): TrophyBadge[] {
   const allLogValues = allLogs.map(([, log]) => log);
   const mealsLoggedTotal = allLogValues.reduce((sum, log) => sum + Object.values(log.meals).flat().length, 0);
   const breakfastMealsTotal = allLogValues.reduce((sum, log) => sum + (log.meals.breakfast?.length ?? 0), 0);
-  const hydrationDays = allLogValues.filter((log) => log.waterMl >= 1600).length;
+  const hydrationDays = allLogValues.filter((log) => getTotalHydrationMl(log) >= 1600).length;
   const workoutDays = allLogValues.filter((log) => log.trainingKcal >= 200).length;
   const proteinGoalDays = allLogValues.filter((log) => (
     (calculateDailyDisciplineScore(log).metrics.find((metric) => metric.key === 'protein')?.percent ?? 0) >= 85

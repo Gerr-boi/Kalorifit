@@ -2,7 +2,7 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Plus, Search, Soup, Trophy, UserPlus, X } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
-import { addDays, createEmptyDayLog, startOfDay, toDateKey, type DayLog } from '../../lib/disciplineEngine';
+import { addDays, createEmptyDayLog, getTotalHydrationMl, startOfDay, toDateKey, type DayLog } from '../../lib/disciplineEngine';
 import { getBadgeStyleById } from '../../lib/trophySystem';
 
 type ReactionKey = 'fire' | 'strong' | 'beast' | 'insane' | 'watching';
@@ -97,7 +97,7 @@ function initialsFromName(name: string) {
 
 function hasAnyActivity(log: DayLog) {
   const mealCount = Object.values(log.meals).flat().length;
-  return mealCount > 0 || log.trainingKcal > 0 || log.waterMl > 0;
+  return mealCount > 0 || log.trainingKcal > 0 || getTotalHydrationMl(log) > 0;
 }
 
 function calculateStreak(logsByDate: Record<string, DayLog>) {

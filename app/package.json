@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:stack": "node scripts/run-local-stack.mjs",
     "dev:client": "node scripts/dev-client.mjs",
     "dev:server": "node server/index.js",
     "build": "tsc -b && vite build",

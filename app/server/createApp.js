@@ -246,6 +246,9 @@ export function createApp(options = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
   const provider = options.provider ?? new FoodDetectionBotProvider(options.foodDetectionBot ?? {});
+  const resolveProvider = (req) => (
+    typeof provider?.withRequestContext === 'function' ? provider.withRequestContext(req) : provider
+  );
   const threshold = typeof options.threshold === 'number' ? options.threshold : DEFAULT_THRESHOLD;
   const loadAdaptiveRankingRules =
     typeof options.loadAdaptiveRankingRules === 'function' ? options.loadAdaptiveRankingRules : defaultLoadAdaptiveRankingRules;
@@ -255,8 +258,9 @@ export function createApp(options = {}) {
     limits: { fileSize: MAX_FILE_SIZE_BYTES },
   });
 
-  app.get('/api/health', async (_req, res) => {
-    const providerHealth = typeof provider.health === 'function' ? await provider.health() : null;
+  app.get('/api/health', async (req, res) => {
+    const activeProvider = resolveProvider(req);
+    const providerHealth = typeof activeProvider.health === 'function' ? await activeProvider.health(req) : null;
     res.json({
       ok: true,
       provider: 'food_detection_bot',
@@ -270,6 +274,7 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/detect-food', upload.single('image'), async (req, res) => {
+    const activeProvider = resolveProvider(req);
     const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
     const deviceInfo = req.get('x-device-info') || req.body?.deviceInfo || null;
     const scanMode = req.get('x-scan-mode') || req.body?.scanMode || 'photo';
@@ -325,8 +330,9 @@ export function createApp(options = {}) {
       logStage('INFERENCE_START');
       const inferenceAbort = new AbortController();
       const rawItems = await withTimeout(
-        provider.detectFood(file.buffer, {
+        activeProvider.detectFood(file.buffer, {
           signal: inferenceAbort.signal,
+          request: req,
           scanRequestId,
           mimeType: detectedMimeType,
           filename: file.originalname,
@@ -375,7 +381,7 @@ export function createApp(options = {}) {
         debug: detectionPayload.debug,
         meta: {
           scanRequestId,
-          modelVersion: detectionPayload.model ?? provider.modelId ?? null,
+          modelVersion: detectionPayload.model ?? activeProvider.modelId ?? null,
           provider: 'food_detection_bot',
           scanLogId: detectionPayload.scan_log_id,
         },
@@ -460,13 +466,29 @@ export function createApp(options = {}) {
         }
       }
       if (message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('network')) {
-        logStage('UPSTREAM_NETWORK_ERROR', { message });
+        const attemptedMatch = message.match(/Attempted:\s*(.*?)(?:\s+Last error:|$)/s);
+        const lastErrorMatch = message.match(/Last error:\s*(.*)$/s);
+        const attemptedUrls = attemptedMatch?.[1]
+          ? attemptedMatch[1].split(',').map((entry) => entry.trim()).filter(Boolean)
+          : [];
+        const upstreamReason = lastErrorMatch?.[1]?.trim() || message;
+        logStage('UPSTREAM_NETWORK_ERROR', {
+          message,
+          attemptedUrls,
+          upstreamReason,
+        });
         return sendError(
           res,
           502,
           scanRequestId,
           'FOOD_DETECTION_BOT_NETWORK_ERROR',
-          'Could not reach the food detection bot. Check bot process, URL, and network settings.'
+          attemptedUrls.length
+            ? `Could not reach the food detection bot. Attempted: ${attemptedUrls.join(', ')}. Last error: ${upstreamReason}`
+            : `Could not reach the food detection bot. Last error: ${upstreamReason}`,
+          {
+            attemptedUrls,
+            upstreamReason,
+          }
         );
       }
 
@@ -483,6 +505,7 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/predict-dish', upload.single('image'), async (req, res) => {
+    const activeProvider = resolveProvider(req);
     const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
 
     try {
@@ -501,8 +524,9 @@ export function createApp(options = {}) {
       const predictionAbort = new AbortController();
       const topk = Number.parseInt(req.body?.topk, 10);
       const upstream = await withTimeout(
-        provider.predictDish(file.buffer, {
+        activeProvider.predictDish(file.buffer, {
           signal: predictionAbort.signal,
+          request: req,
           scanRequestId,
           mimeType: detectedMimeType,
           filename: file.originalname,
@@ -574,6 +598,7 @@ export function createApp(options = {}) {
   });
 
   app.post('/api/scan-feedback', async (req, res) => {
+    const activeProvider = resolveProvider(req);
     const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
     const scanLogId = typeof req.body?.scanLogId === 'string' ? req.body.scanLogId.trim() : '';
     if (!scanLogId) {
@@ -605,7 +630,7 @@ export function createApp(options = {}) {
           : {}),
         ...(req.body?.feedbackContext && typeof req.body.feedbackContext === 'object' ? { feedback_context: req.body.feedbackContext } : {}),
       };
-      const upstream = await provider.submitFeedback(payload, { scanRequestId });
+      const upstream = await activeProvider.submitFeedback(payload, { scanRequestId, request: req });
       return res.json({
         ok: true,
         ...upstream,

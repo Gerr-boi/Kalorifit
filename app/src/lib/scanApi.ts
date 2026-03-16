@@ -173,10 +173,21 @@ export async function detectFoodOnImage<TStage extends string>({
   const data = parseJsonResponse(responseText, contentType, response.status);
 
   if (!response.ok) {
-    const parsed = data as { message?: string; error?: string };
+    const parsed = data as {
+      message?: string;
+      error?: string;
+      meta?: {
+        attemptedUrls?: string[];
+        upstreamReason?: string;
+      };
+    };
     const snippet = responseText.slice(0, 180).replace(/\s+/g, ' ');
+    const attemptedUrls = Array.isArray(parsed?.meta?.attemptedUrls) ? parsed.meta.attemptedUrls.filter((entry) => typeof entry === 'string' && entry.trim()) : [];
     const reason =
       parsed?.message ||
+      (attemptedUrls.length
+        ? `Attempted ${attemptedUrls.join(', ')}${parsed?.meta?.upstreamReason ? `. Last error: ${parsed.meta.upstreamReason}` : ''}`
+        : null) ||
       parsed?.error ||
       `statusText=${response.statusText || 'n/a'} body=${snippet || '<empty>'}`;
     if (response.status === 404) {

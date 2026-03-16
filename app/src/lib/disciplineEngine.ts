@@ -1,5 +1,7 @@
 export type MealId = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 
+export type BeverageType = 'water' | 'milk' | 'juice' | 'soda' | 'coffee' | 'tea' | 'smoothie' | 'other';
+
 export type FoodEntry = {
   id: string;
   name: string;
@@ -7,6 +9,9 @@ export type FoodEntry = {
   protein: number;
   carbs: number;
   fat: number;
+  drinkMl?: number;
+  beverageType?: BeverageType;
+  hydrationFactor?: number;
 };
 
 export type DayLog = {
@@ -70,6 +75,41 @@ export function createEmptyDayLog(): DayLog {
   };
 }
 
+export function getHydrationFactor(type: BeverageType): number {
+  switch (type) {
+    case 'water':
+      return 1;
+    case 'milk':
+      return 0.9;
+    case 'tea':
+      return 0.95;
+    case 'coffee':
+      return 0.9;
+    case 'juice':
+      return 0.8;
+    case 'smoothie':
+      return 0.7;
+    case 'soda':
+      return 0.65;
+    default:
+      return 0.75;
+  }
+}
+
+export function classifyBeverageType(name: string): BeverageType | null {
+  const text = name.trim().toLowerCase();
+  if (!text) return null;
+  if (/(^|\s)(water|vann|mineral water)(\s|$)/.test(text)) return 'water';
+  if (/(milk|melk|kefir|yoghurt drink|yoghurtdrikk|drinkyoghurt|sjokolademelk|chocolate milk|kakao)/.test(text)) return 'milk';
+  if (/(juice|jus|nektar|nectar|apple juice|orange juice|eplejuice)/.test(text)) return 'juice';
+  if (/(cola|coca cola|coke|pepsi|sprite|fanta|soda|brus|soft drink|energy drink)/.test(text)) return 'soda';
+  if (/(smoothie|shake|protein shake|milkshake)/.test(text)) return 'smoothie';
+  if (/(coffee|kaffe|espresso|latte|cappuccino|mocha)/.test(text)) return 'coffee';
+  if (/(tea|te|iced tea|iste)/.test(text)) return 'tea';
+  if (/(drink|drikk|beverage)/.test(text)) return 'other';
+  return null;
+}
+
 export function startOfDay(date: Date): Date {
   const copy = new Date(date);
   copy.setHours(0, 0, 0, 0);
@@ -114,6 +154,20 @@ function getDailyTotals(log: DayLog) {
   return { consumedKcal, proteinG, loggedMealSlots, totalMealsLogged };
 }
 
+export function getFoodEntryHydrationMl(entry: FoodEntry): number {
+  const drinkMl = Number(entry.drinkMl ?? 0);
+  if (!Number.isFinite(drinkMl) || drinkMl <= 0) return 0;
+  const factor = typeof entry.hydrationFactor === 'number' ? entry.hydrationFactor : getHydrationFactor(entry.beverageType ?? 'other');
+  return Math.round(drinkMl * factor);
+}
+
+export function getTotalHydrationMl(log: DayLog): number {
+  const mealHydrationMl = Object.values(log.meals)
+    .flat()
+    .reduce((sum, entry) => sum + getFoodEntryHydrationMl(entry), 0);
+  return Number(log.waterMl ?? 0) + mealHydrationMl;
+}
+
 function getGrade(score: number): DailyDisciplineScore['grade'] {
   if (score >= 85) return 'Excellent';
   if (score >= 70) return 'Strong';
@@ -123,13 +177,14 @@ function getGrade(score: number): DailyDisciplineScore['grade'] {
 
 export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore {
   const { consumedKcal, proteinG, loggedMealSlots, totalMealsLogged } = getDailyTotals(log);
+  const hydrationMl = getTotalHydrationMl(log);
   const caloriePct = clamp(100 - (Math.abs(consumedKcal - CALORIE_GOAL) / CALORIE_GOAL) * 100, 0, 100);
   const proteinPct = clamp((proteinG / PROTEIN_GOAL_G) * 100, 0, 100);
-  const waterPct = clamp((log.waterMl / WATER_GOAL_ML) * 100, 0, 100);
+  const waterPct = clamp((hydrationMl / WATER_GOAL_ML) * 100, 0, 100);
   const activityPct = clamp((log.trainingKcal / ACTIVITY_GOAL_KCAL) * 100, 0, 100);
 
   const mealCoveragePct = clamp((loggedMealSlots / 3) * 100, 0, 100);
-  const hydrationLoggedPct = log.waterMl > 0 ? 100 : 0;
+  const hydrationLoggedPct = hydrationMl > 0 ? 100 : 0;
   const activityLoggedPct = log.trainingKcal > 0 ? 100 : 0;
   const loggingPct = round(mealCoveragePct * 0.6 + hydrationLoggedPct * 0.2 + activityLoggedPct * 0.2);
 
@@ -164,14 +219,14 @@ export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore
     },
     {
       key: 'water',
-      label: 'Water',
+      label: 'Hydration',
       percent: round(waterPct),
       targetLabel: `${(WATER_GOAL_ML / 1000).toFixed(1)} L target`,
-      progressLabel: `${(log.waterMl / 1000).toFixed(1)} L logged`,
+      progressLabel: `${(hydrationMl / 1000).toFixed(1)} L logged`,
       missingLabel:
-        log.waterMl >= WATER_GOAL_ML
+        hydrationMl >= WATER_GOAL_ML
           ? 'Hydration target achieved'
-          : `${((WATER_GOAL_ML - log.waterMl) / 1000).toFixed(1)} L missing`,
+          : `${((WATER_GOAL_ML - hydrationMl) / 1000).toFixed(1)} L missing`,
     },
     {
       key: 'activity',
@@ -189,11 +244,11 @@ export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore
       label: 'Logging consistency',
       percent: round(loggingPct),
       targetLabel: '3 meals + water + activity log',
-      progressLabel: `${totalMealsLogged} meals, ${log.waterMl > 0 ? 'water logged' : 'no water log'}, ${log.trainingKcal > 0 ? 'activity logged' : 'no activity log'}`,
+      progressLabel: `${totalMealsLogged} meals, ${hydrationMl > 0 ? 'hydration logged' : 'no hydration log'}, ${log.trainingKcal > 0 ? 'activity logged' : 'no activity log'}`,
       missingLabel:
         loggingPct >= 100
           ? 'Logging fully complete'
-          : `${Math.max(0, 3 - loggedMealSlots)} meal slot(s), ${log.waterMl > 0 ? 'water done' : 'water missing'}, ${log.trainingKcal > 0 ? 'activity done' : 'activity missing'}`,
+          : `${Math.max(0, 3 - loggedMealSlots)} meal slot(s), ${hydrationMl > 0 ? 'hydration done' : 'hydration missing'}, ${log.trainingKcal > 0 ? 'activity done' : 'activity missing'}`,
     },
   ];
 

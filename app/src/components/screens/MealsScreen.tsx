@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Clock, Flame, Plus, Sparkles, Star, Users } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
-import { addDays, createEmptyDayLog, startOfDay, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
+import { addDays, createEmptyDayLog, getTotalHydrationMl, startOfDay, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
+import { getFavoriteTagMatches, inferMealMetadata, scoreMealRecommendation } from '../../lib/mealLibrary';
 import { normalizeNutritionProfile, type DietStyle, type GoalCategory, type GoalStrategy } from '../../lib/nutritionPlanner';
 import { mealRecipes, type MealRecipe, type MealSlot, type NutritionTagId, type SmartSortId } from '../../data/mealRecipes';
 
@@ -149,6 +150,8 @@ const EMPTY_PROFILE_PREFS: ProfilePrefs = {};
 const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
 const EMPTY_WORKOUTS: Array<{ dateKey: string; caloriesBurned: number }> = [];
 const EMPTY_SAVED_MEAL_TEMPLATES: SavedMealTemplate[] = [];
+const DEFAULT_FAVORITE_RECIPE_IDS = ['r1', 'r4'];
+const DEFAULT_FAVORITE_TAGS: NutritionTagId[] = ['high_protein', 'gut_health'];
 
 function createSavedMealId() {
   if (window.crypto?.randomUUID) return `saved-meal-${window.crypto.randomUUID()}`;
@@ -157,11 +160,11 @@ function createSavedMealId() {
 
 export default function MealsScreen() {
   const { activeUserId } = useCurrentUser();
-  const [favorites, setFavorites] = useState<Set<string>>(new Set(['r1', 'r4']));
   const [activeLibrary, setActiveLibrary] = useState<'discover' | 'mine'>('discover');
   const [activeSort, setActiveSort] = useState<SmartSortId>('recommended');
   const [activeMealFilter, setActiveMealFilter] = useState<MealSlot>('alle');
-  const [activeTag, setActiveTag] = useState<NutritionTagId | null>(null);
+  const [activeTagFilter, setActiveTagFilter] = useState<NutritionTagId | null>(null);
+  const [infoTag, setInfoTag] = useState<NutritionTagId | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<DisplayRecipe | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [diaryFeedback, setDiaryFeedback] = useState<string | null>(null);
@@ -179,6 +182,9 @@ export default function MealsScreen() {
   const [, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
   const [communityPosts] = useLocalStorageState<CommunityRecipePost[]>('community.posts.v1', [], { scope: 'global' });
   const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', EMPTY_SAVED_MEAL_TEMPLATES);
+  const [favoriteRecipeIds, setFavoriteRecipeIds] = useLocalStorageState<string[]>('meals.favoriteRecipeIds.v1', DEFAULT_FAVORITE_RECIPE_IDS);
+  const [favoriteTags, setFavoriteTags] = useLocalStorageState<NutritionTagId[]>('meals.favoriteTags.v1', DEFAULT_FAVORITE_TAGS);
+  const favorites = useMemo(() => new Set(favoriteRecipeIds), [favoriteRecipeIds]);
 
   const today = useMemo(() => startOfDay(new Date()), []);
   const todayKey = useMemo(() => toDateKey(today), [today]);
@@ -210,7 +216,7 @@ export default function MealsScreen() {
     return fromLogs || fromSessions;
   }, [logsByDate, todayKey, workouts]);
 
-  const poorSleepProxy = todayLog.waterMl < 800 && todaySignals.protein < 60;
+  const poorSleepProxy = getTotalHydrationMl(todayLog) < 800 && todaySignals.protein < 60;
   const stressProxy = profile.specialPhase === 'recovery' || profile.trainingType === 'crossfit';
   const lowFiberToday = todaySignals.fiber < 2;
   const recentMealKeywords = useMemo(() => {
@@ -257,7 +263,7 @@ export default function MealsScreen() {
     return blocks.slice(0, 4);
   }, [hardWorkoutToday, lowFiberToday, poorSleepProxy, profile.goalStrategy, stressProxy]);
 
-  const myRecipes = useMemo<DisplayRecipe[]>(() => {
+  const rawMyRecipes = useMemo<DisplayRecipe[]>(() => {
     return communityPosts
       .filter((post) => post.authorId === activeUserId && post.kind === 'recipe' && post.recipeTitle?.trim())
       .map((post) => ({
@@ -294,6 +300,54 @@ export default function MealsScreen() {
       .sort((a, b) => b.id.localeCompare(a.id));
   }, [activeUserId, communityPosts, profile.dietStyle, profile.goalCategory, profile.goalStrategy]);
 
+  const myRecipes = useMemo<DisplayRecipe[]>(() => {
+    return rawMyRecipes.map((recipe) => ({
+      ...recipe,
+      ...inferMealMetadata({
+        title: recipe.title,
+        calories: recipe.calories,
+        ingredients: recipe.customIngredients ?? [],
+        steps: recipe.customSteps ?? [],
+        caption: recipe.customCaption ?? '',
+      }),
+      source: 'Mine maltider',
+    }));
+  }, [rawMyRecipes]);
+
+  const communityRecipeDatabase = useMemo<DisplayRecipe[]>(() => {
+    return communityPosts
+      .filter((post) => post.kind === 'recipe' && post.recipeTitle?.trim())
+      .map((post) => {
+        const title = post.recipeTitle?.trim() ?? 'Community-oppskrift';
+        const calories = Math.max(0, Math.round(post.calories || 0));
+        const inferred = inferMealMetadata({
+          title,
+          calories,
+          ingredients: post.recipeIngredients ?? [],
+          steps: post.recipeSteps ?? [],
+          caption: post.caption?.trim() || '',
+        });
+
+        return {
+          id: `community-db-${post.id}`,
+          title,
+          image: post.imageDataUrl || COMMUNITY_RECIPE_PLACEHOLDER,
+          calories,
+          time: `${Math.max(1, post.recipePrepMinutes ?? 20)} min`,
+          rating: 4.5,
+          reviews: Math.max(1, (post.recipeIngredients?.length ?? 0) + (post.recipeSteps?.length ?? 0)),
+          source: 'Community',
+          servings: Math.max(1, post.recipeServings ?? 1),
+          ...inferred,
+          origin: 'community' as const,
+          customIngredients: post.recipeIngredients ?? [],
+          customSteps: post.recipeSteps ?? [],
+          customCaption: post.caption?.trim() || '',
+        };
+      })
+      .sort((a, b) => b.reviews - a.reviews || a.title.localeCompare(b.title));
+  }, [communityPosts]);
+
   const savedMeals = useMemo<DisplayRecipe[]>(() => {
     return savedMealTemplates
       .map((template) => {
@@ -320,6 +374,17 @@ export default function MealsScreen() {
             : template.mealId === 'dinner'
               ? 'Middag'
               : 'Snacks';
+        const inferred = inferMealMetadata({
+          title: template.name,
+          calories: Math.max(0, Math.round(totals.kcal)),
+          ingredients: template.items.map((item) => item.name),
+          mealIdHint: template.mealId,
+          macroHints: {
+            protein: totals.protein,
+            carbs: totals.carbs,
+            fat: totals.fat,
+          },
+        });
 
         return {
           id: `saved-${template.id}`,
@@ -331,22 +396,8 @@ export default function MealsScreen() {
           reviews: Math.max(1, template.usageCount || 0),
           source: 'Lagrede maltider',
           servings: 1,
-          mealSlots: [mealSlot] satisfies Array<Exclude<MealSlot, 'alle'>>,
-          tags: [] as NutritionTagId[],
-          sortContexts: ['recommended', 'goal'] satisfies SmartSortId[],
-          dietStyles: [profile.dietStyle],
-          goalCategories: [profile.goalCategory],
-          goalStrategies: [profile.goalStrategy],
-          containsAllergens: [],
-          signals: {
-            fiber: Math.max(1, Math.round(totals.carbs / 12)),
-            fermented: false,
-            antiInflammatory: false,
-            highProtein: totals.protein >= 25,
-            eveningFriendly: template.mealId !== 'breakfast',
-            highEnergy: totals.kcal >= 500,
-            magnesiumRich: totals.fat >= 15,
-          },
+          ...inferred,
+          mealSlots: inferred.mealSlots.length > 0 ? inferred.mealSlots : [mealSlot] satisfies Array<Exclude<MealSlot, 'alle'>>,
           origin: 'saved' as const,
           customIngredients: template.items.map((item) => `${item.name} - ${Math.round(item.kcal)} kcal`),
           customSteps: [
@@ -357,49 +408,52 @@ export default function MealsScreen() {
         };
       })
       .sort((a, b) => b.reviews - a.reviews || a.title.localeCompare(b.title));
-  }, [profile.dietStyle, profile.goalCategory, profile.goalStrategy, savedMealTemplates]);
+  }, [savedMealTemplates]);
 
   const filteredRecipes = useMemo<DisplayRecipe[]>(() => {
     const blocked = new Set([...(profilePrefs.allergies ?? []), ...(profilePrefs.intolerances ?? [])].map((v) => v.toLowerCase()));
     const profileDietFilter = profile.dietStyle === 'vegan' ? 'vegan' : profile.dietStyle === 'vegetarian' ? 'vegetarian' : 'alle';
     const sourceRecipes = activeLibrary === 'mine'
       ? [...savedMeals, ...myRecipes]
-      : recipes.map((recipe) => ({ ...recipe, origin: 'catalog' as const }));
+      : [...recipes.map((recipe) => ({ ...recipe, origin: 'catalog' as const })), ...communityRecipeDatabase];
 
     const eligible = sourceRecipes.filter((recipe) => {
       if (recipe.containsAllergens.some((a) => blocked.has(a.toLowerCase()))) return false;
       if (activeMealFilter !== 'alle' && !recipe.mealSlots.includes(activeMealFilter)) return false;
+      if (activeTagFilter && !recipe.tags.includes(activeTagFilter)) return false;
       if (profileDietFilter === 'vegan' && !recipe.dietStyles.includes('vegan')) return false;
       if (profileDietFilter === 'vegetarian' && !(recipe.dietStyles.includes('vegetarian') || recipe.dietStyles.includes('vegan'))) return false;
       return true;
     });
     const scoped = showFavoritesOnly ? eligible.filter((recipe) => favorites.has(recipe.id)) : eligible;
     return [...scoped].sort((a, b) => {
-      const score = (r: MealRecipe) => {
-        let s = r.rating;
-        if (r.sortContexts.includes(activeSort)) s += 7;
-        if (r.dietStyles.includes(profile.dietStyle)) s += 5;
-        if (r.goalCategories.includes(profile.goalCategory)) s += 5;
-        if (r.goalStrategies.includes(profile.goalStrategy)) s += 4;
-        if (hardWorkoutToday && r.tags.includes('recovery')) s += 4;
-        if (lowFiberToday && r.signals.fiber >= 7) s += 3;
-        if (activeSort === 'goal' && r.goalCategories.includes(profile.goalCategory)) s += 3;
-        if (activeSort === 'post_workout' && r.signals.highProtein) s += 3;
-        if (activeSort === 'evening' && r.signals.eveningFriendly) s += 3;
-        if (activeSort === 'gut' && (r.signals.fermented || r.signals.fiber >= 6)) s += 4;
-        if (activeSort === 'high_energy' && r.signals.highEnergy) s += 4;
-        if (activeSort === 'anti_inflammatory' && r.signals.antiInflammatory) s += 4;
-        if (activeSort === 'recommended') {
-          const title = r.title.toLowerCase();
-          const keywordMatches = Array.from(recentMealKeywords).filter((token) => title.includes(token)).length;
-          s += Math.min(keywordMatches, 2) * 1.5;
-          if (favorites.has(r.id)) s += 1;
-        }
-        return s;
-      };
-      return score(b) - score(a);
+      return scoreMealRecommendation({
+        recipe: b,
+        activeSort,
+        profileDietStyle: profile.dietStyle,
+        profileGoalCategory: profile.goalCategory,
+        profileGoalStrategy: profile.goalStrategy,
+        hardWorkoutToday,
+        lowFiberToday,
+        recentMealKeywords,
+        favoriteRecipeIds: favorites,
+        favoriteTags,
+        activeTagFilter,
+      }) - scoreMealRecommendation({
+        recipe: a,
+        activeSort,
+        profileDietStyle: profile.dietStyle,
+        profileGoalCategory: profile.goalCategory,
+        profileGoalStrategy: profile.goalStrategy,
+        hardWorkoutToday,
+        lowFiberToday,
+        recentMealKeywords,
+        favoriteRecipeIds: favorites,
+        favoriteTags,
+        activeTagFilter,
+      });
     });
-  }, [activeLibrary, activeMealFilter, activeSort, favorites, hardWorkoutToday, lowFiberToday, myRecipes, profile.dietStyle, profile.goalCategory, profile.goalStrategy, profilePrefs.allergies, profilePrefs.intolerances, recentMealKeywords, savedMeals, showFavoritesOnly]);
+  }, [activeLibrary, activeMealFilter, activeSort, activeTagFilter, communityRecipeDatabase, favoriteTags, favorites, hardWorkoutToday, lowFiberToday, myRecipes, profile.dietStyle, profile.goalCategory, profile.goalStrategy, profilePrefs.allergies, profilePrefs.intolerances, recentMealKeywords, savedMeals, showFavoritesOnly]);
 
   const blocksWithItems = useMemo(() => recommendationBlocks.map((block) => ({ ...block, items: filteredRecipes.filter(block.match).slice(0, 3) })), [filteredRecipes, recommendationBlocks]);
   const visibleRecommendationBlocks = useMemo(
@@ -408,6 +462,7 @@ export default function MealsScreen() {
   );
   const activeSortLabel = smartSortOptions.find((item) => item.id === activeSort)?.label ?? 'Anbefalt for deg';
   const mealFilterLabel = activeMealFilter === 'alle' ? 'For deg' : activeMealFilter[0].toUpperCase() + activeMealFilter.slice(1);
+  const activeTagLabel = activeTagFilter ? tagInfo[activeTagFilter].label : 'Alle tags';
   const selectedMacros = selectedRecipe ? estimateMacros(selectedRecipe) : null;
   const selectedMicros = selectedRecipe ? estimateMicros(selectedRecipe) : null;
   const selectedIngredients = selectedRecipe ? getRecipeIngredients(selectedRecipe) : [];
@@ -419,7 +474,23 @@ export default function MealsScreen() {
   const collectionTitle = activeLibrary === 'mine' ? 'Dine maltider' : 'Alle forslag';
   const collectionDescription = activeLibrary === 'mine'
     ? `${mineCount} lagrede eller egne maltider.`
-    : `${filteredRecipes.length} forslag sortert for deg.`;
+    : `${filteredRecipes.length} forslag fra katalog og community.`;
+
+  function toggleFavoriteRecipe(recipeId: string) {
+    setFavoriteRecipeIds((prev) => (
+      prev.includes(recipeId)
+        ? prev.filter((id) => id !== recipeId)
+        : [...prev, recipeId]
+    ));
+  }
+
+  function toggleFavoriteTag(tag: NutritionTagId) {
+    setFavoriteTags((prev) => (
+      prev.includes(tag)
+        ? prev.filter((value) => value !== tag)
+        : [...prev, tag]
+    ));
+  }
 
   function toMealId(slot: Exclude<MealSlot, 'alle'>): MealId {
     if (slot === 'frokost') return 'breakfast';
@@ -748,6 +819,68 @@ export default function MealsScreen() {
               ))}
             </div>
           </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Tags</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400">{activeTagLabel}</p>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              <button
+                type="button"
+                onClick={() => setActiveTagFilter(null)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
+                  activeTagFilter === null
+                    ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
+                    : 'border-slate-200 bg-white text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                }`}
+              >
+                Alle tags
+              </button>
+              {Object.entries(tagInfo).map(([tag, info]) => {
+                const typedTag = tag as NutritionTagId;
+                const isFavoriteTag = favoriteTags.includes(tag as NutritionTagId);
+                const isActiveFilter = activeTagFilter === typedTag;
+                return (
+                  <div key={tag} className="inline-flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTagFilter((prev) => prev === typedTag ? null : typedTag)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
+                      isActiveFilter
+                        ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
+                        : isFavoriteTag
+                        ? 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200'
+                        : 'border-slate-200 bg-white text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                    }`}
+                  >
+                    <Star className={`h-3.5 w-3.5 ${isFavoriteTag ? 'fill-current' : ''}`} />
+                    {info.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleFavoriteTag(typedTag)}
+                    className={`rounded-full border px-2 py-2 text-[10px] font-semibold ${
+                      isFavoriteTag
+                        ? 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200'
+                        : 'border-slate-200 bg-white text-slate-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400'
+                    }`}
+                    aria-label={`Toggle favorite tag ${info.label}`}
+                  >
+                    Fav
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInfoTag(typedTag)}
+                    className="rounded-full border border-slate-200 bg-white px-2 py-2 text-[10px] font-semibold text-slate-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
+                    aria-label={`Show info for ${info.label}`}
+                  >
+                    Info
+                  </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
         {false && (
         <>
@@ -875,7 +1008,9 @@ export default function MealsScreen() {
       <div className="px-4 py-3 flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-slate-700 dark:text-gray-200">{collectionTitle}</p>
-          <p className="text-xs text-slate-500 dark:text-gray-400">{collectionDescription}</p>
+          <p className="text-xs text-slate-500 dark:text-gray-400">
+            {collectionDescription}{activeTagFilter ? ` Filtrert pa ${tagInfo[activeTagFilter].label}.` : ''}
+          </p>
         </div>
         <button
           onClick={() => setShowFavoritesOnly((prev) => !prev)}
@@ -899,6 +1034,7 @@ export default function MealsScreen() {
           </div>
         )}
         {filteredRecipes.map((recipe) => {
+          const favoriteTagMatches = getFavoriteTagMatches(recipe, favoriteTags);
           const recommendationReasons = [
             recipe.goalCategories.includes(profile.goalCategory) ? 'Matcher mal' : null,
             recipe.dietStyles.includes(profile.dietStyle) ? 'Passer koststil' : null,
@@ -906,6 +1042,7 @@ export default function MealsScreen() {
             lowFiberToday && recipe.signals.fiber >= 7 ? 'Hoy fiber i dag' : null,
             activeSort === 'gut' && (recipe.signals.fermented || recipe.signals.fiber >= 6) ? 'Tarmvennlig' : null,
             activeSort === 'evening' && recipe.signals.eveningFriendly ? 'Kveldvennlig' : null,
+            favoriteTagMatches[0] ? `Favoritt-tag ${tagInfo[favoriteTagMatches[0]].label}` : null,
           ].filter(Boolean).slice(0, 3) as string[];
           return (
             <div
@@ -919,7 +1056,7 @@ export default function MealsScreen() {
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
-                    setFavorites((prev) => (prev.has(recipe.id) ? new Set([...prev].filter((id) => id !== recipe.id)) : new Set(prev).add(recipe.id)));
+                    toggleFavoriteRecipe(recipe.id);
                   }}
                   className="absolute top-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 shadow-md backdrop-blur dark:bg-gray-800/90"
                 >
@@ -929,6 +1066,11 @@ export default function MealsScreen() {
                   <span className="inline-flex rounded-full border border-white/20 bg-black/45 px-3 py-1 text-[11px] font-medium text-white backdrop-blur">
                     {recipe.source}
                   </span>
+                  {favorites.has(recipe.id) ? (
+                    <span className="inline-flex rounded-full border border-yellow-300/60 bg-yellow-400/20 px-3 py-1 text-[11px] font-medium text-yellow-100 backdrop-blur">
+                      Favoritt
+                    </span>
+                  ) : null}
                 </div>
                 <div className="absolute bottom-3 left-3 right-14">
                   <h3 className="line-clamp-2 text-lg font-semibold text-white">{recipe.title}</h3>
@@ -984,8 +1126,38 @@ export default function MealsScreen() {
                 {recipe.tags.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {recipe.tags.map((tag) => (
-                      <button key={tag} className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-700 dark:bg-gray-800 dark:text-gray-300" onClick={(event) => { event.stopPropagation(); setActiveTag(tag); }}>
+                      <button
+                        key={tag}
+                        className={`rounded-full px-2.5 py-1 text-xs ${
+                          activeTagFilter === tag
+                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                            : favoriteTags.includes(tag)
+                            ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-200 dark:ring-orange-500/30'
+                            : 'bg-slate-100 text-slate-700 dark:bg-gray-800 dark:text-gray-300'
+                        }`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setActiveTagFilter((prev) => prev === tag ? null : tag);
+                        }}
+                      >
                         {tagInfo[tag].label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {recipe.tags.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {recipe.tags.map((tag) => (
+                      <button
+                        key={`${tag}-info`}
+                        className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-500 dark:bg-gray-800 dark:text-gray-400"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setInfoTag(tag);
+                        }}
+                      >
+                        Info {tagInfo[tag].label}
                       </button>
                     ))}
                   </div>
@@ -1019,23 +1191,23 @@ export default function MealsScreen() {
         })}
       </div>
 
-      {activeTag && (
+      {infoTag && (
         <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-xl border border-transparent dark:border-gray-700">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{tagInfo[activeTag].label}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{tagInfo[activeTag].explanation}</p>
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{tagInfo[infoTag].label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{tagInfo[infoTag].explanation}</p>
               </div>
-              <button onClick={() => setActiveTag(null)} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">x</button>
+              <button onClick={() => setInfoTag(null)} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">x</button>
             </div>
             <div className="mt-4 rounded-xl border border-gray-100 dark:border-gray-700 p-3">
               <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">Article</p>
-              <a href={tagInfo[activeTag].url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-2 text-sm text-orange-600"><BookOpen className="w-4 h-4" />{tagInfo[activeTag].article}</a>
+              <a href={tagInfo[infoTag].url} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-2 text-sm text-orange-600"><BookOpen className="w-4 h-4" />{tagInfo[infoTag].article}</a>
             </div>
             <div className="mt-3 grid grid-cols-1 gap-2 text-xs">
-              <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 p-3">Supplement: {tagInfo[activeTag].supplement}</div>
-              <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-3">Training advice: {tagInfo[activeTag].training}</div>
+              <div className="rounded-xl bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 p-3">Supplement: {tagInfo[infoTag].supplement}</div>
+              <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 p-3">Training advice: {tagInfo[infoTag].training}</div>
             </div>
           </div>
         </div>

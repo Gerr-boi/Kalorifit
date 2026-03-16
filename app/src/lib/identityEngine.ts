@@ -1,5 +1,6 @@
 import {
   calculateDailyDisciplineScore,
+  getTotalHydrationMl,
   startOfDay,
   toDateKey,
   type DailyDisciplineScore,
@@ -151,7 +152,8 @@ function getLongestDisciplineStreak(logsByDate: Record<string, DayLog>, endDateI
 
 function getDailyXp(score: DailyDisciplineScore, log: DayLog): DailyXp {
   const mealsLogged = Object.values(log.meals).flat().length;
-  const loggingXp = Math.min(20, mealsLogged * 5) + (log.waterMl > 0 ? 5 : 0) + (log.trainingKcal > 0 ? 5 : 0);
+  const hydrationMl = getTotalHydrationMl(log);
+  const loggingXp = Math.min(20, mealsLogged * 5) + (hydrationMl > 0 ? 5 : 0) + (log.trainingKcal > 0 ? 5 : 0);
 
   const goalsHit = score.metrics.filter((metric) => metric.percent >= 85).length;
   const goalsXp = goalsHit * 12;

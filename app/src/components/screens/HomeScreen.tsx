@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
+  MoreHorizontal,
   Pencil,
   Plus,
   ScanLine,
@@ -17,14 +18,20 @@ import {
   Droplets,
   Dumbbell,
   X,
+  BarChart2,
+  RefreshCw,
+  Settings,
+  BookOpen,
+  ChevronDown,
 } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
   CALORIE_GOAL,
   WATER_GOAL_ML,
+  addDays,
   calculateDailyDisciplineScore,
   createEmptyDayLog,
-  addDays,
+  getTotalHydrationMl,
   startOfDay,
   startOfWeekMonday,
   toDateKey,
@@ -134,6 +141,17 @@ type HomeProfile = {
   bmiHistory?: Array<{ date: string; weightKg: number }>;
 };
 
+type DayMicroLog = {
+  fiberG?: number;
+  omega3G?: number;
+  ironMg?: number;
+  calciumMg?: number;
+  vitCMg?: number;
+  vitDUg?: number;
+  magMg?: number;
+  zincMg?: number;
+};
+
 const RING_RADIUS = 90;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const SWIPE_THRESHOLD = 45;
@@ -143,6 +161,7 @@ const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
 const EMPTY_HOME_PROFILE: HomeProfile = {};
 const EMPTY_LOG_EVENTS: LogEvent[] = [];
 const EMPTY_SAVED_MEAL_TEMPLATES: SavedMealTemplate[] = [];
+const EMPTY_MICRO_LOGS: Record<string, DayMicroLog> = {};
 const EMPTY_WORKOUT_SESSIONS: WorkoutSession[] = [];
 const EMPTY_DATE_FLAGS: Record<string, true> = {};
 const CONSISTENCY_DROP_INSIGHT = 'Consistency dropped this week. Use a simpler logging mode temporarily.';
@@ -213,6 +232,7 @@ const fullDateFormat = new Intl.DateTimeFormat('nb-NO', {
   month: 'long',
   year: 'numeric',
 });
+const kcalNumberFormat = new Intl.NumberFormat('nb-NO');
 
 function formatDateKey(dateKey: string) {
   if (typeof dateKey !== 'string') return fullDateFormat.format(new Date());
@@ -274,10 +294,10 @@ function getMealSignature(items: FoodEntry[]) {
 function cloneDayLog(log: DayLog): DayLog {
   return {
     meals: {
-      breakfast: [...log.meals.breakfast],
-      lunch: [...log.meals.lunch],
-      dinner: [...log.meals.dinner],
-      snacks: [...log.meals.snacks],
+      breakfast: log.meals.breakfast.map((item) => ({ ...item })),
+      lunch: log.meals.lunch.map((item) => ({ ...item })),
+      dinner: log.meals.dinner.map((item) => ({ ...item })),
+      snacks: log.meals.snacks.map((item) => ({ ...item })),
     },
     trainingKcal: log.trainingKcal,
     waterMl: log.waterMl,
@@ -368,6 +388,10 @@ export default function HomeScreen() {
   const [ringExpanded, setRingExpanded] = useState(false);
   const [expandedMeals, setExpandedMeals] = useState<Record<MealId, boolean>>(collapsedMeals);
   const [showQuickAddMenu, setShowQuickAddMenu] = useState(false);
+  const [showNutrientModal, setShowNutrientModal] = useState(false);
+  const [microLogsByDate, setMicroLogsByDate] = useLocalStorageState<Record<string, DayMicroLog>>('home.microLogs.v1', EMPTY_MICRO_LOGS);
+  const [microInputKey, setMicroInputKey] = useState<keyof DayMicroLog | null>(null);
+  const [microInputValue, setMicroInputValue] = useState('');
   const [scanHint, setScanHint] = useState<string | null>(null);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate | null>(null);
@@ -384,9 +408,15 @@ export default function HomeScreen() {
   const [workoutExerciseName, setWorkoutExerciseName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
-  const [waterMeterMl, setWaterMeterMl] = useState(250);
   const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
   const [nutritionBoxExpanded, setNutritionBoxExpanded] = useState(false);
+  const [animatedProgressRatio, setAnimatedProgressRatio] = useState(0);
+  const [animatedProgressValue, setAnimatedProgressValue] = useState(0);
+  const [ringAnimating, setRingAnimating] = useState(false);
+  const [animatedConsumed, setAnimatedConsumed] = useState(0);
+  const [animatedGoal, setAnimatedGoal] = useState(0);
+  const [animatedTraining, setAnimatedTraining] = useState(0);
+  const [flashedStat, setFlashedStat] = useState<'consumed' | 'goal' | 'training' | null>(null);
   const [editingFood, setEditingFood] = useState<{
     mealId: MealId;
     entryId: string;
@@ -396,10 +426,29 @@ export default function HomeScreen() {
     carbs: string;
     fat: string;
   } | null>(null);
+  const [manualAddMeal, setManualAddMeal] = useState<MealId | null>(null);
+  const [manualName, setManualName] = useState('');
+  const [manualKcal, setManualKcal] = useState('');
+  const [manualProtein, setManualProtein] = useState('');
+  const [manualCarbs, setManualCarbs] = useState('');
+  const [manualFat, setManualFat] = useState('');
+  const [headerMomentFlash, setHeaderMomentFlash] = useState(false);
+  const [waterPourActive, setWaterPourActive] = useState(false);
   const swipeStartXRef = useRef<number | null>(null);
   const ringLastTapAtRef = useRef(0);
   const trainingFlexTimeoutRef = useRef<number | null>(null);
   const waterCupAnimationTimersRef = useRef<number[]>([]);
+  const progressAnimationFrameRef = useRef<number | null>(null);
+  const progressAnimationTimeoutRef = useRef<number | null>(null);
+  const animatedProgressRatioRef = useRef(0);
+  const animatedProgressValueRef = useRef(0);
+  const animatedConsumedRef = useRef(0);
+  const animatedGoalRef = useRef(0);
+  const animatedTrainingRef = useRef(0);
+  const statAnimationFrameRef = useRef<number | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const headerMomentTimerRef = useRef<number | null>(null);
+  const waterPourTimerRef = useRef<number | null>(null);
   const mealSwipeStartXRef = useRef<Record<MealId, number | null>>({
     breakfast: null,
     lunch: null,
@@ -495,12 +544,17 @@ export default function HomeScreen() {
   const optimizedTargetKcal = smartDietPlan.optimizedTargetKcal;
   const netGoal = optimizedTargetKcal + dayLog.trainingKcal;
   const caloriesRemaining = netGoal - consumed;
-  const waterProgress = Math.min(dayLog.waterMl / WATER_GOAL_ML, 1);
-  const bottleFillPercent = Math.round(Math.max(4, waterProgress * 100));
+  const hydrationMl = getTotalHydrationMl(dayLog);
+  const waterProgress = Math.min(hydrationMl / WATER_GOAL_ML, 1);
   const progressRatio = netGoal <= 0 ? 0 : Math.min(consumed / netGoal, 1);
-  const strokeDashoffset = RING_CIRCUMFERENCE - progressRatio * RING_CIRCUMFERENCE;
   const ringColor = getRingColor(caloriesRemaining);
   const discipline = useMemo(() => calculateDailyDisciplineScore(dayLog), [dayLog]);
+  const progressText = caloriesRemaining < 0 ? 'OVER MAL' : 'KALORIER GJENSTAR';
+  const progressValue = caloriesRemaining < 0 ? Math.abs(caloriesRemaining) : caloriesRemaining;
+  const progressDetailText = caloriesRemaining < 0
+    ? `${kcalNumberFormat.format(consumed - netGoal)} kcal over dagens netto mal`
+    : `${kcalNumberFormat.format(netGoal)} kcal netto mal i dag`;
+  const animatedStrokeDashoffset = RING_CIRCUMFERENCE - animatedProgressRatio * RING_CIRCUMFERENCE;
   const consistencyDropInsight = useMemo(
     () => smartDietPlan.behaviorInsights.find((insight) => insight === CONSISTENCY_DROP_INSIGHT) ?? null,
     [smartDietPlan.behaviorInsights],
@@ -643,12 +697,193 @@ export default function HomeScreen() {
       ),
     [dayLog.meals],
   );
-  const consistencyBadge = useMemo(() => {
-    if (streak >= 30 || weeklyConsistencyScore >= 85) return { label: 'Maskin', tone: 'bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-400/25 dark:text-emerald-100 dark:border-emerald-200/40' };
-    if (streak >= 14 || weeklyConsistencyScore >= 70) return { label: 'Dedikert', tone: 'bg-cyan-100 text-cyan-700 border-cyan-300 dark:bg-cyan-400/25 dark:text-cyan-100 dark:border-cyan-300/40' };
-    if (streak >= 7 || weeklyConsistencyScore >= 45) return { label: 'Aktiv', tone: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-300/25 dark:text-amber-50 dark:border-amber-200/40' };
-    return { label: 'Nybegynner', tone: 'bg-slate-100 text-slate-700 border-slate-300 dark:bg-white/20 dark:text-white dark:border-white/35' };
-  }, [streak, weeklyConsistencyScore]);
+  // ── Identity layer: slow-changing, reflects behavioral trend over days/weeks ──
+  const identityMode = useMemo(() => {
+    // Count consecutive days without any logged food (gap detection)
+    let daysSinceLastLog = 0;
+    for (let i = 1; i <= 14; i++) {
+      const key = toDateKey(addDays(today, -i));
+      const log = logsByDate[key];
+      if (log && Object.values(log.meals).some((items) => items.length > 0)) break;
+      daysSinceLastLog++;
+    }
+    // Returned today after a lapse → Rebuilding (warm comeback, never punishing)
+    if (consumed > 0 && daysSinceLastLog >= 2) return 'rebuilding' as const;
+    // Strong streak + solid weekly consistency → Locked In
+    if (streak >= 5 && weeklyConsistencyScore >= 71) return 'locked_in' as const;
+    // Regular logging pattern → Steady
+    if (weeklyConsistencyScore >= 43 || streak >= 3) return 'steady' as const;
+    return 'building' as const;
+  }, [consumed, logsByDate, streak, today, weeklyConsistencyScore]);
+
+  const identityCaption = useMemo(() => {
+    const map = {
+      locked_in: 'Du er i en god rytme nå',
+      rebuilding: 'Bra at du er tilbake',
+      steady: 'Du blir mer konsistent',
+      building: 'Begynner å bygge vaner',
+    } as const;
+    return map[identityMode];
+  }, [identityMode]);
+
+  // Bubble animation pacing varies by identity: Locked In = confident, Rebuilding = gentle
+  const identityBubbleDurationFactor = useMemo(() => {
+    if (identityMode === 'locked_in') return 0.82;
+    if (identityMode === 'rebuilding') return 1.12;
+    return 1.0;
+  }, [identityMode]);
+
+  // CSS modifier class for header gradient shift
+  const identityHeaderModifier = useMemo(() => {
+    if (identityMode === 'locked_in') return 'screen-header-locked-in';
+    if (identityMode === 'rebuilding') return 'screen-header-rebuilding';
+    if (identityMode === 'steady') return 'screen-header-steady';
+    return '';
+  }, [identityMode]);
+  const headerActivityScore = useMemo(() => {
+    const streakScore = Math.min(streak / 14, 1);
+    const consistencyScore = weeklyConsistencyScore / 100;
+    const trainingScore = Math.min(dayLog.trainingKcal / 400, 1);
+    return Math.max(
+      0.08,
+      Math.min(
+        progressRatio * 0.34
+          + (discipline.score / 100) * 0.26
+          + waterProgress * 0.14
+          + trainingScore * 0.12
+          + streakScore * 0.08
+          + consistencyScore * 0.06,
+        1,
+      ),
+    );
+  }, [dayLog.trainingKcal, discipline.score, progressRatio, streak, waterProgress, weeklyConsistencyScore]);
+  const headerBubbleSpecs = useMemo(
+    () => [
+      { Icon: Apple, left: '9%', delay: '0s', duration: '10.5s', size: 18, threshold: 0.1 },
+      { Icon: Droplets, left: '24%', delay: '1.1s', duration: '9.1s', size: 20, threshold: 0.18 },
+      { Icon: Flame, left: '39%', delay: '0.6s', duration: '8.7s', size: 19, threshold: 0.28 },
+      { Icon: Dumbbell, left: '58%', delay: '1.8s', duration: '9.8s', size: 18, threshold: 0.4 },
+      { Icon: Egg, left: '73%', delay: '0.2s', duration: '10.9s', size: 17, threshold: 0.52 },
+      { Icon: UtensilsCrossed, left: '86%', delay: '1.4s', duration: '8.9s', size: 20, threshold: 0.66 },
+    ],
+    [],
+  );
+
+  useEffect(() => {
+    animatedProgressRatioRef.current = animatedProgressRatio;
+  }, [animatedProgressRatio]);
+
+  useEffect(() => {
+    animatedProgressValueRef.current = animatedProgressValue;
+  }, [animatedProgressValue]);
+
+  useEffect(() => {
+    if (progressAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(progressAnimationFrameRef.current);
+    }
+    if (progressAnimationTimeoutRef.current !== null) {
+      window.clearTimeout(progressAnimationTimeoutRef.current);
+    }
+
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (reduceMotion) {
+      setAnimatedProgressRatio(progressRatio);
+      setAnimatedProgressValue(progressValue);
+      setRingAnimating(false);
+      return undefined;
+    }
+
+    const ratioStart = animatedProgressRatioRef.current;
+    const valueStart = animatedProgressValueRef.current;
+    const durationMs = 950;
+    const startedAt = performance.now();
+
+    setRingAnimating(true);
+
+    const tick = (now: number) => {
+      const elapsed = now - startedAt;
+      const t = Math.min(elapsed / durationMs, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+
+      setAnimatedProgressRatio(ratioStart + (progressRatio - ratioStart) * eased);
+      setAnimatedProgressValue(Math.round(valueStart + (progressValue - valueStart) * eased));
+
+      if (t < 1) {
+        progressAnimationFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      progressAnimationFrameRef.current = null;
+      progressAnimationTimeoutRef.current = window.setTimeout(() => setRingAnimating(false), 240);
+    };
+
+    progressAnimationFrameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      if (progressAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(progressAnimationFrameRef.current);
+        progressAnimationFrameRef.current = null;
+      }
+      if (progressAnimationTimeoutRef.current !== null) {
+        window.clearTimeout(progressAnimationTimeoutRef.current);
+        progressAnimationTimeoutRef.current = null;
+      }
+    };
+  }, [progressRatio, progressValue, selectedDateKey]);
+
+  // Sync animated refs for stat pills
+  useEffect(() => { animatedConsumedRef.current = animatedConsumed; }, [animatedConsumed]);
+  useEffect(() => { animatedGoalRef.current = animatedGoal; }, [animatedGoal]);
+  useEffect(() => { animatedTrainingRef.current = animatedTraining; }, [animatedTraining]);
+
+  // Count-up animation for stat pills (Mål / Spist / Trening)
+  useEffect(() => {
+    if (statAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(statAnimationFrameRef.current);
+    }
+
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (reduceMotion) {
+      setAnimatedConsumed(consumed);
+      setAnimatedGoal(optimizedTargetKcal);
+      setAnimatedTraining(dayLog.trainingKcal);
+      return undefined;
+    }
+
+    const consumedStart = animatedConsumedRef.current;
+    const goalStart = animatedGoalRef.current;
+    const trainingStart = animatedTrainingRef.current;
+    const durationMs = 800;
+    const startedAt = performance.now();
+
+    if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
+    if (consumed !== consumedStart) setFlashedStat('consumed');
+    else if (optimizedTargetKcal !== goalStart) setFlashedStat('goal');
+    else if (dayLog.trainingKcal !== trainingStart) setFlashedStat('training');
+    flashTimerRef.current = window.setTimeout(() => setFlashedStat(null), 600);
+
+    const tick = (now: number) => {
+      const t = Math.min((now - startedAt) / durationMs, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimatedConsumed(Math.round(consumedStart + (consumed - consumedStart) * eased));
+      setAnimatedGoal(Math.round(goalStart + (optimizedTargetKcal - goalStart) * eased));
+      setAnimatedTraining(Math.round(trainingStart + (dayLog.trainingKcal - trainingStart) * eased));
+      if (t < 1) {
+        statAnimationFrameRef.current = window.requestAnimationFrame(tick);
+      } else {
+        statAnimationFrameRef.current = null;
+      }
+    };
+
+    statAnimationFrameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      if (statAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(statAnimationFrameRef.current);
+        statAnimationFrameRef.current = null;
+      }
+    };
+  }, [consumed, optimizedTargetKcal, dayLog.trainingKcal, selectedDateKey]);
 
   const historicalMealStats = useMemo(() => {
     const mealIds: MealId[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
@@ -830,6 +1065,12 @@ export default function HomeScreen() {
     return () => {
       if (trainingFlexTimeoutRef.current != null) {
         window.clearTimeout(trainingFlexTimeoutRef.current);
+      }
+      if (headerMomentTimerRef.current !== null) {
+        window.clearTimeout(headerMomentTimerRef.current);
+      }
+      if (waterPourTimerRef.current !== null) {
+        window.clearTimeout(waterPourTimerRef.current);
       }
       waterCupAnimationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
       waterCupAnimationTimersRef.current = [];
@@ -1059,6 +1300,10 @@ export default function HomeScreen() {
     recordEvent({ type: 'meal', actionId, mealId, kcal: food.kcal });
     maybeSuggestTemplate(mealId, nextMealItems);
     reward();
+    // Moment layer: brief header flash after every successful food log
+    if (headerMomentTimerRef.current !== null) window.clearTimeout(headerMomentTimerRef.current);
+    setHeaderMomentFlash(true);
+    headerMomentTimerRef.current = window.setTimeout(() => setHeaderMomentFlash(false), 720);
   };
 
   const openScanTab = (mode: 'photo' | 'barcode') => {
@@ -1167,7 +1412,7 @@ export default function HomeScreen() {
   };
 
   const addWater = (ml: number, actionId = 'water:250') => {
-    const beforeMl = dayLog.waterMl;
+    const beforeMl = hydrationMl;
     const afterMl = beforeMl + ml;
     const previousDay = cloneDayLog(dayLog);
     updateDayLog(selectedDateKey, (current) => ({
@@ -1181,6 +1426,10 @@ export default function HomeScreen() {
     });
     recordEvent({ type: 'water', actionId });
     reward();
+    // Trigger water pour animation in the header
+    if (waterPourTimerRef.current !== null) window.clearTimeout(waterPourTimerRef.current);
+    setWaterPourActive(true);
+    waterPourTimerRef.current = window.setTimeout(() => setWaterPourActive(false), 2200);
   };
 
   const repeatMealFromDate = (mealId: MealId, sourceKey: string | null, actionId: string) => {
@@ -1431,9 +1680,13 @@ export default function HomeScreen() {
     }
   };
 
-  const progressText = caloriesRemaining < 0 ? 'OVER MAL' : 'KALORIER GJENSTAR';
-  const progressValue = caloriesRemaining < 0 ? Math.abs(caloriesRemaining) : caloriesRemaining;
   const dateLabel = isTodaySelected ? `I dag, ${fullDateFormat.format(selectedDate)}` : fullDateFormat.format(selectedDate);
+  const timeGreeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 12) return 'God morgen';
+    if (h >= 12 && h < 18) return 'God ettermiddag';
+    return 'God kveld';
+  }, []);
   const _coachMessage =
     consumed === 0
       ? 'Start dagen med et maltid for a bygge streak.'
@@ -1516,44 +1769,148 @@ export default function HomeScreen() {
               </div>
 
               {sidebarView === 'menu' && (
-                <div className="mt-4 space-y-2">
+                <div className="mt-4 space-y-3">
+                  {/* Today at a glance */}
+                  <div className="rounded-2xl bg-orange-500/10 border border-orange-500/15 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-orange-400 mb-2">I dag</p>
+                    <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                      <div>
+                        <p className="text-base font-bold text-white/90">{consumed}</p>
+                        <p className="text-[10px] text-white/40">kcal spist</p>
+                      </div>
+                      <div>
+                        <p className="text-base font-bold text-emerald-400">{Math.round(waterProgress * 100)}%</p>
+                        <p className="text-[10px] text-white/40">vann</p>
+                      </div>
+                      <div>
+                        <p className="text-base font-bold text-orange-300">{discipline.score}</p>
+                        <p className="text-[10px] text-white/40">disiplin</p>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-500 transition-all duration-700"
+                        style={{ width: `${Math.min(100, Math.round(progressRatio * 100))}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-white/40 mt-1">{caloriesRemaining > 0 ? `${caloriesRemaining} kcal igjen` : `${Math.abs(caloriesRemaining)} kcal over mål`}</p>
+                  </div>
+
+                  {/* Quick actions */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleQuickAdd('repeat-day-yesterday');
+                        setShowSidebar(false);
+                      }}
+                      disabled={isPastSelectedDay}
+                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left disabled:opacity-40"
+                    >
+                      <RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">Gjenta i går</p>
+                        <p className="text-[10px] text-white/40">Kopier alle måltider</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
+                        setShowSidebar(false);
+                      }}
+                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left"
+                    >
+                      <Camera className="w-4 h-4 text-orange-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">AI Skann</p>
+                        <p className="text-[10px] text-white/40">Ta bilde av mat</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'meals' } }));
+                        setShowSidebar(false);
+                      }}
+                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left"
+                    >
+                      <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">Oppskrifter</p>
+                        <p className="text-[10px] text-white/40">Finn måltider</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'profile' } }));
+                        setShowSidebar(false);
+                      }}
+                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left"
+                    >
+                      <Settings className="w-4 h-4 text-slate-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">Innstillinger</p>
+                        <p className="text-[10px] text-white/40">Profil og mål</p>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Section navigators */}
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/30 px-1">Oversikt</p>
                   <button
                     type="button"
                     onClick={() => setSidebarView('logg')}
-                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-slate-100 dark:bg-white/[0.06] px-3 py-3 text-sm font-medium text-slate-700 dark:text-white/70 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-3"
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-slate-900 dark:text-white/90">Logg</p>
-                        <p className="text-xs text-slate-500 dark:text-white/40">I gar + tidligere matdager</p>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                          <BookOpen className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-white/90">Matlogg</p>
+                          <p className="text-[11px] text-white/40">I går + tidligere dager</p>
+                        </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/30" />
+                      <ChevronRight className="w-4 h-4 text-white/30" />
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarView('goals')}
-                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-slate-100 dark:bg-white/[0.06] px-3 py-3 text-sm font-medium text-slate-700 dark:text-white/70 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-3"
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-slate-900 dark:text-white/90">Goal details</p>
-                        <p className="text-xs text-slate-500 dark:text-white/40">Energi, makro, progresjon</p>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-orange-500/20 flex items-center justify-center">
+                          <BarChart2 className="w-4 h-4 text-orange-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-white/90">Mål og makro</p>
+                          <p className="text-[11px] text-white/40">Energi, makro, progresjon</p>
+                        </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/30" />
+                      <ChevronRight className="w-4 h-4 text-white/30" />
                     </div>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSidebarView('journey')}
-                    className="w-full text-left rounded-2xl border border-orange-500/10 bg-slate-100 dark:bg-white/[0.06] px-3 py-3 text-sm font-medium text-slate-700 dark:text-white/70 hover:bg-white"
+                    className="w-full text-left rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-3"
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-slate-900 dark:text-white/90">Journey</p>
-                        <p className="text-xs text-slate-500 dark:text-white/40">Vektgraf og progresjon</p>
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+                          <Flame className="w-4 h-4 text-emerald-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-white/90">Din reise</p>
+                          <p className="text-[11px] text-white/40">Vektgraf og fremgang</p>
+                        </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/30" />
+                      <ChevronRight className="w-4 h-4 text-white/30" />
                     </div>
                   </button>
                 </div>
@@ -1710,8 +2067,42 @@ export default function HomeScreen() {
       )}
 
       {/* ===== COMPACT TOP BAR ===== */}
-      <div className="screen-header">
-        <div className="rounded-2xl border border-slate-200/90 bg-white/85 p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)] backdrop-blur dark:border-white/10 dark:bg-white/[0.04] dark:shadow-none">
+      <div className={`screen-header${identityHeaderModifier ? ` ${identityHeaderModifier}` : ''}${headerMomentFlash ? ' screen-header-moment-flash' : ''}`}>
+        {waterPourActive && (
+          <div className="water-pour-container" aria-hidden="true">
+            <div className="water-pour-wave" />
+            {[9, 21, 34, 48, 61, 74, 88].map((left, i) => (
+              <span
+                key={left}
+                className="water-drop"
+                style={{ left: `${left}%`, animationDelay: `${i * 0.06}s` }}
+              />
+            ))}
+          </div>
+        )}
+        <div className="screen-header-bubbles" aria-hidden="true">
+          {headerBubbleSpecs.map(({ Icon, left, delay, duration, size, threshold }, index) => {
+            const intensity = Math.max(0, Math.min((headerActivityScore - threshold) / (1 - threshold), 1));
+            if (intensity <= 0.02) return null;
+            return (
+              <span
+                key={`${left}-${index}`}
+                className="screen-header-bubble"
+                style={{
+                  left,
+                  animationDelay: delay,
+                  animationDuration: `${(parseFloat(duration) * identityBubbleDurationFactor).toFixed(2)}s`,
+                  opacity: 0.1 + intensity * 0.34,
+                  transform: `translate3d(0, ${18 - intensity * 10}px, 0) scale(${0.78 + intensity * 0.42})`,
+                }}
+              >
+                <Icon size={size} strokeWidth={2.1} />
+              </span>
+            );
+          })}
+        </div>
+
+        <div className="screen-header-content">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
               <button
@@ -1723,38 +2114,31 @@ export default function HomeScreen() {
                     return next;
                   });
                 }}
-                className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/80 dark:hover:bg-white/[0.1]"
+                className="h-9 w-9 shrink-0 rounded-2xl bg-slate-100/80 dark:bg-white/[0.07] flex items-center justify-center text-slate-600 dark:text-white/70 transition-colors hover:bg-slate-200/80 dark:hover:bg-white/[0.12]"
                 title="Åpne meny"
               >
                 {showSidebar ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
               </button>
               <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex h-6 items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 text-[10px] font-semibold uppercase tracking-wide text-orange-700 dark:border-orange-400/30 dark:bg-orange-500/10 dark:text-orange-300">
-                    <Flame className="h-3.5 w-3.5" />
-                    Streak
-                  </span>
-                  <span className="text-sm font-semibold text-slate-900 dark:text-white/90 truncate">{streak} dagers streak</span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${consistencyBadge.tone}`}>
-                    {consistencyBadge.label}
+                <p className="text-[17px] font-bold text-slate-900 dark:text-white/95 leading-tight">{timeGreeting}</p>
+                <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                  <span className="text-[11px] text-slate-400 dark:text-white/35 leading-tight truncate">{identityCaption}</span>
+                  <span className="text-slate-300 dark:text-white/15 text-[10px] shrink-0">·</span>
+                  <span className="flex items-center gap-0.5 text-[11px] text-slate-500 dark:text-white/40 font-medium shrink-0">
+                    <Flame className="h-3 w-3 text-orange-400" />
+                    {streak > 0 ? `${streak}d` : 'Start!'}
                   </span>
                 </div>
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-white/45">Disiplin {discipline.score}/100 · Konsistens {weeklyConsistencyScore}%</p>
               </div>
             </div>
-            <div className="flex flex-col items-end gap-1.5 shrink-0">
-              <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-slate-600 dark:border-white/[0.1] dark:bg-white/[0.06] dark:text-white/60">
-                {isTodaySelected ? 'I dag' : dateLabel}
-              </span>
-              <button
-                type="button"
-                onClick={() => setLazyMode((prev) => !prev)}
-                className="h-8 rounded-full border border-slate-200 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-white/[0.12] dark:bg-white/[0.06] dark:text-white/70 dark:hover:bg-white/[0.1]"
-                title="Enkel modus"
-              >
-                {lazyMode ? 'Enkel ✓' : 'Enkel'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setLazyMode((prev) => !prev)}
+              className={`h-8 rounded-full px-3 text-[11px] font-semibold transition-colors shrink-0 ${lazyMode ? 'bg-orange-500/15 text-orange-500 dark:text-orange-400' : 'bg-slate-100/80 dark:bg-white/[0.07] text-slate-500 dark:text-white/45 hover:bg-slate-200/80 dark:hover:bg-white/[0.12]'}`}
+              title="Enkel modus"
+            >
+              {lazyMode ? 'Enkel ✓' : 'Enkel'}
+            </button>
           </div>
         </div>
 
@@ -1768,11 +2152,15 @@ export default function HomeScreen() {
       </div>
 
       {/* ===== CALORIE RING HERO ===== */}
-      <div className="calorie-hero">
+      <div className={`calorie-hero${identityHeaderModifier ? ` calorie-hero-${identityMode.replace('_', '-')}` : ''}`}>
+        {/* Identity orbs — soft ambient particles that float around the card */}
+        <span className="hero-orb hero-orb-1" aria-hidden="true" />
+        <span className="hero-orb hero-orb-2" aria-hidden="true" />
+        <span className="hero-orb hero-orb-3" aria-hidden="true" />
         <button
           type="button"
           onClick={onRingTap}
-          className="progress-circle"
+          className={`progress-circle ${ringAnimating ? 'progress-circle-animating' : ''}`}
           title="Vis kaloridetaljer"
         >
           <svg width="220" height="220" viewBox="0 0 200 200">
@@ -1790,66 +2178,78 @@ export default function HomeScreen() {
             <circle
               cx="100" cy="100" r={RING_RADIUS}
               fill="none" stroke="url(#ringGrad)" strokeWidth="10" strokeLinecap="round"
-              strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={strokeDashoffset}
+              strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={animatedStrokeDashoffset}
               filter="url(#ringGlow)"
-              style={{ transition: 'stroke-dashoffset 800ms cubic-bezier(0.4,0,0.2,1), stroke 300ms ease' }}
+              className="progress-circle-meter"
+              style={{ transition: 'stroke 300ms ease' }}
             />
           </svg>
           <div className="progress-text">
-            <p className="text-[52px] font-bold text-slate-900 dark:text-white leading-none tracking-tight">{progressValue}</p>
-            <p className="text-slate-500 dark:text-white/50 text-xs mt-1.5 font-medium tracking-widest uppercase">{progressText}</p>
+            <p className="progress-value">{kcalNumberFormat.format(animatedProgressValue)}</p>
+            <p className="progress-label">{progressText}</p>
+            <p className="progress-detail">{progressDetailText}</p>
           </div>
         </button>
 
         {/* Stats row */}
-        <div className="flex justify-center gap-8 mt-6">
-          <div className="text-center">
-            <p className="text-xl font-bold text-slate-900 dark:text-white">{optimizedTargetKcal}</p>
-            <p className="text-[10px] text-slate-500 dark:text-white/35 font-semibold tracking-wider uppercase mt-0.5">Mål</p>
+        <div className="hero-stats-row">
+          <div className={`hero-stat-pill hero-stat-pill-goal text-center${flashedStat === 'goal' ? ' hero-stat-flash' : ''}`}>
+            <p className="hero-stat-value text-slate-900 dark:text-white">{kcalNumberFormat.format(animatedGoal)}</p>
+            <p className="hero-stat-label">Mål</p>
           </div>
-          <div className="w-px h-10 bg-slate-200 dark:bg-white/[0.08]" />
-          <div className="text-center">
-            <p className="text-xl font-bold text-orange-400">{consumed}</p>
-            <p className="text-[10px] text-slate-500 dark:text-white/35 font-semibold tracking-wider uppercase mt-0.5">Spist</p>
+          <div className="hero-stat-divider" />
+          <div className={`hero-stat-pill hero-stat-pill-eaten text-center${flashedStat === 'consumed' ? ' hero-stat-flash' : ''}`}>
+            <p className="hero-stat-value text-orange-500 dark:text-orange-300">{kcalNumberFormat.format(animatedConsumed)}</p>
+            <p className="hero-stat-label">Spist</p>
           </div>
-          <div className="w-px h-10 bg-slate-200 dark:bg-white/[0.08]" />
-          <div className="text-center">
-            <p className="text-xl font-bold text-emerald-400">+{dayLog.trainingKcal}</p>
-            <p className="text-[10px] text-slate-500 dark:text-white/35 font-semibold tracking-wider uppercase mt-0.5">Trening</p>
+          <div className="hero-stat-divider" />
+          <div className={`hero-stat-pill hero-stat-pill-training text-center${flashedStat === 'training' ? ' hero-stat-flash' : ''}`}>
+            <p className="hero-stat-value text-emerald-500 dark:text-emerald-300">+{kcalNumberFormat.format(animatedTraining)}</p>
+            <p className="hero-stat-label">Trening</p>
           </div>
         </div>
 
-        {/* Macro row when expanded */}
+        {/* Macro row when expanded — tap to open nutrient detail */}
         {ringExpanded && (
-          <div className="mt-5 grid grid-cols-4 gap-2">
-            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{Math.round(protein)}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">g</span></p>
-              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Protein</p>
-            </div>
-            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{Math.round(carbs)}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">g</span></p>
-              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Karbo</p>
-            </div>
-            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{Math.round(fat)}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">g</span></p>
-              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Fett</p>
-            </div>
-            <div className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center">
-              <p className="text-lg font-bold text-slate-900 dark:text-white">{weeklyAverage}</p>
-              <p className="text-[10px] text-slate-500 dark:text-white/35 mt-0.5">Snitt/uke</p>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowNutrientModal(true)}
+            className="mt-5 w-full grid grid-cols-4 gap-2 group"
+            title="Se næringsstoffoversikt"
+          >
+            {[
+              { label: 'Protein', value: Math.round(protein), unit: 'g', target: smartDietPlan.macros?.proteinG ?? 120, color: '#3b82f6' },
+              { label: 'Karbo', value: Math.round(carbs), unit: 'g', target: smartDietPlan.macros?.carbsG ?? 200, color: '#f97316' },
+              { label: 'Fett', value: Math.round(fat), unit: 'g', target: smartDietPlan.macros?.fatG ?? 70, color: '#a855f7' },
+              { label: 'Snitt/uke', value: weeklyAverage, unit: '', target: optimizedTargetKcal, color: '#22c55e' },
+            ].map(({ label, value, unit, target, color }) => {
+              const pct = Math.min(100, Math.round((value / Math.max(1, target)) * 100));
+              return (
+                <div key={label} className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center relative overflow-hidden">
+                  <div
+                    className="absolute bottom-0 left-0 right-0 rounded-b-xl opacity-30 transition-all duration-700"
+                    style={{ height: `${pct}%`, background: color }}
+                  />
+                  <p className="relative text-lg font-bold text-slate-900 dark:text-white">{value}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">{unit}</span></p>
+                  <p className="relative text-[10px] text-slate-500 dark:text-white/35 mt-0.5">{label}</p>
+                </div>
+              );
+            })}
+            <p className="col-span-4 text-[10px] text-slate-400 dark:text-white/25 flex items-center justify-center gap-1 mt-0.5">
+              Se fullstendig næringsoversikt <ChevronDown className="w-3 h-3" />
+            </p>
+          </button>
         )}
       </div>
 
       {/* ===== WEEKLY BAR CHART ===== */}
-      <div className="mx-4 mt-2 mb-2 rounded-2xl bg-white border border-slate-200 p-4 dark:bg-white/[0.03] dark:border-white/[0.06]">
+      <div className="weekly-card">
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] text-slate-600 dark:text-white/40 font-semibold tracking-wider uppercase">Denne uken</p>
           <p className="text-[11px] text-slate-500 dark:text-white/30">Snitt: {weeklyAverage} kcal</p>
         </div>
         <div className="flex items-end justify-between gap-2 h-24">
-          {weeklyData.map((day) => {
+          {weeklyData.map((day, barIndex) => {
             const dayTarget = Math.max(1, optimizedTargetKcal + (logsByDate[day.key]?.trainingKcal ?? 0));
             const ratioRaw = day.consumed / dayTarget;
             const ratio = Math.max(0, Math.min(ratioRaw, 1));
@@ -1859,11 +2259,12 @@ export default function HomeScreen() {
               <div key={day.key} className="flex-1 flex flex-col items-center gap-1.5">
                 <div className="w-full max-w-[14px] h-20 rounded-full bg-slate-200/70 dark:bg-white/[0.04] flex flex-col justify-end overflow-hidden">
                   <div
-                    className="w-full rounded-full transition-all duration-700 ease-out"
+                    className="w-full rounded-full weekly-bar-fill transition-all duration-700 ease-out"
                     style={{
                       height: `${fillHeight}%`,
                       backgroundColor: day.consumed > 0 ? barColor : 'rgba(148,163,184,0.4)',
                       boxShadow: day.consumed > 0 ? `0 0 8px ${barColor}30` : 'none',
+                      animationDelay: `${barIndex * 60}ms`,
                     }}
                   />
                 </div>
@@ -1883,24 +2284,24 @@ export default function HomeScreen() {
       </div>
 
       <div
-        className="flex items-center justify-center gap-4 py-4 select-none"
+        className="date-nav-row"
         onTouchStart={onDateTouchStart}
         onTouchEnd={onDateTouchEnd}
       >
         <button 
           type="button" 
-          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-slate-200 dark:border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
+          className="date-nav-button" 
           onClick={goPreviousDay} 
           title="Forrige dag"
         >
           <ChevronLeft className="w-4 h-4 text-slate-500 dark:text-white/50" />
         </button>
-        <div className="bg-slate-100 dark:bg-white/[0.06] backdrop-blur-sm border border-slate-200 dark:border-white/[0.08] rounded-2xl px-6 py-3 shadow-md">
+        <div key={selectedDateKey} className="date-nav-chip date-nav-chip-animate">
           <p className="text-slate-800 dark:text-white/80 font-medium text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
         </div>
         <button 
           type="button" 
-          className="w-9 h-9 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-slate-200 dark:border-white/[0.08] flex items-center justify-center active:scale-95 transition-transform" 
+          className="date-nav-button" 
           onClick={goNextDay} 
           title="Neste dag"
         >
@@ -1908,7 +2309,7 @@ export default function HomeScreen() {
         </button>
       </div>
 
-      <div className="card">
+      <div className="card card-elevated">
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Rask matlogging</h3>
           <span className="text-[11px] text-slate-500 dark:text-white/40 font-semibold bg-slate-100 dark:bg-white/[0.06] px-2 py-1 rounded-full">Ett trykk</span>
@@ -1927,7 +2328,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => openScanTab('barcode')}
-            className="rounded-2xl border-2 border-orange-200 bg-orange-500/10 text-orange-700 dark:text-orange-300 text-sm font-bold px-4 py-3 flex items-center justify-center gap-2 transition-all duration-300 hover:border-orange-300 hover:bg-orange-100 hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-secondary text-sm px-4 py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             <ScanLine className="w-4 h-4" />
@@ -1936,7 +2337,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('repeat-last')}
-            className="rounded-2xl border-2 border-slate-200 dark:border-white/[0.08] bg-slate-100/70 dark:bg-white/[0.03] text-slate-700 dark:text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-slate-100 dark:hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-neutral text-sm px-4 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay || !lastLoggedFood}
           >
             Gjenta sist
@@ -1944,7 +2345,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('kcal-adaptive')}
-            className="rounded-2xl border-2 border-slate-200 dark:border-white/[0.08] bg-slate-100/70 dark:bg-white/[0.03] text-slate-700 dark:text-white/70 text-sm font-bold px-4 py-3 transition-all duration-300 hover:border-gray-300 hover:bg-slate-100 dark:hover:bg-white/[0.06] hover:-translate-y-1 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-neutral text-sm px-4 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             Smart +kcal
@@ -1952,7 +2353,7 @@ export default function HomeScreen() {
         </div>
       </div>
 
-      <div className="card">
+      <div className="card card-elevated">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-white/90">Dagens matlogg</h3>
           <span className="text-[11px] text-slate-500 dark:text-white/40">{todaysLoggedItems.length} varer</span>
@@ -1961,8 +2362,8 @@ export default function HomeScreen() {
           <p className="mt-3 text-xs text-slate-500 dark:text-white/40">Ingen matvarer logget enda.</p>
         ) : (
           <div className="mt-3 space-y-2">
-            {todaysLoggedItems.map(({ mealId, index, entry }) => (
-              <div key={entry.id} className="rounded-lg border border-slate-200 dark:border-white/[0.06] px-3 py-2">
+            {todaysLoggedItems.map(({ mealId, index, entry }, itemIndex) => (
+              <div key={entry.id} className="food-log-item rounded-lg border border-slate-200 dark:border-white/[0.06] px-3 py-2" style={{ animationDelay: `${itemIndex * 40}ms` }}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase text-slate-400 dark:text-white/30">{mealLabelById[mealId]} #{index + 1}</p>
@@ -2015,7 +2416,7 @@ export default function HomeScreen() {
           return (
             <div
               key={meal.id}
-              className="meal-item flex-col items-stretch"
+              className={`meal-item flex-col items-stretch${isExpanded ? ' meal-item-expanded' : ''}`}
               onTouchStart={(event) => onMealTouchStart(meal.id, event.touches[0]?.clientX ?? 0)}
               onTouchEnd={(event) => onMealTouchEnd(meal.id, event.changedTouches[0]?.clientX ?? 0)}
             >
@@ -2025,7 +2426,7 @@ export default function HomeScreen() {
                 onClick={() => toggleMealExpanded(meal.id)}
               >
                 <div className="meal-info">
-                  <div className={`meal-icon ${mealIconToneById[meal.id]}`}>
+                  <div key={`${meal.id}-${String(isExpanded)}`} className={`meal-icon ${mealIconToneById[meal.id]}${isExpanded ? ' meal-icon-popping' : ''}`}>
                     <MealIcon className={`w-6 h-6 ${mealIconGlyphToneById[meal.id]}`} />
                   </div>
                   <div className="text-left min-w-0">
@@ -2172,12 +2573,20 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-white/40 text-xs px-3 py-2"
-                      onClick={() => setScanHint('Voice: "To egg og toast" (kommer snart).')}
-                      title="Voice input"
+                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      onClick={() => {
+                        setManualAddMeal(meal.id);
+                        setManualName('');
+                        setManualKcal('');
+                        setManualProtein('');
+                        setManualCarbs('');
+                        setManualFat('');
+                      }}
+                      title="Manuell logging"
                       disabled={isPastSelectedDay}
                     >
-                      Stemme (snart)
+                      <Pencil className="w-3.5 h-3.5" />
+                      Manuell
                     </button>
                   </div>
                 </div>
@@ -2314,20 +2723,20 @@ export default function HomeScreen() {
             <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Vann</h3>
           </div>
           <div className="text-right">
-            <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
+            <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{hydrationMl} / {WATER_GOAL_ML} ml</p>
             <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
           </div>
         </div>
 
         <div className="mt-4">
           {/* 8 Water Bottle Icons */}
-          <div className="flex justify-center items-center gap-2 mb-4">
-            {Array.from({ length: MAX_WATER_CUPS }, (_, index) => {
-              const cupIndex = index + 1;
-              const cupsNeeded = Math.ceil(dayLog.waterMl / WATER_CUP_SIZE_ML);
-              const isFilled = cupIndex <= cupsNeeded;
-              const isFirstUnfilled = cupIndex === cupsNeeded + 1;
-              const isAnimating = animatingWaterCups.includes(cupIndex);
+            <div className="flex justify-center items-center gap-2 mb-4">
+              {Array.from({ length: MAX_WATER_CUPS }, (_, index) => {
+                const cupIndex = index + 1;
+                const cupsNeeded = Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
+                const isFilled = cupIndex <= cupsNeeded;
+                const isFirstUnfilled = cupIndex === cupsNeeded + 1;
+                const isAnimating = animatingWaterCups.includes(cupIndex);
               
               return (
                 <button
@@ -2358,11 +2767,11 @@ export default function HomeScreen() {
             })}
           </div>
           
-          {/* Water progress text */}
-          <div className="text-center">
-            <p className="text-sm text-cyan-700 dark:text-cyan-300 font-medium">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
+            {/* Water progress text */}
+            <div className="text-center">
+              <p className="text-sm text-cyan-700 dark:text-cyan-300 font-medium">{hydrationMl} / {WATER_GOAL_ML} ml</p>
+            </div>
           </div>
-        </div>
 
       </div>
 
@@ -2573,6 +2982,118 @@ export default function HomeScreen() {
         </div>
       )}
 
+      {manualAddMeal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0">
+          <div className="w-full max-w-lg rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-white/[0.08] overflow-hidden shadow-2xl">
+            <div className="px-5 pt-5 pb-4 bg-gradient-to-br from-orange-500/10 to-amber-500/5">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-orange-500/15 flex items-center justify-center">
+                    <Pencil className="w-4.5 h-4.5 text-orange-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white/90">Legg til mat</h3>
+                    <p className="text-xs text-slate-500 dark:text-white/40 capitalize">
+                      {manualAddMeal === 'breakfast' ? 'Frokost' : manualAddMeal === 'lunch' ? 'Lunsj' : manualAddMeal === 'dinner' ? 'Middag' : 'Snacks'}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setManualAddMeal(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center text-slate-500 dark:text-white/50"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="px-5 pb-5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Matvare</label>
+                <input
+                  autoFocus
+                  placeholder="f.eks. Havregrøt med bær"
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Kalorier (kcal)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualKcal}
+                    onChange={(e) => setManualKcal(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-orange-500/30 bg-orange-500/5 dark:bg-orange-500/[0.04] px-4 py-3 text-sm font-semibold text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Protein (g)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualProtein}
+                    onChange={(e) => setManualProtein(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Karbohydrat (g)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualCarbs}
+                    onChange={(e) => setManualCarbs(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Fett (g)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualFat}
+                    onChange={(e) => setManualFat(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!manualAddMeal) return;
+                  const name = manualName.trim();
+                  const kcal = Number(manualKcal.replace(',', '.'));
+                  const protein = Number(manualProtein.replace(',', '.') || '0');
+                  const carbs = Number(manualCarbs.replace(',', '.') || '0');
+                  const fat = Number(manualFat.replace(',', '.') || '0');
+                  if (!name) { setScanHint('Navn mangler.'); return; }
+                  if (!Number.isFinite(kcal) || kcal < 0) { setScanHint('Ugyldig kaloriverdi.'); return; }
+                  addFoodToMeal(manualAddMeal, {
+                    id: createFoodId(),
+                    name,
+                    kcal: Math.round(kcal),
+                    protein: Math.max(0, Math.round(protein)),
+                    carbs: Math.max(0, Math.round(carbs)),
+                    fat: Math.max(0, Math.round(fat)),
+                  }, 'manual:add');
+                  setManualAddMeal(null);
+                }}
+                className="w-full rounded-2xl bg-orange-500 text-white py-3.5 text-sm font-semibold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20"
+              >
+                <Plus className="w-4 h-4" />
+                Legg til {manualKcal ? `${manualKcal} kcal` : 'mat'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingFood && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
@@ -2717,15 +3238,173 @@ export default function HomeScreen() {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => setShowQuickAddMenu((prev) => !prev)}
-        className="fixed right-4 bottom-8 z-50 w-14 h-14 rounded-full bg-orange-500/100 text-white shadow-lg flex items-center justify-center"
-        title="Quick add"
-        disabled={isPastSelectedDay}
-      >
-        <Plus className={`w-6 h-6 transition-transform ${showQuickAddMenu ? 'rotate-45' : ''}`} />
-      </button>
+      {/* ===== NUTRIENT DETAIL MODAL ===== */}
+      {showNutrientModal && (() => {
+        const proteinTarget = smartDietPlan.macros?.proteinG ?? 120;
+        const carbsTarget = smartDietPlan.macros?.carbsG ?? 200;
+        const fatTarget = smartDietPlan.macros?.fatG ?? 70;
+
+        const dayMicro = microLogsByDate[selectedDateKey] ?? {};
+
+        // Use logged value if present, else estimate from intake
+        const microVal = (key: keyof DayMicroLog, est: number) =>
+          dayMicro[key] != null ? dayMicro[key]! : est;
+
+        const logMicro = (key: keyof DayMicroLog, raw: string) => {
+          const n = Number(raw.replace(',', '.'));
+          if (!Number.isFinite(n) || n < 0) return;
+          setMicroLogsByDate(prev => ({
+            ...prev,
+            [selectedDateKey]: { ...(prev[selectedDateKey] ?? {}), [key]: Math.round(n * 10) / 10 },
+          }));
+          setMicroInputKey(null);
+          setMicroInputValue('');
+        };
+
+        const addMicro = (key: keyof DayMicroLog, delta: number) => {
+          setMicroLogsByDate(prev => {
+            const cur = (prev[selectedDateKey] ?? {})[key] ?? 0;
+            return { ...prev, [selectedDateKey]: { ...(prev[selectedDateKey] ?? {}), [key]: Math.max(0, Math.round((cur + delta) * 10) / 10) } };
+          });
+        };
+
+        const getBarColor = (pct: number) => {
+          if (pct < 30) return '#ef4444';
+          if (pct < 55) return '#f97316';
+          if (pct < 80) return '#eab308';
+          if (pct <= 115) return '#22c55e';
+          return '#3b82f6';
+        };
+
+        const macros = [
+          { label: 'Protein', value: Math.round(protein), target: proteinTarget, unit: 'g', color: '#3b82f6' },
+          { label: 'Karbo', value: Math.round(carbs), target: carbsTarget, unit: 'g', color: '#f97316' },
+          { label: 'Fett', value: Math.round(fat), target: fatTarget, unit: 'g', color: '#a855f7' },
+        ];
+        const maxMacroVal = Math.max(...macros.map(m => Math.max(m.value, m.target)));
+
+        type MicroDef = { label: string; key: keyof DayMicroLog; est: number; target: number; unit: string; step: number };
+        const microDefs: MicroDef[] = [
+          { label: 'Fiber', key: 'fiberG', est: Math.round((consumed / 1000) * 12), target: 28, unit: 'g', step: 1 },
+          { label: 'Omega-3', key: 'omega3G', est: Math.round(fat * 0.06), target: 2, unit: 'g', step: 0.1 },
+          { label: 'Jern', key: 'ironMg', est: Math.round((consumed / 2000) * 14), target: 18, unit: 'mg', step: 1 },
+          { label: 'Kalsium', key: 'calciumMg', est: Math.round((consumed / 2000) * 900), target: 1000, unit: 'mg', step: 50 },
+          { label: 'Vitamin C', key: 'vitCMg', est: Math.round((consumed / 2000) * 65), target: 90, unit: 'mg', step: 10 },
+          { label: 'Vitamin D', key: 'vitDUg', est: Math.round((consumed / 2000) * 12), target: 20, unit: 'µg', step: 1 },
+          { label: 'Magnesium', key: 'magMg', est: Math.round((consumed / 2000) * 300), target: 420, unit: 'mg', step: 25 },
+          { label: 'Sink', key: 'zincMg', est: Math.round((consumed / 2000) * 9), target: 11, unit: 'mg', step: 1 },
+        ];
+
+        return (
+          <div className="fixed inset-0 z-[1400] flex items-end justify-center">
+            <button type="button" className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setShowNutrientModal(false); setMicroInputKey(null); }} aria-label="Lukk" />
+            <div className="relative w-full max-w-[430px] max-h-[90dvh] overflow-y-auto rounded-t-3xl bg-white dark:bg-zinc-950 shadow-2xl border-t border-white/20 dark:border-white/[0.08]">
+              {/* Handle + header */}
+              <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 pt-3 pb-2 px-5 border-b border-slate-100 dark:border-white/[0.06]">
+                <div className="w-10 h-1 bg-slate-200 dark:bg-white/20 rounded-full mx-auto mb-3" />
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Næringsstoffer</h2>
+                    <p className="text-xs text-slate-500 dark:text-white/40">{isTodaySelected ? 'I dag' : dateLabel} · {consumed} kcal spist</p>
+                  </div>
+                  <button type="button" onClick={() => { setShowNutrientModal(false); setMicroInputKey(null); }} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center">
+                    <X className="w-4 h-4 text-slate-600 dark:text-white/60" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-5 py-4 space-y-6 pb-8">
+                {/* ── Macro pillar chart ── */}
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-4">Makronæringsstoffer</p>
+                  <div className="flex items-end justify-around gap-4 h-44">
+                    {macros.map(({ label, value, target, unit, color }) => {
+                      const pct = Math.min(100, (value / Math.max(1, maxMacroVal)) * 100);
+                      const targetPct = Math.min(100, (target / Math.max(1, maxMacroVal)) * 100);
+                      const fillPct = Math.min(130, Math.round((value / Math.max(1, target)) * 100));
+                      const barColor = getBarColor(fillPct);
+                      return (
+                        <div key={label} className="flex-1 flex flex-col items-center gap-1.5">
+                          <p className="text-xs font-bold text-slate-700 dark:text-white/80">{value}<span className="text-[10px] text-slate-400 dark:text-white/30 ml-0.5">{unit}</span></p>
+                          <div className="relative w-full max-w-[56px] h-32 rounded-2xl bg-slate-100 dark:bg-white/[0.05] overflow-hidden flex flex-col justify-end">
+                            <div className="absolute left-0 right-0 border-t-2 border-dashed opacity-40" style={{ bottom: `${targetPct}%`, borderColor: color }} />
+                            <div className="w-full rounded-b-2xl transition-all duration-700 ease-out" style={{ height: `${pct}%`, background: `linear-gradient(to top, ${barColor}, ${barColor}bb)`, boxShadow: `0 0 14px ${barColor}55` }} />
+                          </div>
+                          <p className="text-[11px] font-bold" style={{ color: barColor }}>{fillPct}%</p>
+                          <p className="text-[10px] text-slate-500 dark:text-white/35 text-center">{label}</p>
+                          <p className="text-[9px] text-slate-400 dark:text-white/20">/{target}{unit}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-slate-400 dark:text-white/25 text-center mt-2">Stiplet linje = dagsmål</p>
+                </div>
+
+                {/* ── Micro loggable bars ── */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40">Mikronæringsstoffer</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">Loggbart</span>
+                  </div>
+                  <div className="space-y-4">
+                    {microDefs.map(({ label, key, est, target, unit, step }) => {
+                      const logged = dayMicro[key] != null;
+                      const value = microVal(key, est);
+                      const pct = Math.min(100, Math.round((value / Math.max(1, target)) * 100));
+                      const barColor = getBarColor(pct);
+                      const isEditing = microInputKey === key;
+                      return (
+                        <div key={key}>
+                          <div className="flex items-center justify-between mb-1 gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-sm font-medium text-slate-700 dark:text-white/70">{label}</span>
+                              {logged && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 font-bold">LOGGET</span>}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-xs font-semibold tabular-nums" style={{ color: barColor }}>{value}{unit}</span>
+                              <span className="text-[10px] text-slate-400 dark:text-white/25">/{target}</span>
+                              {!isPastSelectedDay && (
+                                <>
+                                  <button type="button" onClick={() => addMicro(key, -step)} className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/50 text-sm font-bold flex items-center justify-center leading-none">−</button>
+                                  <button type="button" onClick={() => addMicro(key, step)} className="w-6 h-6 rounded-lg bg-orange-100 dark:bg-orange-500/15 text-orange-600 dark:text-orange-300 text-sm font-bold flex items-center justify-center leading-none">+</button>
+                                  <button type="button" onClick={() => { setMicroInputKey(isEditing ? null : key); setMicroInputValue(String(value)); }} className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/50 text-xs flex items-center justify-center">✏️</button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {isEditing && (
+                            <div className="flex gap-2 mb-1.5">
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                value={microInputValue}
+                                onChange={e => setMicroInputValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') logMicro(key, microInputValue); }}
+                                className="flex-1 rounded-xl border border-orange-300 dark:border-orange-500/40 bg-white dark:bg-white/[0.06] px-3 py-1.5 text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-400/50"
+                                placeholder={`Skriv inn ${unit}`}
+                                autoFocus
+                              />
+                              <button type="button" onClick={() => logMicro(key, microInputValue)} className="rounded-xl bg-orange-500 text-white px-3 py-1.5 text-sm font-semibold">Lagre</button>
+                            </div>
+                          )}
+                          <div className="h-2.5 bg-slate-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: `linear-gradient(to right, ${barColor}88, ${barColor})` }} />
+                          </div>
+                          <p className="text-[10px] text-slate-400 dark:text-white/25 mt-0.5">{pct}% av dagsmål{!logged ? ' · estimert' : ''}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-5 text-[11px] text-slate-400 dark:text-white/25 text-center leading-relaxed">
+                    Trykk + / − for å justere, eller ✏️ for manuell verdi. Uloggede verdier er estimert fra kaloriinntak.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       <style>{`
         @keyframes waterBottleWaveMove {
           0% { transform: translateX(0); }
