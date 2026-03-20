@@ -110,15 +110,22 @@ export function useScanFeedback({
       label: entry.label,
       prob: Number(entry.confidence.toFixed(4)),
     }));
-    const inferredFinalId = payload.userCorrectedTo
-      ? `user:${payload.userCorrectedTo.trim().toLowerCase()}`
+    // Cap free-text fields to prevent oversized payloads (OWASP A03 / A04)
+    const sanitized: ScanFeedbackPayload = {
+      ...payload,
+      userCorrectedTo: payload.userCorrectedTo ? payload.userCorrectedTo.slice(0, 200) : payload.userCorrectedTo,
+      feedbackNotes: payload.feedbackNotes ? payload.feedbackNotes.slice(0, 1000) : payload.feedbackNotes,
+    };
+
+    const inferredFinalId = sanitized.userCorrectedTo
+      ? `user:${sanitized.userCorrectedTo.trim().toLowerCase()}`
       : (scannedFood ? makeResolvedItemId({ source: 'resolved', name: scannedFood.name, brand: '' }) : null);
 
     try {
       await postScanFeedback(
         scanLogId,
         {
-          ...payload,
+          ...sanitized,
           feedbackContext: {
             imageHash: latestImageHashRef.current,
             scanSessionId: scanMetricsRef.current.scanSessionId,
@@ -127,7 +134,7 @@ export function useScanFeedback({
             resolverChosenItemId: scanMetricsRef.current.resolverChosenItemId,
             resolverChosenScore: scanMetricsRef.current.resolverChosenScore,
             resolverChosenConfidence: scanMetricsRef.current.resolverChosenConfidence,
-            userFinalItemId: payload.feedbackContext?.userFinalItemId ?? inferredFinalId,
+            userFinalItemId: sanitized.feedbackContext?.userFinalItemId ?? inferredFinalId,
             predictLatencyMs: scanMetricsRef.current.predictLatencyMs,
             resolveLatencyMs: scanMetricsRef.current.resolveLatencyMs,
             resolverSuccessSeedIndex: scanMetricsRef.current.resolverSuccessSeedIndex,
@@ -153,7 +160,7 @@ export function useScanFeedback({
             brandBoostWon: scanMetricsRef.current.resolverSuccessSeedSource === 'ocr_brand',
             brandBoostTopCanonical: scanMetricsRef.current.ocrBrandBoostTopCanonical,
             brandBoostResolverChosenItemId: scanMetricsRef.current.resolverChosenItemId,
-            brandBoostUserFinalItemId: payload.feedbackContext?.userFinalItemId ?? inferredFinalId,
+            brandBoostUserFinalItemId: sanitized.feedbackContext?.userFinalItemId ?? inferredFinalId,
             frontVisibilityScore: scanMetricsRef.current.frontVisibilityScore,
             selectedFrameQuality: scanMetricsRef.current.selectedFrameQuality,
             selectedFrameSharpness: scanMetricsRef.current.selectedFrameSharpness,
@@ -169,7 +176,7 @@ export function useScanFeedback({
             adaptiveRankingGeneratedAt: scanMetricsRef.current.adaptiveRankingGeneratedAt,
             adaptiveRankingApplied: scanMetricsRef.current.adaptiveRankingApplied,
             adaptiveRankingAdjustedCount: scanMetricsRef.current.adaptiveRankingAdjustedCount,
-            ...(payload.feedbackContext ?? {}),
+            ...(sanitized.feedbackContext ?? {}),
           },
         },
         activeScanTraceRef.current?.scanRequestId ?? createScanRequestId()

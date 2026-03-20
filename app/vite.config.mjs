@@ -14,7 +14,7 @@ const tsconfigRaw = {
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: {
     alias: {
@@ -23,6 +23,9 @@ export default defineConfig({
   },
   esbuild: {
     tsconfigRaw,
+    // Strip console.* and debugger statements from production builds
+    // to avoid leaking API structure / error details to end users.
+    ...(mode === 'production' ? { drop: ['console', 'debugger'] } : {}),
   },
   preview: {
     proxy: {

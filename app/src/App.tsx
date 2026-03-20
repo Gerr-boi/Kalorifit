@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Home, Users, Camera, UtensilsCrossed, User } from 'lucide-react';
 import HomeScreen from './components/screens/HomeScreen';
 import CommunityScreen from './components/screens/CommunityScreen';
 import ScanScreen from './components/screens/ScanScreen';
 import MealsScreen from './components/screens/MealsScreen';
 import ProfileScreen from './components/screens/ProfileScreen';
+import OnboardingScreen from './components/screens/OnboardingScreen';
 import { useCurrentUser } from './hooks/useCurrentUser';
 import { useLocalStorageState } from './hooks/useLocalStorageState';
+import { I18nProvider, useT, type Language } from './lib/i18n';
 import {
   ensureWeeklyReportForSunday,
   type DayLog,
@@ -16,12 +18,14 @@ import {
   ensureMonthlyIdentityReport,
   type IdentityReportsByMonth,
 } from './lib/identityEngine';
+import { scheduleMealReminders } from './lib/notificationService';
 import './App.css';
 
 type Tab = 'home' | 'community' | 'scan' | 'meals' | 'profile';
 const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
 const EMPTY_WEEKLY_REPORTS: Record<string, WeeklyPerformanceReport> = {};
 const EMPTY_IDENTITY_REPORTS: IdentityReportsByMonth = {};
+const EMPTY_PROFILE: Record<string, unknown> = {};
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
@@ -29,6 +33,9 @@ function App() {
   const [displayedTab, setDisplayedTab] = useState<Tab>('home');
   const pendingTab = useRef<Tab | null>(null);
   useCurrentUser();
+  const [profileRaw] = useLocalStorageState<Record<string, unknown>>('profile', EMPTY_PROFILE);
+  const onboardingCompleted = Boolean((profileRaw as { onboardingCompleted?: boolean }).onboardingCompleted);
+  const language = ((profileRaw as { language?: string }).language === 'English' ? 'English' : 'Norsk') as Language;
   const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
   const [, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>(
     'home.weeklyReports.v1',
@@ -38,6 +45,22 @@ function App() {
     'home.identityReports.v1',
     EMPTY_IDENTITY_REPORTS,
   );
+
+  // Schedule meal reminder notifications based on saved profile prefs
+  useEffect(() => {
+    const p = profileRaw as {
+      notificationsEnabled?: boolean;
+      mealReminders?: {
+        breakfast?: boolean; breakfastTime?: string;
+        lunch?: boolean; lunchTime?: string;
+        dinner?: boolean; dinnerTime?: string;
+      };
+    };
+    if (p.notificationsEnabled && p.mealReminders) {
+      scheduleMealReminders(p.mealReminders, language);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileRaw]);
 
   useEffect(() => {
     setWeeklyReports((prev) => ensureWeeklyReportForSunday(new Date(), logsByDate, prev));
@@ -98,14 +121,44 @@ function App() {
     }
   };
 
+  if (!onboardingCompleted) {
+    return (
+      <I18nProvider language={language}>
+        <OnboardingScreen />
+      </I18nProvider>
+    );
+  }
+
+  return (
+    <I18nProvider language={language}>
+      <AppShell
+        activeTab={activeTab}
+        transitioning={transitioning}
+        navigateTo={navigateTo}
+        renderScreen={renderScreen}
+      />
+    </I18nProvider>
+  );
+}
+
+function AppShell({
+  activeTab,
+  transitioning,
+  navigateTo,
+  renderScreen,
+}: {
+  activeTab: Tab;
+  transitioning: boolean;
+  navigateTo: (tab: Tab) => void;
+  renderScreen: () => React.ReactNode;
+}) {
+  const t = useT();
   return (
     <div className="app-container">
-      {/* Main Content */}
       <main className={`main-content${transitioning ? ' screen-exit' : ' screen-enter'}`}>
         {renderScreen()}
       </main>
 
-      {/* Bottom Navigation */}
       <nav className="bottom-nav">
         <div className="nav-pill-track">
           <button
@@ -113,7 +166,7 @@ function App() {
             className={`nav-item ${activeTab === 'home' ? 'active' : ''}`}
           >
             <Home className="nav-icon" />
-            <span className="nav-label">Hjem</span>
+            <span className="nav-label">{t('nav.home')}</span>
           </button>
 
           <button
@@ -121,7 +174,7 @@ function App() {
             className={`nav-item ${activeTab === 'community' ? 'active' : ''}`}
           >
             <Users className="nav-icon" />
-            <span className="nav-label">Community</span>
+            <span className="nav-label">{t('nav.community')}</span>
           </button>
 
           <button
@@ -138,7 +191,7 @@ function App() {
             className={`nav-item ${activeTab === 'meals' ? 'active' : ''}`}
           >
             <UtensilsCrossed className="nav-icon" />
-            <span className="nav-label">Måltider</span>
+            <span className="nav-label">{t('nav.meals')}</span>
           </button>
 
           <button
@@ -146,7 +199,7 @@ function App() {
             className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`}
           >
             <User className="nav-icon" />
-            <span className="nav-label">Profil</span>
+            <span className="nav-label">{t('nav.profile')}</span>
           </button>
         </div>
       </nav>

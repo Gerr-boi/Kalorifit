@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useT } from '../../lib/i18n';
 import type { LucideIcon } from 'lucide-react';
 import {
   Flame,
   Camera,
+  Calendar,
   ChevronLeft,
   ChevronRight,
   Menu,
@@ -56,6 +59,9 @@ import {
   type TimelineType,
   type TrainingType,
 } from '../../lib/nutritionPlanner';
+import { generateCoachMessage, computeAdaptiveComplexity } from '../../lib/coachEngine';
+import CoachCard from '../coach/CoachCard';
+import TrajectoryChart from '../trajectory/TrajectoryChart';
 
 type MealTemplate = {
   id: MealId;
@@ -138,6 +144,7 @@ type HomeProfile = {
   psychologyType?: PsychologyType;
   specialPhase?: SpecialPhase;
   bmiHistory?: Array<{ date: string; weightKg: number }>;
+  allergies?: string[];
 };
 
 type DayMicroLog = {
@@ -150,6 +157,18 @@ type DayMicroLog = {
   magMg?: number;
   zincMg?: number;
 };
+
+const ALLERGY_KEYWORDS: Record<string, string[]> = {
+  gluten: ['gluten', 'hvete', 'bygg', 'rug', 'spelt', 'brød', 'pasta', 'mel', 'kake', 'kjeks', 'havre'],
+  milk: ['melk', 'milk', 'ost', 'cheese', 'yogurt', 'fløte', 'smør', 'butter', 'cream', 'dairy', 'kefir', 'skyr', 'rømme', 'kesam'],
+  egg: ['egg'],
+  nuts: ['nøtter', 'nuts', 'mandel', 'almond', 'cashew', 'valnøtt', 'walnut', 'hasselnøtt', 'hazelnut', 'pistachio', 'pistasjnøtt'],
+  fish: ['fisk', 'fish', 'laks', 'salmon', 'torsk', 'cod', 'sild', 'herring', 'makrell', 'mackerel', 'tuna', 'tunfisk', 'ørret', 'trout'],
+  shellfish: ['skalldyr', 'shellfish', 'reke', 'shrimp', 'krabbe', 'crab', 'hummer', 'lobster', 'musling', 'mussel', 'østers', 'oyster', 'blekksprut'],
+  soy: ['soya', 'soy', 'tofu', 'edamame', 'miso', 'tempeh'],
+  peanuts: ['peanøtt', 'peanut', 'jordnøtt', 'groundnut'],
+};
+const ALLERGY_LABELS: Record<string, string> = { gluten: 'Gluten', milk: 'Melk', egg: 'Egg', nuts: 'Nøtter', fish: 'Fisk', shellfish: 'Skalldyr', soy: 'Soya', peanuts: 'Peanøtter' };
 
 const RING_RADIUS = 90;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -328,16 +347,16 @@ function groupFoodsByName(items: FoodEntry[]) {
   return Array.from(grouped.values());
 }
 
-function localizeAdjustmentReason(reason: string) {
-  if (reason.startsWith('Weight is not dropping. Applying -')) return 'Vekten star stille. Daglig mal er senket litt.';
-  if (reason.startsWith('Weight is dropping too fast. Adding +')) return 'Vekten gar ned for raskt. Daglig mal er okt litt.';
-  if (reason === 'Weight trend is in healthy fat-loss range.') return 'Vekttrenden er i et sunt fettap-omrade.';
-  if (reason.startsWith('Weight gain is too slow. Applying +')) return 'Vektokningen gar for sakte. Daglig mal er okt litt.';
-  if (reason.startsWith('Weight gain is too fast. Applying -')) return 'Vektokningen gar for raskt. Daglig mal er senket litt.';
-  if (reason === 'Weight trend is in healthy muscle-gain range.') return 'Vekttrenden er i et sunt muskelbyggings-omrade.';
-  if (reason.startsWith('Drift detected. Adjusting by')) return 'Trenden driver fra malet. Planen er justert.';
-  if (reason === 'Trend is stable.') return 'Trenden er stabil.';
-  if (reason === 'Standard mode uses static target.') return 'Standardmodus bruker et fast kalorimal.';
+function localizeAdjustmentReason(reason: string, t: (key: string) => string) {
+  if (reason.startsWith('Weight is not dropping. Applying -')) return t('home.adjustments.weightNotMoving');
+  if (reason.startsWith('Weight is dropping too fast. Adding +')) return t('home.adjustments.losingFast');
+  if (reason === 'Weight trend is in healthy fat-loss range.') return t('home.adjustments.healthyFatLoss');
+  if (reason.startsWith('Weight gain is too slow. Applying +')) return t('home.adjustments.gainingTooSlow');
+  if (reason.startsWith('Weight gain is too fast. Applying -')) return t('home.adjustments.gainingTooFast');
+  if (reason === 'Weight trend is in healthy muscle-gain range.') return t('home.adjustments.healthyMuscle');
+  if (reason.startsWith('Drift detected. Adjusting by')) return t('home.adjustments.driftAdjusted');
+  if (reason === 'Trend is stable.') return t('home.adjustments.trendStable');
+  if (reason === 'Standard mode uses static target.') return t('home.adjustments.staticGoal');
   return reason;
 }
 
@@ -349,30 +368,30 @@ function localizeProjectionText(text: string) {
   return text;
 }
 
-function localizeBehaviorInsight(insight: string) {
+function localizeBehaviorInsight(insight: string, t: (key: string) => string) {
   if (insight === 'Weekend calorie intake is higher than weekdays. Consider a weekend buffer.') {
-    return 'Helgene ligger hoyere i kalorier enn ukedagene. Vurder en liten helgebuffer.';
+    return t('home.insights.weekendHigher');
   }
   if (insight === 'You under-eat protein on Sundays compared with your target.') {
-    return 'Protein pa sondager er under malet ditt.';
+    return t('home.insights.sundayProteinLow');
   }
   if (insight === 'Calories often spike after 8 PM. Plan a protein-forward evening meal.') {
-    return 'Kaloriene blir ofte hoye sent pa kvelden. Planlegg et proteinrikt kveldsmaltid.';
+    return t('home.insights.eveningSpike');
   }
   if (insight === 'Consistency dropped this week. Use a simpler logging mode temporarily.') {
-    return 'Loggflyten har falt denne uken. Velg enklere logging noen dager.';
+    return t('home.insights.consistencyDrop');
   }
   return insight;
 }
 
 export default function HomeScreen() {
+  const t = useT();
   const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
   const [profilePrefs] = useLocalStorageState<HomeProfile>('profile', EMPTY_HOME_PROFILE);
   const [lastLoggedFood, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
   const [logEvents, setLogEvents] = useLocalStorageState<LogEvent[]>('home.logEvents.v1', EMPTY_LOG_EVENTS);
   const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', EMPTY_SAVED_MEAL_TEMPLATES);
   const [workoutSessions, setWorkoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', EMPTY_WORKOUT_SESSIONS);
-  const [lazyMode, setLazyMode] = useLocalStorageState<boolean>('home.lazyMode.v1', false);
   const [goalPopupDismissedByDate, setGoalPopupDismissedByDate] = useLocalStorageState<Record<string, true>>(
     'home.goalPopupDismissedByDate.v1',
     EMPTY_DATE_FLAGS,
@@ -383,6 +402,9 @@ export default function HomeScreen() {
   );
   const [today, setToday] = useState<Date>(() => startOfDay(new Date()));
   const [dayOffset, setDayOffset] = useState(0);
+  const [showActivityHistory, setShowActivityHistory] = useState(false);
+  const [historyViewDate, setHistoryViewDate] = useState(() => startOfDay(new Date()));
+  const [historySelectedKey, setHistorySelectedKey] = useState<string | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   const [ringExpanded, setRingExpanded] = useState(false);
   const [expandedMeals, setExpandedMeals] = useState<Record<MealId, boolean>>(collapsedMeals);
@@ -408,14 +430,17 @@ export default function HomeScreen() {
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
   const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
-  const [nutritionBoxExpanded, setNutritionBoxExpanded] = useState(false);
+
   const [animatedProgressRatio, setAnimatedProgressRatio] = useState(0);
   const [animatedProgressValue, setAnimatedProgressValue] = useState(0);
   const [ringAnimating, setRingAnimating] = useState(false);
+  const [ringPumping, setRingPumping] = useState(false);
+  const ringPumpTimerRef = useRef<number | null>(null);
   const [animatedConsumed, setAnimatedConsumed] = useState(0);
   const [animatedGoal, setAnimatedGoal] = useState(0);
   const [animatedTraining, setAnimatedTraining] = useState(0);
   const [flashedStat, setFlashedStat] = useState<'consumed' | 'goal' | 'training' | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ mealId: MealId; entryId: string; name: string } | null>(null);
   const [editingFood, setEditingFood] = useState<{
     mealId: MealId;
     entryId: string;
@@ -548,7 +573,19 @@ export default function HomeScreen() {
   const progressRatio = netGoal <= 0 ? 0 : Math.min(consumed / netGoal, 1);
   const ringColor = getRingColor(caloriesRemaining);
   const discipline = useMemo(() => calculateDailyDisciplineScore(dayLog), [dayLog]);
-  const progressText = caloriesRemaining < 0 ? 'OVER MAL' : 'KALORIER GJENSTAR';
+
+  // Adaptive coach message — one concrete action for today
+  const coachMessage = useMemo(
+    () => generateCoachMessage(dayLog, profilePrefs),
+    [dayLog, profilePrefs],
+  );
+
+  // Adaptive complexity — simplify UI when user is struggling, unlock advanced when consistent
+  const adaptiveComplexity = useMemo(
+    () => computeAdaptiveComplexity(logsByDate),
+    [logsByDate],
+  );
+  const progressText = caloriesRemaining < 0 ? t('home.overGoal') : t('home.caloriesLeft');
   const progressValue = caloriesRemaining < 0 ? Math.abs(caloriesRemaining) : caloriesRemaining;
   const progressDetailText = caloriesRemaining < 0
     ? `${kcalNumberFormat.format(consumed - netGoal)} kcal over dagens netto mal`
@@ -566,36 +603,30 @@ export default function HomeScreen() {
     const tips: string[] = [];
 
     if (isTodaySelected && consumed === 0) {
-      tips.push('Tips: Start med ett raskt maltid for a holde dagen i gang.');
+      tips.push(t('home.tips.startMeal'));
     }
     if (isTodaySelected && waterProgress < 0.45) {
-      tips.push('Tips: Ta et glass vann na. Det er den enkleste maaten a holde rytmen oppe.');
+      tips.push(t('home.tips.drinkWater'));
     }
     if (consumed > 0 && protein < 60) {
-      tips.push('Tips: Legg til en proteinkilde i neste maltid for a jevne ut dagen.');
-    }
-    if (lastLoggedFood && isTodaySelected) {
-      tips.push(`Tips: Du kan gjenta ${lastLoggedFood.name} som en rask fallback pa travle dager.`);
-    }
-    if (!lazyMode) {
-      tips.push('Tips: Bruk Enkel modus pa travle dager i stedet for a hoppe over logging.');
+      tips.push(t('home.tips.addProtein'));
     }
     if (caloriesRemaining > 450 && consumed > 0) {
-      tips.push('Tips: Du ligger fortsatt et stykke unna dagens mal. Planlegg neste maltid tidlig.');
+      tips.push(t('home.tips.planAhead'));
     }
 
     return tips;
-  }, [caloriesRemaining, consumed, isTodaySelected, lastLoggedFood, lazyMode, protein, waterProgress]);
+  }, [caloriesRemaining, consumed, isTodaySelected, protein, t, waterProgress]);
   const rotatingHeroMessages = useMemo(() => {
     const messages = [
       smartPrompt,
-      consistencyDropInsight ? localizeBehaviorInsight(consistencyDropInsight) : null,
-      ...otherBehaviorInsights.map((insight) => localizeBehaviorInsight(insight)),
+      consistencyDropInsight ? localizeBehaviorInsight(consistencyDropInsight, t) : null,
+      ...otherBehaviorInsights.map((insight) => localizeBehaviorInsight(insight, t)),
       ...extraHeroTips,
     ].filter((message): message is string => Boolean(message?.trim()));
 
     return messages.filter((message, index) => messages.indexOf(message) === index);
-  }, [consistencyDropInsight, extraHeroTips, otherBehaviorInsights, smartPrompt]);
+  }, [consistencyDropInsight, extraHeroTips, otherBehaviorInsights, smartPrompt, t]);
   const rotatingHeroMessageKey = useMemo(() => rotatingHeroMessages.join('||'), [rotatingHeroMessages]);
   const activeHeroMessage = rotatingHeroMessages[heroMessageIndex] ?? null;
 
@@ -624,14 +655,46 @@ export default function HomeScreen() {
     weeklyData.reduce((sum, day) => sum + day.consumed, 0) / Math.max(weeklyData.length, 1),
   );
 
-  const getRelativeDayLabel = (dateKey: string) => {
-    const date = new Date(`${dateKey}T00:00:00`);
-    if (Number.isNaN(date.getTime())) return formatDateKey(dateKey);
-    const deltaDays = Math.floor((today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-    if (deltaDays <= 0) return 'I dag';
-    if (deltaDays === 1) return 'I gar';
-    return `${deltaDays} dager siden`;
-  };
+  // ─── Activity history modal data ─────────────────────────────────────────────
+  const historyMonthLabel = useMemo(() =>
+    new Intl.DateTimeFormat('nb-NO', { month: 'long', year: 'numeric' }).format(historyViewDate),
+  [historyViewDate]);
+
+  const historyMonthDays = useMemo(() => {
+    const year = historyViewDate.getFullYear();
+    const month = historyViewDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const weekStart = startOfWeekMonday(firstDay);
+    const days: Date[] = [];
+    let cur = new Date(weekStart);
+    while (days.length < 42) {
+      days.push(new Date(cur));
+      if (days.length >= 28 && cur > lastDay) break;
+      cur = addDays(cur, 1);
+    }
+    while (days.length % 7 !== 0) { days.push(new Date(cur)); cur = addDays(cur, 1); }
+    return days;
+  }, [historyViewDate]);
+
+  const historyMonthStats = useMemo(() => {
+    const month = historyViewDate.getMonth();
+    let totalScore = 0; let loggedDays = 0; let scoredDays = 0;
+    historyMonthDays.forEach((date) => {
+      if (date.getMonth() !== month || date > today) return;
+      const key = toDateKey(date);
+      const log = logsByDate[key];
+      if (!log) return;
+      const hasData = Object.values(log.meals).flat().length > 0 || getTotalHydrationMl(log) > 0 || log.trainingKcal > 0;
+      if (!hasData) return;
+      loggedDays++;
+      totalScore += calculateDailyDisciplineScore(log).score;
+      scoredDays++;
+    });
+    return { avgScore: scoredDays > 0 ? Math.round(totalScore / scoredDays) : 0, loggedDays };
+  }, [historyViewDate, historyMonthDays, logsByDate, today]);
+
+  const historySelectedLog = historySelectedKey ? (logsByDate[historySelectedKey] ?? null) : null;
 
   const historicalMealLog = useMemo(() => {
     return Object.entries(logsByDate)
@@ -717,13 +780,13 @@ export default function HomeScreen() {
 
   const identityCaption = useMemo(() => {
     const map = {
-      locked_in: 'Du er i en god rytme nå',
-      rebuilding: 'Bra at du er tilbake',
-      steady: 'Du blir mer konsistent',
-      building: 'Begynner å bygge vaner',
+      locked_in: t('home.identity.lockedIn'),
+      rebuilding: t('home.identity.rebuilding'),
+      steady: t('home.identity.steady'),
+      building: t('home.identity.building'),
     } as const;
     return map[identityMode];
-  }, [identityMode]);
+  }, [identityMode, t]);
 
   // Bubble animation pacing varies by identity: Locked In = confident, Rebuilding = gentle
   const identityBubbleDurationFactor = useMemo(() => {
@@ -1191,9 +1254,9 @@ export default function HomeScreen() {
     const dinnerPrompt = mealPrompt('dinner', 18 * 60);
 
     const near = (target: number) => Math.abs(totalMinutes - target) <= 15;
-    if (!hasBreakfast && near(breakfastPrompt)) setSmartPrompt('Log frokost? Ett trykk holder.');
-    else if (!hasLunch && near(lunchPrompt)) setSmartPrompt('Log lunsj? Du logger vanligvis rundt denne tiden.');
-    else if (!hasDinner && near(dinnerPrompt)) setSmartPrompt('Middag snart. Vil du forhåndsfylle?');
+    if (!hasBreakfast && near(breakfastPrompt)) setSmartPrompt(t('home.prompts.breakfast'));
+    else if (!hasLunch && near(lunchPrompt)) setSmartPrompt(t('home.prompts.lunch'));
+    else if (!hasDinner && near(dinnerPrompt)) setSmartPrompt(t('home.prompts.dinner'));
     else setSmartPrompt(null);
   }, [dayLog.meals.breakfast.length, dayLog.meals.dinner.length, dayLog.meals.lunch.length, isPastSelectedDay, isTodaySelected, logEvents]);
 
@@ -1232,7 +1295,7 @@ export default function HomeScreen() {
   const updateDayLog = (key: string, updater: (current: DayLog) => DayLog) => {
     setLogsByDate((prev) => {
       if (key < todayKey) {
-        setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+        setScanHint(t('home.dayLocked'));
         return prev;
       }
       const current = prev[key] ?? createEmptyDayLog();
@@ -1273,7 +1336,7 @@ export default function HomeScreen() {
       setPendingTemplate({
         mealId,
         signature,
-        suggestedName: `Standard ${mealId === 'breakfast' ? 'Frokost' : mealId === 'lunch' ? 'Lunsj' : mealId === 'dinner' ? 'Middag' : 'Snacks'}`,
+        suggestedName: `Standard ${mealId === 'breakfast' ? t('home.meals.breakfast') : mealId === 'lunch' ? t('home.meals.lunch') : mealId === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')}`,
         items: nextMealItems.map((item) => ({ ...item })),
       });
     }
@@ -1299,10 +1362,26 @@ export default function HomeScreen() {
     recordEvent({ type: 'meal', actionId, mealId, kcal: food.kcal });
     maybeSuggestTemplate(mealId, nextMealItems);
     reward();
+    // Allergy check — warn but still log the food
+    const userAllergies = profilePrefs.allergies ?? [];
+    if (userAllergies.length > 0) {
+      const nameLower = food.name.toLowerCase();
+      const matched = userAllergies.find((allergy) => {
+        const keywords = ALLERGY_KEYWORDS[allergy.toLowerCase()] ?? [allergy.toLowerCase()];
+        return keywords.some((kw) => nameLower.includes(kw));
+      });
+      if (matched) {
+        setScanHint(`⚠️ Advarsel: kan inneholde ${ALLERGY_LABELS[matched.toLowerCase()] ?? matched}`);
+      }
+    }
     // Moment layer: brief header flash after every successful food log
     if (headerMomentTimerRef.current !== null) window.clearTimeout(headerMomentTimerRef.current);
     setHeaderMomentFlash(true);
     headerMomentTimerRef.current = window.setTimeout(() => setHeaderMomentFlash(false), 720);
+    // Ring pump
+    if (ringPumpTimerRef.current !== null) window.clearTimeout(ringPumpTimerRef.current);
+    setRingPumping(true);
+    ringPumpTimerRef.current = window.setTimeout(() => setRingPumping(false), 520);
   };
 
   const openScanTab = (mode: 'photo' | 'barcode') => {
@@ -1313,7 +1392,7 @@ export default function HomeScreen() {
 
   const removeFoodFromMeal = (mealId: MealId, entryId: string) => {
     if (isPastSelectedDay) {
-      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      setScanHint(t('home.dayLocked'));
       return;
     }
     const previousDay = cloneDayLog(dayLog);
@@ -1349,7 +1428,7 @@ export default function HomeScreen() {
   const saveFoodEdit = () => {
     if (!editingFood) return;
     if (isPastSelectedDay) {
-      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      setScanHint(t('home.dayLocked'));
       return;
     }
     const parsed = {
@@ -1507,7 +1586,7 @@ export default function HomeScreen() {
 
   const openWorkoutModal = () => {
     if (isPastSelectedDay) {
-      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      setScanHint(t('home.dayLocked'));
       return;
     }
     setShowWorkoutModal(true);
@@ -1550,7 +1629,7 @@ export default function HomeScreen() {
 
   const handleQuickAdd = (action: string) => {
     if (isPastSelectedDay) {
-      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      setScanHint(t('home.dayLocked'));
       setShowQuickAddMenu(false);
       return;
     }
@@ -1712,78 +1791,63 @@ export default function HomeScreen() {
 
   return (
     <div className="screen relative pb-32 overflow-x-hidden">
-      {showSidebar && (
-        <div className="fixed inset-0 z-[1200]">
+      {createPortal(
+        showSidebar ? (
+        <div className="fixed inset-0 z-[1200] flex items-end justify-center">
           <button
             type="button"
             aria-label="Lukk meny"
-            className="absolute inset-0 bg-black/35 backdrop-blur-[1px]"
+            className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
             onClick={() => setShowSidebar(false)}
           />
-          <div className="pointer-events-none absolute inset-y-0 left-1/2 w-full max-w-[430px] -translate-x-1/2">
-            <aside className="pointer-events-auto h-full w-80 max-w-[86vw] bg-gradient-to-b from-zinc-900 to-zinc-950 shadow-2xl border-r border-orange-500/10 p-4 overflow-y-auto">
-              <div className="rounded-2xl bg-slate-100 dark:bg-white/[0.06] border border-orange-500/10 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex w-9 h-9 items-center justify-center rounded-xl bg-orange-500/100 text-white">
-                      {sidebarView === 'menu' ? <Menu className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-                    </span>
-                    <div>
-                      <p className="text-[11px] uppercase tracking-wide text-orange-500">Hjem</p>
-                      <h3 className="text-base font-semibold text-slate-900 dark:text-white/90">
-                        {sidebarView === 'menu' ? 'Meny' : sidebarView === 'logg' ? 'Logg' : sidebarView === 'goals' ? 'Goal details' : 'Journey'}
-                      </h3>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {sidebarView !== 'menu' && (
-                      <button
-                        type="button"
-                        onClick={() => setSidebarView('menu')}
-                        className="h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] px-3 text-xs font-medium text-slate-600 dark:text-white/60"
-                        title="Til meny"
-                      >
-                        Tilbake
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setShowSidebar(false)}
-                      className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60"
-                      title="Lukk"
-                    >
-                      <X className="w-4 h-4 mx-auto" />
-                    </button>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-slate-500 dark:text-white/40">
-                  {sidebarView === 'menu'
-                    ? 'Rask navigasjon til logg og maelinnsikt.'
-                    : sidebarView === 'logg'
-                      ? 'Hva du spiste i gar og tidligere dager'
-                      : sidebarView === 'goals'
-                        ? 'Detaljert maelstatus fra profilen din'
-                        : 'Vektgraf fra loggede malinger'}
-                </p>
+          <div className="relative w-full max-w-[430px] bg-zinc-950 rounded-t-3xl shadow-2xl border-t border-white/[0.07] max-h-[88dvh] flex flex-col overflow-hidden">
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-9 h-1 rounded-full bg-white/20" />
+            </div>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 shrink-0 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                {sidebarView !== 'menu' && (
+                  <button
+                    type="button"
+                    onClick={() => setSidebarView('menu')}
+                    className="w-8 h-8 rounded-full bg-white/[0.07] flex items-center justify-center mr-1"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-white/70" />
+                  </button>
+                )}
+                <h3 className="text-base font-bold text-white/90">
+                  {sidebarView === 'menu' ? 'Meny' : sidebarView === 'logg' ? 'Matlogg' : sidebarView === 'goals' ? 'Mål og makro' : 'Din reise'}
+                </h3>
               </div>
-
+              <button
+                type="button"
+                onClick={() => setShowSidebar(false)}
+                className="w-8 h-8 rounded-full bg-white/[0.07] flex items-center justify-center"
+              >
+                <X className="w-4 h-4 text-white/70" />
+              </button>
+            </div>
+            {/* Scrollable content */}
+            <div className="overflow-y-auto flex-1 px-4 pt-4 pb-10 space-y-3">
               {sidebarView === 'menu' && (
-                <div className="mt-4 space-y-3">
+                <>
                   {/* Today at a glance */}
-                  <div className="rounded-2xl bg-orange-500/10 border border-orange-500/15 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-orange-400 mb-2">I dag</p>
-                    <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                  <div className="rounded-2xl bg-orange-500/[0.12] border border-orange-500/20 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-orange-400 mb-3">I dag</p>
+                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
                       <div>
-                        <p className="text-base font-bold text-white/90">{consumed}</p>
-                        <p className="text-[10px] text-white/40">kcal spist</p>
+                        <p className="text-lg font-bold text-white/90">{consumed}</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">kcal spist</p>
                       </div>
                       <div>
-                        <p className="text-base font-bold text-emerald-400">{Math.round(waterProgress * 100)}%</p>
-                        <p className="text-[10px] text-white/40">vann</p>
+                        <p className="text-lg font-bold text-emerald-400">{Math.round(waterProgress * 100)}%</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">vann</p>
                       </div>
                       <div>
-                        <p className="text-base font-bold text-orange-300">{discipline.score}</p>
-                        <p className="text-[10px] text-white/40">disiplin</p>
+                        <p className="text-lg font-bold text-orange-300">{discipline.score}</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">disiplin</p>
                       </div>
                     </div>
                     <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -1792,151 +1856,114 @@ export default function HomeScreen() {
                         style={{ width: `${Math.min(100, Math.round(progressRatio * 100))}%` }}
                       />
                     </div>
-                    <p className="text-[10px] text-white/40 mt-1">{caloriesRemaining > 0 ? `${caloriesRemaining} kcal igjen` : `${Math.abs(caloriesRemaining)} kcal over mål`}</p>
+                    <p className="text-[10px] text-white/35 mt-1.5">
+                      {caloriesRemaining > 0 ? `${Math.round(caloriesRemaining)} kcal igjen` : `${Math.abs(Math.round(caloriesRemaining))} kcal over mål`}
+                    </p>
                   </div>
 
                   {/* Quick actions */}
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      onClick={() => {
-                        handleQuickAdd('repeat-day-yesterday');
-                        setShowSidebar(false);
-                      }}
+                      onClick={() => { handleQuickAdd('repeat-day-yesterday'); setShowSidebar(false); }}
                       disabled={isPastSelectedDay}
-                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left disabled:opacity-40"
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left disabled:opacity-40 active:bg-white/[0.09] transition-colors"
                     >
                       <RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
                       <div>
                         <p className="text-xs font-semibold text-white/90">Gjenta i går</p>
-                        <p className="text-[10px] text-white/40">Kopier alle måltider</p>
+                        <p className="text-[10px] text-white/35">Kopier måltider</p>
                       </div>
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
-                        setShowSidebar(false);
-                      }}
-                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left"
+                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } })); setShowSidebar(false); }}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
                     >
                       <Camera className="w-4 h-4 text-orange-400 shrink-0" />
                       <div>
                         <p className="text-xs font-semibold text-white/90">AI Skann</p>
-                        <p className="text-[10px] text-white/40">Ta bilde av mat</p>
+                        <p className="text-[10px] text-white/35">Ta bilde av mat</p>
                       </div>
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'meals' } }));
-                        setShowSidebar(false);
-                      }}
-                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left"
+                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'meals' } })); setShowSidebar(false); }}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
                     >
                       <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
                       <div>
                         <p className="text-xs font-semibold text-white/90">Oppskrifter</p>
-                        <p className="text-[10px] text-white/40">Finn måltider</p>
+                        <p className="text-[10px] text-white/35">Finn måltider</p>
                       </div>
                     </button>
                     <button
                       type="button"
-                      onClick={() => {
-                        window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'profile' } }));
-                        setShowSidebar(false);
-                      }}
-                      className="flex items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-2.5 text-left"
+                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'profile' } })); setShowSidebar(false); }}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
                     >
                       <Settings className="w-4 h-4 text-slate-400 shrink-0" />
                       <div>
                         <p className="text-xs font-semibold text-white/90">Innstillinger</p>
-                        <p className="text-[10px] text-white/40">Profil og mål</p>
+                        <p className="text-[10px] text-white/35">Profil og mål</p>
                       </div>
                     </button>
                   </div>
 
                   {/* Section navigators */}
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/30 px-1">Oversikt</p>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarView('logg')}
-                    className="w-full text-left rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                          <BookOpen className="w-4 h-4 text-blue-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-white/90">Matlogg</p>
-                          <p className="text-[11px] text-white/40">I går + tidligere dager</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-white/30" />
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 px-1 mb-2">Oversikt</p>
+                    <div className="space-y-1.5">
+                      {([
+                        { view: 'logg' as const, icon: BookOpen, color: 'text-blue-400 bg-blue-500/15', label: 'Matlogg', sub: 'I går + tidligere dager' },
+                        { view: 'goals' as const, icon: BarChart2, color: 'text-orange-400 bg-orange-500/15', label: 'Mål og makro', sub: 'Energi, makro, progresjon' },
+                        { view: 'journey' as const, icon: Flame, color: 'text-emerald-400 bg-emerald-500/15', label: 'Din reise', sub: 'Vektgraf og fremgang' },
+                      ]).map(({ view, icon: Icon, color, label, sub }) => (
+                        <button
+                          key={view}
+                          type="button"
+                          onClick={() => setSidebarView(view)}
+                          className="w-full text-left flex items-center justify-between rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 active:bg-white/[0.09] transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${color}`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-white/90">{label}</p>
+                              <p className="text-[11px] text-white/35">{sub}</p>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-white/25 shrink-0" />
+                        </button>
+                      ))}
                     </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarView('goals')}
-                    className="w-full text-left rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-orange-500/20 flex items-center justify-center">
-                          <BarChart2 className="w-4 h-4 text-orange-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-white/90">Mål og makro</p>
-                          <p className="text-[11px] text-white/40">Energi, makro, progresjon</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-white/30" />
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSidebarView('journey')}
-                    className="w-full text-left rounded-2xl border border-white/[0.08] bg-white/[0.06] px-3 py-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                          <Flame className="w-4 h-4 text-emerald-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-white/90">Din reise</p>
-                          <p className="text-[11px] text-white/40">Vektgraf og fremgang</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-white/30" />
-                    </div>
-                  </button>
-                </div>
+                  </div>
+                </>
               )}
 
               {sidebarView === 'logg' && (
-                <div className="mt-4 space-y-3">
+                <div className="space-y-3">
                   {historicalMealLog.length === 0 ? (
-                    <p className="text-xs text-slate-500 dark:text-white/40">Ingen historisk matlogg enda.</p>
+                    <p className="text-xs text-white/40 text-center py-4">Ingen historisk matlogg enda.</p>
                   ) : (
                     historicalMealLog.map((day) => (
-                      <div key={day.dateKey} className="rounded-xl bg-slate-100/70 dark:bg-white/[0.03] p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold text-slate-900 dark:text-white/90">
-                            {formatDateKey(day.dateKey)} ({getRelativeDayLabel(day.dateKey)})
+                      <div key={day.dateKey} className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <p className="text-sm font-semibold text-white/90">
+                            {formatDateKey(day.dateKey)}
                           </p>
-                          <p className="text-[11px] text-slate-500 dark:text-white/40">
-                            {day.totalFoods} matvarer | {Math.round(day.totalKcal)} kcal | {Math.round(day.totalProtein)} g protein
+                          <p className="text-[11px] text-white/35">
+                            {Math.round(day.totalKcal)} kcal · {Math.round(day.totalProtein)}g protein
                           </p>
                         </div>
-                        <div className="mt-2 space-y-2">
+                        <div className="space-y-1.5">
                           {day.mealSections.map(([mealId, foods]) => (
-                            <div key={`${day.dateKey}-${mealId}`} className="rounded-lg bg-white border border-slate-200 dark:border-white/[0.08] p-2">
-                              <p className="text-[11px] font-medium text-slate-500 dark:text-white/40 capitalize mb-1">{mealId}</p>
-                              <div className="space-y-1">
+                            <div key={`${day.dateKey}-${mealId}`} className="rounded-xl bg-white/[0.04] border border-white/[0.05] p-2">
+                              <p className="text-[10px] font-semibold text-white/40 uppercase tracking-wide mb-1">{mealLabelById[mealId as MealId] ?? mealId}</p>
+                              <div className="space-y-0.5">
                                 {foods.map((food) => (
-                                  <p key={food.id} className="text-xs text-slate-700 dark:text-white/70">{food.name} - {Math.round(food.kcal)} kcal</p>
+                                  <p key={food.id} className="text-xs text-white/70">{food.name} <span className="text-white/35">· {Math.round(food.kcal)} kcal</span></p>
                                 ))}
                               </div>
                             </div>
@@ -1949,109 +1976,70 @@ export default function HomeScreen() {
               )}
 
               {sidebarView === 'goals' && (
-                <div className="mt-4">
-                  <div className="rounded-xl border border-orange-500/10 bg-white p-3">
-                    <button
-                      type="button"
-                      onClick={() => setNutritionBoxExpanded((prev) => !prev)}
-                      className="w-full text-left flex items-start justify-between gap-3"
-                    >
-                      <p className="text-[11px] text-slate-700 dark:text-white/70">
-                        Dagens kalorimal: {smartDietPlan.optimizedTargetKcal} kcal
-                        {' '}
-                        ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} vs grunnmal)
-                      </p>
-                      <span className="text-[11px] text-slate-500 dark:text-white/40 whitespace-nowrap">{nutritionBoxExpanded ? 'Skjul' : 'Vis mer'}</span>
-                    </button>
-
-                    {nutritionBoxExpanded && (
-                      <>
-                        <p className="text-[11px] text-slate-500 dark:text-white/40 mt-2">
-                          Grunnmal: {smartDietPlan.baseTargetKcal} | Vedlikehold: {smartDietPlan.tdee} | Hvileforbrenning: {smartDietPlan.bmr}
-                        </p>
-                        <p className="text-[11px] text-slate-500 dark:text-white/40 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
-                        <p className="text-[11px] text-slate-500 dark:text-white/40 mt-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
-                        {smartDietPlan.macros && (
-                          <p className="text-[11px] text-slate-500 dark:text-white/40 mt-1">
-                            Dagsmal makro: Protein {smartDietPlan.macros.proteinG} g | Fett {smartDietPlan.macros.fatG} g | Karbo {smartDietPlan.macros.carbsG} g
-                          </p>
-                        )}
-                      </>
-                    )}
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: 'BMR', value: `${smartDietPlan.bmr} kcal` },
+                      { label: 'TDEE', value: `${smartDietPlan.tdee} kcal` },
+                      { label: 'Dagsmal', value: `${smartDietPlan.optimizedTargetKcal} kcal` },
+                      { label: 'Justering', value: `${smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}${smartDietPlan.weeklyAdjustmentKcal} kcal` },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3 text-center">
+                        <p className="text-base font-bold text-orange-300">{value}</p>
+                        <p className="text-[11px] text-white/40 mt-0.5">{label}</p>
+                      </div>
+                    ))}
                   </div>
-
-                  <div className="grid grid-cols-1 gap-2 text-xs">
-                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
-                      Goal category: {String(profilePrefs.goalCategory ?? 'fat_loss').split('_').join(' ')}
-                    </div>
-                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
-                      Goal strategy: {String(profilePrefs.goalStrategy ?? 'standard_cut').split('_').join(' ')}
-                    </div>
-                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
-                      Timeline: {String(profilePrefs.timelineType ?? 'maintenance_open').split('_').join(' ')}
-                    </div>
-                    <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">
-                      Projection: {localizeProjectionText(smartDietPlan.projectedProgressText)}
-                    </div>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-lg bg-orange-500/10 p-2">BMR: {smartDietPlan.bmr} kcal</div>
-                    <div className="rounded-lg bg-orange-500/10 p-2">TDEE: {smartDietPlan.tdee} kcal</div>
-                    <div className="rounded-lg bg-orange-500/10 p-2">Base: {smartDietPlan.baseTargetKcal} kcal</div>
-                    <div className="rounded-lg bg-orange-500/10 p-2">Optimized: {smartDietPlan.optimizedTargetKcal} kcal</div>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-600 dark:text-white/60">
-                    Ukentlig justering: {smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} kcal
-                  </p>
-                  <p className="text-xs text-slate-600 dark:text-white/60 mt-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason)}</p>
                   {smartDietPlan.macros && (
-                    <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
-                      <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">Protein: {smartDietPlan.macros.proteinG} g</div>
-                      <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">Karbo: {smartDietPlan.macros.carbsG} g</div>
-                      <div className="rounded-lg bg-slate-100/70 dark:bg-white/[0.03] p-2">Fett: {smartDietPlan.macros.fatG} g</div>
+                    <div className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-white/40 mb-2">Makromål</p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        {[
+                          { label: 'Protein', value: `${smartDietPlan.macros.proteinG}g`, color: 'text-violet-300' },
+                          { label: 'Karbo', value: `${smartDietPlan.macros.carbsG}g`, color: 'text-emerald-300' },
+                          { label: 'Fett', value: `${smartDietPlan.macros.fatG}g`, color: 'text-amber-300' },
+                        ].map(({ label, value, color }) => (
+                          <div key={label}>
+                            <p className={`text-base font-bold ${color}`}>{value}</p>
+                            <p className="text-[11px] text-white/40">{label}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
+                  <p className="text-xs text-white/40 px-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason, t)}</p>
+                  <p className="text-xs text-white/40 px-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
                 </div>
               )}
 
               {sidebarView === 'journey' && (
-                <div className="mt-4">
+                <div>
                   {journeyWeightSeries.length === 0 ? (
-                    <p className="text-xs text-slate-500 dark:text-white/40">Ingen vektdata enda. Logg en maling for graf.</p>
+                    <p className="text-xs text-white/40 text-center py-4">Ingen vektdata enda. Logg en måling for graf.</p>
                   ) : (
-                    <div className="rounded-xl bg-slate-100/70 dark:bg-white/[0.03] p-3">
-                      <p className="text-xs font-medium text-slate-600 dark:text-white/60 mb-2">Vekttrend (kg)</p>
-                      <svg viewBox="0 0 420 170" className="w-full h-40">
+                    <div className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-4">
+                      <p className="text-xs font-semibold text-white/60 mb-3">Vekttrend (kg)</p>
+                      <svg viewBox="0 0 420 170" className="w-full h-36">
                         {(() => {
-                          const values = journeyWeightSeries.map((point) => point.value);
+                          const values = journeyWeightSeries.map((p) => p.value);
                           const min = Math.min(...values);
                           const max = Math.max(...values);
                           const range = Math.max(1, max - min);
-                          const coords = journeyWeightSeries.map((point, index) => {
-                            const x = journeyWeightSeries.length === 1 ? 210 : (index / (journeyWeightSeries.length - 1)) * 390 + 15;
-                            const y = 145 - ((point.value - min) / range) * 120;
-                            return { x, y, value: point.value, date: point.date };
-                          });
+                          const coords = journeyWeightSeries.map((p, i) => ({
+                            x: journeyWeightSeries.length === 1 ? 210 : (i / (journeyWeightSeries.length - 1)) * 390 + 15,
+                            y: 145 - ((p.value - min) / range) * 120,
+                            value: p.value,
+                            date: p.date,
+                          }));
                           return (
                             <>
-                              <line x1="15" y1="145" x2="405" y2="145" stroke="rgba(148,163,184,0.5)" strokeWidth="1" />
-                              <polyline
-                                fill="none"
-                                stroke="#f97316"
-                                strokeWidth="3"
-                                points={coords.map((c) => `${c.x},${c.y}`).join(' ')}
-                              />
+                              <line x1="15" y1="145" x2="405" y2="145" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                              <polyline fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={coords.map((c) => `${c.x},${c.y}`).join(' ')} />
                               {coords.map((c) => (
-                                <g key={`${c.date}-${c.value}`}>
-                                  <circle cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
-                                </g>
+                                <circle key={`${c.date}-${c.value}`} cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
                               ))}
-                              <text x="15" y="164" fontSize="10" fill="currentColor" className="text-slate-500 dark:text-white/40">
-                                {formatDateKey(coords[0]?.date ?? todayKey)}
-                              </text>
-                              <text x="340" y="164" fontSize="10" fill="currentColor" className="text-slate-500 dark:text-white/40">
-                                {formatDateKey(coords[coords.length - 1]?.date ?? todayKey)}
-                              </text>
+                              <text x="15" y="164" fontSize="10" fill="rgba(255,255,255,0.3)">{formatDateKey(coords[0]?.date ?? todayKey)}</text>
+                              <text x="340" y="164" fontSize="10" fill="rgba(255,255,255,0.3)">{formatDateKey(coords[coords.length - 1]?.date ?? todayKey)}</text>
                             </>
                           );
                         })()}
@@ -2060,13 +2048,17 @@ export default function HomeScreen() {
                   )}
                 </div>
               )}
-            </aside>
+            </div>
           </div>
         </div>
+        ) : null,
+        document.body
       )}
 
       {/* ===== COMPACT TOP BAR ===== */}
       <div className={`screen-header${identityHeaderModifier ? ` ${identityHeaderModifier}` : ''}${headerMomentFlash ? ' screen-header-moment-flash' : ''}`}>
+        {/* Persistent header bottom wave */}
+        <span className="screen-header-wave" aria-hidden="true" />
         {waterPourActive && (
           <div className="water-pour-container" aria-hidden="true">
             <div className="water-pour-wave" />
@@ -2130,14 +2122,6 @@ export default function HomeScreen() {
                 </div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setLazyMode((prev) => !prev)}
-              className={`h-8 rounded-full px-3 text-[11px] font-semibold transition-colors shrink-0 ${lazyMode ? 'bg-orange-500/15 text-orange-500 dark:text-orange-400' : 'bg-slate-100/80 dark:bg-white/[0.07] text-slate-500 dark:text-white/45 hover:bg-slate-200/80 dark:hover:bg-white/[0.12]'}`}
-              title="Enkel modus"
-            >
-              {lazyMode ? 'Enkel ✓' : 'Enkel'}
-            </button>
           </div>
         </div>
 
@@ -2150,16 +2134,43 @@ export default function HomeScreen() {
         )}
       </div>
 
+      {/* ===== DAILY COACH CARD ===== */}
+      {isTodaySelected && (
+        <div style={{ padding: '0 16px 0 16px' }}>
+          <CoachCard message={coachMessage} />
+        </div>
+      )}
+
       {/* ===== CALORIE RING HERO ===== */}
       <div className={`calorie-hero${identityHeaderModifier ? ` calorie-hero-${identityMode.replace('_', '-')}` : ''}`}>
         {/* Identity orbs — soft ambient particles that float around the card */}
         <span className="hero-orb hero-orb-1" aria-hidden="true" />
         <span className="hero-orb hero-orb-2" aria-hidden="true" />
         <span className="hero-orb hero-orb-3" aria-hidden="true" />
+        {/* Ambient shimmer wave */}
+        <span className="hero-shimmer" aria-hidden="true" />
+        {/* Rain effect when water is logged */}
+        {waterPourActive && (
+          <div className="hero-rain-container" aria-hidden="true">
+            <div className="hero-rain-wave" />
+            {[4,10,17,24,30,37,44,51,57,63,70,76,82,88,94].map((left, i) => (
+              <span
+                key={left}
+                className="hero-rain-drop"
+                style={{
+                  left: `${left}%`,
+                  animationDelay: `${i * 0.04}s`,
+                  height: `${10 + (i % 3) * 4}px`,
+                  opacity: 0.6 + (i % 4) * 0.1,
+                }}
+              />
+            ))}
+          </div>
+        )}
         <button
           type="button"
           onClick={onRingTap}
-          className={`progress-circle ${ringAnimating ? 'progress-circle-animating' : ''}`}
+          className={`progress-circle ${ringAnimating ? 'progress-circle-animating' : ''} ${ringPumping ? 'progress-circle-pumping' : ''}`}
           title="Vis kaloridetaljer"
         >
           <svg width="220" height="220" viewBox="0 0 200 200">
@@ -2295,9 +2306,16 @@ export default function HomeScreen() {
         >
           <ChevronLeft className="w-4 h-4 text-slate-500 dark:text-white/50" />
         </button>
-        <div key={selectedDateKey} className="date-nav-chip date-nav-chip-animate">
+        <button
+          key={selectedDateKey}
+          type="button"
+          className="date-nav-chip date-nav-chip-animate flex items-center gap-2"
+          onClick={() => { setHistoryViewDate(today); setHistorySelectedKey(null); setShowActivityHistory(true); }}
+          title="Se aktivitetshistorikk"
+        >
+          <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-white/40 shrink-0" />
           <p className="text-slate-800 dark:text-white/80 font-medium text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
-        </div>
+        </button>
         <button 
           type="button" 
           className="date-nav-button" 
@@ -2308,17 +2326,13 @@ export default function HomeScreen() {
         </button>
       </div>
 
+      {/* Quick log actions */}
       <div className="card card-elevated">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Rask matlogging</h3>
-          <span className="text-[11px] text-slate-500 dark:text-white/40 font-semibold bg-slate-100 dark:bg-white/[0.06] px-2 py-1 rounded-full">Ett trykk</span>
-        </div>
-        <p className="text-sm text-slate-600 dark:text-white/60 mb-4">Logg mat på sekunder med AI-drevne verktøy</p>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2.5">
           <button
             type="button"
             onClick={() => openScanTab('photo')}
-            className="btn-primary text-sm px-4 py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-primary text-sm py-3 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             <Camera className="w-4 h-4" />
@@ -2327,7 +2341,7 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => openScanTab('barcode')}
-            className="btn-secondary text-sm px-4 py-3 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-secondary text-sm py-3 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
             <ScanLine className="w-4 h-4" />
@@ -2336,36 +2350,83 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('repeat-last')}
-            className="btn-neutral text-sm px-4 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay || !lastLoggedFood}
           >
             Gjenta sist
           </button>
           <button
             type="button"
-            onClick={() => handleQuickAdd('kcal-adaptive')}
-            className="btn-neutral text-sm px-4 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => handleQuickAdd('repeat-day-yesterday')}
+            className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
-            Smart +kcal
+            Gjenta i går
           </button>
         </div>
       </div>
 
+      {/* Daily summary + log */}
       <div className="card card-elevated">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-900 dark:text-white/90">Dagens matlogg</h3>
-          <span className="text-[11px] text-slate-500 dark:text-white/40">{todaysLoggedItems.length} varer</span>
+        {/* Kcal + Protein stats */}
+        {isTodaySelected && (
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {/* Calories */}
+            <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5">
+              <p className="text-[11px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wide mb-1">Kalorier</p>
+              <p className={`text-2xl font-bold leading-none ${caloriesRemaining < 0 ? 'text-red-500' : 'text-slate-800 dark:text-white/90'}`}>
+                {caloriesRemaining < 0 ? `+${Math.abs(Math.round(caloriesRemaining))}` : Math.round(caloriesRemaining)}
+              </p>
+              <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{caloriesRemaining < 0 ? 'over mål' : 'kcal igjen'}</p>
+              <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-white/[0.08] overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${caloriesRemaining < 0 ? 'bg-red-400' : 'bg-orange-400'}`}
+                  style={{ width: `${Math.min(progressRatio * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+            {/* Protein */}
+            {smartDietPlan.macros ? (
+              <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5">
+                <p className="text-[11px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wide mb-1">Protein</p>
+                <p className={`text-2xl font-bold leading-none ${protein >= smartDietPlan.macros.proteinG ? 'text-emerald-500' : 'text-slate-800 dark:text-white/90'}`}>
+                  {protein >= smartDietPlan.macros.proteinG ? '✓' : `${Math.round(smartDietPlan.macros.proteinG - protein)}g`}
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{protein >= smartDietPlan.macros.proteinG ? 'nådd!' : 'igjen'}</p>
+                <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-white/[0.08] overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${protein >= smartDietPlan.macros.proteinG ? 'bg-emerald-400' : 'bg-violet-400'}`}
+                    style={{ width: `${Math.min((protein / smartDietPlan.macros.proteinG) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5 flex items-center justify-center">
+                <p className="text-xs text-slate-400 dark:text-white/30">—</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Log header */}
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-white/70">Dagens matlogg</h3>
+          {todaysLoggedItems.length > 0 && (
+            <span className="text-[11px] text-slate-400 dark:text-white/30">{todaysLoggedItems.length} varer</span>
+          )}
         </div>
+
         {todaysLoggedItems.length === 0 ? (
-          <p className="mt-3 text-xs text-slate-500 dark:text-white/40">Ingen matvarer logget enda.</p>
+          <p className="text-xs text-slate-400 dark:text-white/30 py-1">
+            {isTodaySelected ? 'Ingen matvarer logget ennå i dag.' : 'Ingen matvarer logget.'}
+          </p>
         ) : (
           <div className="mt-3 space-y-2">
             {todaysLoggedItems.map(({ mealId, index, entry }, itemIndex) => (
               <div key={entry.id} className="food-log-item rounded-lg border border-slate-200 dark:border-white/[0.06] px-3 py-2" style={{ animationDelay: `${itemIndex * 40}ms` }}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-[11px] uppercase text-slate-400 dark:text-white/30">{mealLabelById[mealId]} #{index + 1}</p>
+                    <p className="text-[11px] uppercase text-slate-400 dark:text-white/30">{mealId === 'breakfast' ? t('home.meals.breakfast') : mealId === 'lunch' ? t('home.meals.lunch') : mealId === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')} #{index + 1}</p>
                     <p className="text-sm font-medium text-slate-900 dark:text-white/90 truncate">{entry.name}</p>
                     <p className="text-xs text-slate-500 dark:text-white/40">{entry.kcal} kcal | P {entry.protein} | K {entry.carbs} | F {entry.fat}</p>
                   </div>
@@ -2381,7 +2442,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => removeFoodFromMeal(mealId, entry.id)}
+                      onClick={() => setPendingDelete({ mealId, entryId: entry.id, name: entry.name })}
                       className="h-8 w-8 rounded-md border border-red-500/20 text-red-400 flex items-center justify-center disabled:text-red-400/50 disabled:border-red-100"
                       title="Slett"
                       disabled={isPastSelectedDay}
@@ -2429,7 +2490,7 @@ export default function HomeScreen() {
                     <MealIcon className={`w-6 h-6 ${mealIconGlyphToneById[meal.id]}`} />
                   </div>
                   <div className="text-left min-w-0">
-                    <h3 className="font-semibold text-slate-900 dark:text-white/90">{meal.name}</h3>
+                    <h3 className="font-semibold text-slate-900 dark:text-white/90">{meal.id === 'breakfast' ? t('home.meals.breakfast') : meal.id === 'lunch' ? t('home.meals.lunch') : meal.id === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')}</h3>
                     <p className="text-sm text-slate-500 dark:text-white/40">{items.length ? `${totals.kcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}</p>
                     {mealHistory.avgKcal > 0 && (
                       <p className="text-[11px] text-slate-400 dark:text-white/30">Vanlig: ~{mealHistory.avgKcal} kcal</p>
@@ -2518,7 +2579,7 @@ export default function HomeScreen() {
                     </div>
                   )}
 
-                  {items.length > 0 && !lazyMode && (
+                  {items.length > 0 && (
                     <div>
                       <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
                         <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-slate-600 dark:text-white/60">P {Math.round(totals.protein)}g</span>
@@ -2847,6 +2908,13 @@ export default function HomeScreen() {
         </button>
       </div>
 
+      {/* ===== NUTRITION TWIN / TRAJECTORY ===== */}
+      {isTodaySelected && adaptiveComplexity !== 'minimal' && (
+        <div style={{ padding: '0 16px' }}>
+          <TrajectoryChart logsByDate={logsByDate} rawProfile={profilePrefs} />
+        </div>
+      )}
+
       {isPastSelectedDay && (
         <p className="px-4 mt-2 text-xs text-amber-400/80">
           Denne dagen er last fordi den har passert. Dagens score er derfor uforanderlig.
@@ -2993,7 +3061,7 @@ export default function HomeScreen() {
                   <div>
                     <h3 className="text-base font-semibold text-slate-900 dark:text-white/90">Legg til mat</h3>
                     <p className="text-xs text-slate-500 dark:text-white/40 capitalize">
-                      {manualAddMeal === 'breakfast' ? 'Frokost' : manualAddMeal === 'lunch' ? 'Lunsj' : manualAddMeal === 'dinner' ? 'Middag' : 'Snacks'}
+                      {manualAddMeal === 'breakfast' ? t('home.meals.breakfast') : manualAddMeal === 'lunch' ? t('home.meals.lunch') : manualAddMeal === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')}
                     </p>
                   </div>
                 </div>
@@ -3304,7 +3372,7 @@ export default function HomeScreen() {
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-lg font-bold text-slate-900 dark:text-white">Næringsstoffer</h2>
-                    <p className="text-xs text-slate-500 dark:text-white/40">{isTodaySelected ? 'I dag' : dateLabel} · {consumed} kcal spist</p>
+                    <p className="text-xs text-slate-500 dark:text-white/40">{isTodaySelected ? t('home.today') : dateLabel} · {consumed} kcal spist</p>
                   </div>
                   <button type="button" onClick={() => { setShowNutrientModal(false); setMicroInputKey(null); }} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center">
                     <X className="w-4 h-4 text-slate-600 dark:text-white/60" />
@@ -3448,7 +3516,361 @@ export default function HomeScreen() {
         .training-flex-active {
           animation: flexArmEmoji 1.15s ease-in-out infinite;
         }
+
+        /* ── Ring pump ───────────────────────────────── */
+        @keyframes ringPump {
+          0%   { transform: scale(1); }
+          28%  { transform: scale(1.06); filter: drop-shadow(0 0 30px rgba(249,115,22,0.55)); }
+          55%  { transform: scale(0.97); }
+          78%  { transform: scale(1.018); }
+          100% { transform: scale(1); filter: none; }
+        }
+        .progress-circle-pumping {
+          animation: ringPump 500ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        /* ── Hero card shimmer wave ───────────────────── */
+        .hero-shimmer {
+          position: absolute; inset: 0;
+          pointer-events: none; z-index: 1;
+          border-radius: inherit;
+          background: linear-gradient(105deg,
+            transparent 0%, transparent 38%,
+            rgba(255,255,255,0.22) 50%,
+            transparent 62%, transparent 100%);
+          background-size: 220% 100%;
+          animation: heroShimmerSweep 6s ease-in-out infinite;
+        }
+        @keyframes heroShimmerSweep {
+          0%   { background-position: 180% 0; opacity: 0; }
+          8%   { opacity: 1; }
+          40%  { background-position: -40% 0; opacity: 0.6; }
+          42%  { opacity: 0; }
+          100% { background-position: -40% 0; opacity: 0; }
+        }
+
+        /* ── Screen-header bottom wave ────────────────── */
+        .screen-header-wave {
+          position: absolute; bottom: -6px; left: 0; right: 0; height: 18px;
+          pointer-events: none; z-index: 3; overflow: hidden;
+        }
+        .screen-header-wave::before, .screen-header-wave::after {
+          content: ''; position: absolute;
+          width: 200%; height: 100%; top: 0; border-radius: 40%;
+          animation: headerWaveRoll 5s linear infinite;
+        }
+        .screen-header-wave::before {
+          left: -50%;
+          background: rgba(249,115,22,0.10);
+          animation-duration: 5s;
+        }
+        .screen-header-wave::after {
+          left: -50%;
+          background: rgba(251,146,60,0.07);
+          animation-duration: 7s;
+          animation-direction: reverse;
+        }
+        @keyframes headerWaveRoll {
+          0%   { transform: translateX(0) scaleY(1); }
+          50%  { transform: translateX(25%) scaleY(1.15); }
+          100% { transform: translateX(50%) scaleY(1); }
+        }
+
+        /* ── Hero rain effect ─────────────────────────── */
+        .hero-rain-container {
+          position: absolute; inset: 0; pointer-events: none; z-index: 5;
+          overflow: hidden; border-radius: inherit;
+        }
+        .hero-rain-wave {
+          position: absolute; inset: 0;
+          background: linear-gradient(180deg,
+            rgba(56,189,248,0.28) 0%, rgba(14,165,233,0.14) 40%,
+            rgba(56,189,248,0.05) 70%, transparent 100%);
+          animation: heroRainWaveFall 1.8s cubic-bezier(0.22,0.61,0.36,1) forwards;
+        }
+        @keyframes heroRainWaveFall {
+          0%   { transform: translateY(-100%); opacity: 0; }
+          8%   { opacity: 1; }
+          50%  { transform: translateY(0); opacity: 0.6; }
+          100% { transform: translateY(0); opacity: 0; }
+        }
+        .hero-rain-drop {
+          position: absolute; top: 0; width: 3px;
+          border-radius: 50% 50% 46% 46% / 30% 30% 70% 70%;
+          background: linear-gradient(180deg,
+            rgba(186,237,255,0.95) 0%, rgba(56,189,248,0.88) 60%,
+            rgba(14,165,233,0.75) 100%);
+          box-shadow: 0 0 6px rgba(56,189,248,0.5), inset 0 1px 0 rgba(255,255,255,0.6);
+          animation: heroRainDropFall 1.1s ease-in forwards;
+        }
+        @keyframes heroRainDropFall {
+          0%   { transform: translateY(-20px) scaleY(0.7); opacity: 0; }
+          10%  { opacity: 1; }
+          80%  { opacity: 0.7; }
+          100% { transform: translateY(280px) scaleY(1.4) scaleX(0.7); opacity: 0; }
+        }
+
+        /* ── Activity History — full-screen ─────────── */
+        .ah-overlay {
+          position: fixed; inset: 0; z-index: 1800;
+          animation: ahFadeIn 180ms ease both;
+        }
+        @keyframes ahFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .ah-panel {
+          position: absolute; inset: 0;
+          display: flex; flex-direction: column; overflow: hidden;
+          animation: ahSlideIn 320ms cubic-bezier(0.22,1,0.36,1) both;
+        }
+        @keyframes ahSlideIn {
+          from { transform: translateY(40px); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        .ah-day-cell {
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          border-radius: 14px; padding: 4px 2px;
+          transition: background 0.15s ease, transform 0.12s ease;
+          animation: ahCellPop 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
+        }
+        .ah-day-cell:disabled { opacity: 0.25; pointer-events: none; }
+        .ah-day-cell:not(:disabled):active { transform: scale(0.84); }
+        .ah-day-selected { background: rgba(249,115,22,0.13); outline: 2px solid rgba(249,115,22,0.45); }
+        @keyframes ahCellPop {
+          from { opacity: 0; transform: scale(0.55); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+        .ah-ring-fill { animation: ahRingDraw 0.65s cubic-bezier(0.22,1,0.36,1) both; }
+        @keyframes ahRingDraw {
+          from { opacity: 0; stroke-dashoffset: 69.12; }
+          to   { opacity: 1; }
+        }
+        .ah-detail-card {
+          border-radius: 22px; padding: 18px;
+          background: rgba(248,250,252,1);
+          border: 1px solid rgba(226,232,240,0.8);
+          animation: ahDetailSlide 0.28s cubic-bezier(0.22,1,0.36,1) both;
+        }
+        .ah-detail-ring-fill { animation: ahRingDraw 0.55s cubic-bezier(0.22,1,0.36,1) both; }
+        @keyframes ahDetailSlide {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
       `}</style>
+
+      {/* ===== ACTIVITY HISTORY MODAL ===== */}
+      {showActivityHistory && createPortal(
+        <div className="ah-overlay bg-white dark:bg-slate-950">
+          <div className="ah-panel bg-white dark:bg-slate-950">
+            {/* Header bar */}
+            <div className="shrink-0 px-5 pt-5 pb-4 flex items-center justify-between border-b border-slate-100 dark:border-white/[0.06]">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Aktivitetshistorikk</h2>
+                <p className="text-xs text-slate-400 dark:text-white/35 mt-0.5">Trykk en dag for detaljer</p>
+              </div>
+              <button type="button" onClick={() => setShowActivityHistory(false)} className="w-10 h-10 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center">
+                <X className="w-5 h-5 text-slate-500 dark:text-white/60" />
+              </button>
+            </div>
+
+            {/* Scrollable area */}
+            <div className="overflow-y-auto flex-1 px-5 pb-10">
+
+              {/* Month nav */}
+              <div className="flex items-center justify-between mt-5 mb-5">
+                <button
+                  type="button"
+                  onClick={() => setHistoryViewDate((d) => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
+                  className="w-11 h-11 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center active:scale-90 transition-transform"
+                >
+                  <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-white/70" />
+                </button>
+                <span className="text-lg font-bold text-slate-800 dark:text-white capitalize">{historyMonthLabel}</span>
+                <button
+                  type="button"
+                  onClick={() => setHistoryViewDate((d) => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n; })}
+                  disabled={historyViewDate.getFullYear() === today.getFullYear() && historyViewDate.getMonth() >= today.getMonth()}
+                  className="w-11 h-11 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center disabled:opacity-25 active:scale-90 transition-transform"
+                >
+                  <ChevronRight className="w-5 h-5 text-slate-600 dark:text-white/70" />
+                </button>
+              </div>
+
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                {[
+                  { label: 'Snitt score', value: `${historyMonthStats.avgScore}%`, color: historyMonthStats.avgScore >= 75 ? 'text-green-500 dark:text-green-400' : historyMonthStats.avgScore >= 50 ? 'text-orange-500' : 'text-slate-400 dark:text-white/40' },
+                  { label: 'Dager logget', value: String(historyMonthStats.loggedDays), color: 'text-slate-800 dark:text-white' },
+                  { label: 'Streak nå', value: `${streak}d`, color: streak >= 7 ? 'text-orange-500' : 'text-slate-800 dark:text-white' },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-2xl bg-slate-50 dark:bg-white/[0.05] border border-slate-100 dark:border-white/[0.07] px-3 py-4 text-center">
+                    <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                    <p className="text-[11px] text-slate-400 dark:text-white/35 mt-1 font-medium">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Weekday labels */}
+              <div className="grid grid-cols-7 mb-2">
+                {['Ma', 'Ti', 'On', 'To', 'Fr', 'Lø', 'Sø'].map((d) => (
+                  <div key={d} className="text-center text-[11px] font-bold text-slate-300 dark:text-white/25 tracking-wide py-1">{d}</div>
+                ))}
+              </div>
+
+              {/* Calendar grid — bigger rings */}
+              <div className="grid grid-cols-7 gap-y-0.5">
+                {historyMonthDays.map((date, i) => {
+                  const key = toDateKey(date);
+                  const inMonth = date.getMonth() === historyViewDate.getMonth();
+                  const isFuture = date > today;
+                  const log = !isFuture ? (logsByDate[key] ?? null) : null;
+                  const score = log ? calculateDailyDisciplineScore(log).score : 0;
+                  const hasData = log ? (Object.values(log.meals).flat().length > 0 || getTotalHydrationMl(log) > 0 || log.trainingKcal > 0) : false;
+                  const isToday = key === todayKey;
+                  const isSelected = key === historySelectedKey;
+                  const ringR = 14;
+                  const ringC = 2 * Math.PI * ringR;
+                  const ringOffset = ringC * (1 - (hasData ? score / 100 : 0));
+                  const ringColor = score >= 80 ? '#22c55e' : score >= 55 ? '#f97316' : score > 0 ? '#ef4444' : 'rgba(148,163,184,0.25)';
+                  const trackColor = inMonth && !isFuture ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.06)';
+                  const numColor = !inMonth || isFuture ? 'rgba(148,163,184,0.25)' : isToday ? '#f97316' : hasData ? (score >= 55 ? '#1e293b' : '#64748b') : '#94a3b8';
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => inMonth && !isFuture ? setHistorySelectedKey(isSelected ? null : key) : undefined}
+                      disabled={!inMonth || isFuture}
+                      className={`ah-day-cell ${isSelected ? 'ah-day-selected' : ''}`}
+                      style={{ animationDelay: `${i * 10}ms` }}
+                    >
+                      <svg width="36" height="36" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r={ringR} fill="none" stroke={trackColor} strokeWidth="3" />
+                        {hasData && (
+                          <circle
+                            cx="18" cy="18" r={ringR}
+                            fill="none" stroke={ringColor} strokeWidth="3" strokeLinecap="round"
+                            strokeDasharray={ringC} strokeDashoffset={ringOffset}
+                            transform="rotate(-90 18 18)"
+                            className="ah-ring-fill"
+                            style={{ animationDelay: `${i * 10 + 60}ms`, animationDuration: `${0.5 + (score / 100) * 0.9}s` }}
+                          />
+                        )}
+                        {isToday && <circle cx="18" cy="18" r={ringR + 1.5} fill="none" stroke="rgba(249,115,22,0.3)" strokeWidth="1" />}
+                        <text x="18" y="22.5" textAnchor="middle" fontSize="9" fontWeight="700" fill={numColor}>
+                          {date.getDate()}
+                        </text>
+                      </svg>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Day detail card */}
+              {historySelectedKey && historySelectedLog && (() => {
+                const log = historySelectedLog;
+                const dayConsumed = Object.values(log.meals).flat().reduce((s, f) => s + f.kcal, 0);
+                const dayProtein = Object.values(log.meals).flat().reduce((s, f) => s + f.protein, 0);
+                const dayWater = getTotalHydrationMl(log);
+                const dayTarget = optimizedTargetKcal + log.trainingKcal;
+                const dayScore = calculateDailyDisciplineScore(log);
+                const detailRings = [
+                  { label: 'Kalorier', value: `${kcalNumberFormat.format(dayConsumed)}`, sub: `av ${kcalNumberFormat.format(dayTarget)}`, ratio: Math.min(1, dayConsumed / Math.max(1, dayTarget)), color: '#f97316' },
+                  { label: 'Protein', value: `${Math.round(dayProtein)}g`, sub: `av ${PROTEIN_GOAL_G}g`, ratio: Math.min(1, dayProtein / PROTEIN_GOAL_G), color: '#a855f7' },
+                  { label: 'Vann', value: `${Math.round(dayWater / 100) / 10}L`, sub: `av ${WATER_GOAL_ML / 1000}L`, ratio: Math.min(1, dayWater / WATER_GOAL_ML), color: '#38bdf8' },
+                  { label: 'Trening', value: log.trainingKcal > 0 ? `${log.trainingKcal} kcal` : '—', sub: log.trainingKcal > 0 ? 'trent' : 'ikke trent', ratio: Math.min(1, log.trainingKcal / 300), color: '#22c55e' },
+                ];
+                const detailR = 20;
+                const detailC = 2 * Math.PI * detailR;
+                return (
+                  <div className="ah-detail-card mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white/90">{formatDateKey(historySelectedKey)}</p>
+                        <p className="text-xs text-slate-400 dark:text-white/40">Disiplinscore: <span className="font-semibold text-slate-700 dark:text-white/70">{dayScore.score}%</span></p>
+                      </div>
+                      <button type="button" onClick={() => setHistorySelectedKey(null)} className="w-7 h-7 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center">
+                        <X className="w-3 h-3 text-slate-400 dark:text-white/40" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {detailRings.map((ring, ri) => (
+                        <div key={ring.label} className="flex flex-col items-center gap-1" style={{ animationDelay: `${ri * 60}ms` }}>
+                          <svg width="52" height="52" viewBox="0 0 52 52">
+                            <circle cx="26" cy="26" r={detailR} fill="none" stroke="rgba(148,163,184,0.15)" strokeWidth="4" />
+                            <circle
+                              cx="26" cy="26" r={detailR}
+                              fill="none"
+                              stroke={ring.color}
+                              strokeWidth="4"
+                              strokeLinecap="round"
+                              strokeDasharray={detailC}
+                              strokeDashoffset={detailC * (1 - ring.ratio)}
+                              transform="rotate(-90 26 26)"
+                              className="ah-detail-ring-fill"
+                              style={{ animationDelay: `${ri * 60 + 100}ms`, animationDuration: `${0.45 + ring.ratio * 0.85}s` }}
+                            />
+                          </svg>
+                          <p className="text-[11px] font-bold text-slate-800 dark:text-white/80 leading-none">{ring.value}</p>
+                          <p className="text-[9px] text-slate-400 dark:text-white/35 leading-none text-center">{ring.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Meal breakdown */}
+                    {Object.entries(log.meals).some(([, items]) => items.length > 0) && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/[0.06] space-y-1.5">
+                        {(Object.entries(log.meals) as Array<[MealId, FoodEntry[]]>).map(([mealId, items]) => {
+                          if (items.length === 0) return null;
+                          const label = mealId === 'breakfast' ? t('home.meals.breakfast') : mealId === 'lunch' ? t('home.meals.lunch') : mealId === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks');
+                          const mealKcal = items.reduce((s, f) => s + f.kcal, 0);
+                          return (
+                            <div key={mealId} className="flex items-center justify-between">
+                              <span className="text-xs text-slate-600 dark:text-white/55">{label}</span>
+                              <span className="text-xs font-semibold text-slate-700 dark:text-white/70">{mealKcal} kcal · {items.length} varer</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => { setDayOffset(Math.round((new Date(historySelectedKey.replace(/-/g, '/')).getTime() - today.getTime()) / 86400000)); setShowActivityHistory(false); }}
+                      className="mt-3 w-full py-2.5 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold"
+                    >
+                      Gå til denne dagen →
+                    </button>
+                  </div>
+                );
+              })()}
+
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Delete confirmation sheet */}
+      {pendingDelete && (
+        <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-black/40 p-4" onClick={() => setPendingDelete(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-slate-800 dark:text-white/90 mb-1">{t('home.deleteConfirm.title')}</p>
+            <p className="text-xs text-slate-500 dark:text-white/50 mb-5 truncate">{pendingDelete.name}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-semibold text-slate-700 dark:text-white/70"
+              >
+                {t('home.deleteConfirm.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => { removeFoodFromMeal(pendingDelete.mealId, pendingDelete.entryId); setPendingDelete(null); }}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white text-sm font-semibold"
+              >
+                {t('home.deleteConfirm.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

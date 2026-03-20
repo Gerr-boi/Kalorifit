@@ -2,6 +2,8 @@ import { getFood101SeedQuery } from './food101';
 import { resolveLabelOFFWithCandidates } from './labelResolver';
 import { resolveLabelMatvaretabellen } from './matvaretabellen';
 import { isFoodRepoEnabled, resolveLabelFoodRepoWithCandidates } from './foodRepo';
+import { searchKassalapp, isKassalappEnabled } from './kassalapp';
+import { enrichWithNova } from './nutritionResolver';
 import type { NutritionResult } from './types';
 
 type ResolveAcrossOptions = {
@@ -76,9 +78,18 @@ export async function resolveLabelAcrossDatasets(
     if (shouldUseFoodRepo) {
       tasks.push(resolveLabelFoodRepoWithCandidates(query, { brand: options.brand }, limitPerSource));
     }
+    // Kassalapp text search — Norwegian grocery DB (first query variant only to avoid hammering)
+    const kassalappTask: Promise<NutritionResult[]> =
+      index === 0 && isKassalappEnabled()
+        ? searchKassalapp(query, limitPerSource)
+        : Promise.resolve([]);
 
-    const results = await Promise.all(tasks);
-    for (const result of results) {
+    const [sourceResults, kassalappResults] = await Promise.all([
+      Promise.all(tasks),
+      kassalappTask,
+    ]);
+
+    for (const result of sourceResults) {
       for (const candidate of result.candidates) {
         merged.push({
           ...candidate,
@@ -92,11 +103,27 @@ export async function resolveLabelAcrossDatasets(
         });
       }
     }
+    for (const candidate of kassalappResults) {
+      merged.push({
+        ...candidate,
+        confidence: Math.max(0.2, Math.min(0.99, candidate.confidence * queryPenalty)),
+        raw: {
+          ...(candidate.raw && typeof candidate.raw === 'object' ? candidate.raw as Record<string, unknown> : {}),
+          normalizedQuery: normalize(query),
+          queryVariantIndex: index,
+          source: "kassalapp",
+        },
+      });
+    }
   }
 
   const sorted = mergeCandidates(merged);
+
+  // Enrich the best result with NOVA classification
+  const best = sorted[0] ? enrichWithNova(sorted[0]) : null;
+
   return {
-    best: sorted[0] ?? null,
+    best,
     candidates: sorted,
   };
 }

@@ -67,6 +67,25 @@ type PredictDishOptions<TStage extends string> = {
   maxWaitMs?: number;
 };
 
+/** Max image upload size: 10 MB. Prevents accidental/malicious oversized POSTs. */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Strip CR/LF from a header value to prevent HTTP response splitting
+ * (OWASP A03 – Injection).
+ */
+function sanitizeHeader(value: string): string {
+  return value.replace(/[\r\n]/g, '');
+}
+
+/**
+ * Validates a scan log ID — must be alphanumeric + hyphens/underscores only,
+ * max 128 chars. Rejects anything that looks like injection or garbage.
+ */
+function isValidScanLogId(id: string): boolean {
+  return /^[A-Za-z0-9_-]{1,128}$/.test(id);
+}
+
 function parseJsonResponse(text: string, contentType: string, status: number): unknown {
   try {
     return text ? JSON.parse(text) : {};
@@ -100,11 +119,14 @@ export async function fetchAdaptiveRankingSnapshot(): Promise<AdaptiveRankingSna
 }
 
 export async function postScanFeedback(scanLogId: string, payload: unknown, scanRequestId: string): Promise<void> {
+  // Reject malformed IDs before sending (OWASP A03 – Injection)
+  if (!isValidScanLogId(scanLogId)) return;
+
   await fetch('/api/scan-feedback', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'X-Scan-Request-Id': scanRequestId,
+      'X-Scan-Request-Id': sanitizeHeader(scanRequestId),
     },
     body: JSON.stringify({
       scanLogId,
@@ -123,12 +145,17 @@ export async function detectFoodOnImage<TStage extends string>({
   isInvalidVisionLabel,
 }: DetectFoodOptions<TStage>): Promise<ScanApiDetectResult | null> {
   const blob = sourceBlob ?? await (await fetch(url)).blob();
+
+  if (blob.size > MAX_IMAGE_BYTES) {
+    throw new Error(`Image too large (${(blob.size / 1024 / 1024).toFixed(1)} MB). Maximum is 10 MB.`);
+  }
+
   const file = new File([blob], 'capture.jpg', { type: blob.type || 'image/jpeg' });
   const form = new FormData();
   form.append('image', file);
-  form.append('scanRequestId', trace.scanRequestId);
-  form.append('deviceInfo', trace.deviceInfo);
-  form.append('scanMode', mode);
+  form.append('scanRequestId', sanitizeHeader(trace.scanRequestId));
+  form.append('deviceInfo', sanitizeHeader(trace.deviceInfo));
+  form.append('scanMode', sanitizeHeader(mode));
   form.append('rotationDegrees', '0');
 
   const controller = new AbortController();
@@ -147,9 +174,9 @@ export async function detectFoodOnImage<TStage extends string>({
       method: 'POST',
       body: form,
       headers: {
-        'X-Scan-Request-Id': trace.scanRequestId,
-        'X-Device-Info': trace.deviceInfo,
-        'X-Scan-Mode': mode,
+        'X-Scan-Request-Id': sanitizeHeader(trace.scanRequestId),
+        'X-Device-Info': sanitizeHeader(trace.deviceInfo),
+        'X-Scan-Mode': sanitizeHeader(mode),
       },
       signal: controller.signal,
     });
@@ -423,7 +450,7 @@ export async function predictDishOnImage<TStage extends string>({
       method: 'POST',
       body: form,
       headers: {
-        'X-Scan-Request-Id': trace.scanRequestId,
+        'X-Scan-Request-Id': sanitizeHeader(trace.scanRequestId),
       },
       signal: controller.signal,
     });

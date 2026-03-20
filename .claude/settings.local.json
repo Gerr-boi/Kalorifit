@@ -1,7 +1,26 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(wc -l /c/Users/hrger/Kalorifit/app/kalorifit/app/src/components/screens/*.tsx)",
+      "Bash(npm run:*)",
+      "Bash(ls \"c:\\\\Users\\\\hrger\\\\Kalorifit\\\\.claude\\\\projects\\\\c--Users-hrger-Kalorifit\\\\memory\"\" 2>/dev/null || echo \"dir empty or missing \")",
+      "Bash(npx vite:*)",
+      "Bash(wc -l /c/Users/hrger/Kalorifit/app/src/components/screens/*.tsx)",
+      "Bash(find /c/Users/hrger/Kalorifit/app -name *.js -not -path */node_modules/*)",
+      "Bash(awk 'NR>=2018 && NR<=2025' \"c:/Users/hrger/Kalorifit/app/src/components/screens/HomeScreen.tsx\")",
+      "Bash(awk 'NR>=1756 && NR<=2022' \"c:/Users/hrger/Kalorifit/app/src/components/screens/HomeScreen.tsx\")",
+      "Bash(awk 'NR>=2012 && NR<=2025' \"c:/Users/hrger/Kalorifit/app/src/components/screens/HomeScreen.tsx\")",
+      "Bash(awk 'NR>=2020 && NR<=2365' \"c:/Users/hrger/Kalorifit/app/src/components/screens/HomeScreen.tsx\")",
+      "Bash(awk 'NR>=1756 && NR<=2025' \"c:/Users/hrger/Kalorifit/app/src/components/screens/HomeScreen.tsx\")",
+      "Bash(node -e \":*)",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|HACK\\\\|XXX\" /c/Users/hrger/Kalorifit/app/src --include=*.tsx --include=*.ts)",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(wc -l /c/Users/hrger/Kalorifit/app/src/locales/*.ts)",
+      "Bash(find c:/Users/hrger/Kalorifit -type f -name .env*)",
+      "Bash(grep -n \"Bearer\\\\|Authorization\\\\|api-key\\\\|apiKey\" c:/Users/hrger/Kalorifit/app/src/**/*.ts c:/Users/hrger/Kalorifit/app/src/**/*.tsx)"
     ]
   }
 }

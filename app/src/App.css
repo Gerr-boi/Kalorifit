@@ -471,6 +471,9 @@ label {
   margin: 0 16px 8px;
   padding: 34px 20px 28px;
   border-radius: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   background:
     radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.82) 0%, transparent 38%),
     linear-gradient(155deg, rgba(251, 146, 60, 0.18) 0%, rgba(255, 255, 255, 0.96) 40%, rgba(224, 242, 254, 0.78) 100%);
@@ -751,6 +754,7 @@ label {
   justify-content: center;
   gap: 10px;
   margin-top: 1.5rem;
+  width: 100%;
   animation: heroStatsRise 620ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -1199,6 +1203,18 @@ label {
 }
 
 /* ============================================
+   ACTIVITY HISTORY MODAL — dark mode overrides
+   ============================================ */
+.dark .ah-panel {
+  background: #0f172a;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.dark .ah-detail-card {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.07);
+}
+
+/* ============================================
    POPUP
    ============================================ */
 .popup-overlay {
@@ -1355,6 +1371,49 @@ label {
 .dark .reaction-chip { background: #18181b; border-color: rgba(255,255,255,0.06); color: #a1a1aa; }
 .dark .reaction-chip-active { background: rgba(249, 115, 22, 0.1); border-color: #fb923c; color: #fdba74; }
 
+/* ── Community Hub ───────────────────────────────────────────────────────── */
+.community-hub-card { background: #ffffff; border: 1px solid rgba(15,23,42,0.08); border-radius: 20px; padding: 16px; }
+.dark .community-hub-card { background: #18181b; border-color: rgba(255,255,255,0.06); }
+
+.checkin-chip { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(15,23,42,0.08); background: #f8fafc; text-align: left; width: 100%; transition: all 0.15s; }
+.checkin-chip-active { background: rgba(249,115,22,0.08); border-color: rgba(249,115,22,0.25); }
+.dark .checkin-chip { background: #27272a; border-color: rgba(255,255,255,0.06); }
+.dark .checkin-chip-active { background: rgba(249,115,22,0.1); border-color: rgba(249,115,22,0.3); }
+.checkin-dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; border: 1px solid #9ca3af; shrink: 0; flex-shrink: 0; }
+.checkin-dot-active { background: #f97316; border-color: #ea580c; }
+
+.pod-challenge-banner { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(249,115,22,0.06); border: 1px solid rgba(249,115,22,0.15); }
+.dark .pod-challenge-banner { background: rgba(249,115,22,0.08); border-color: rgba(249,115,22,0.2); }
+
+.recap-stat { padding: 8px 4px; background: #f8fafc; border-radius: 12px; }
+.recap-stat-value { font-size: 18px; font-weight: 700; color: #0f172a; line-height: 1; }
+.recap-stat-label { font-size: 10px; color: #64748b; margin-top: 2px; }
+.dark .recap-stat { background: #27272a; }
+.dark .recap-stat-value { color: #f4f4f5; }
+.dark .recap-stat-label { color: #71717a; }
+
+/* Feed action chips */
+.action-chip { display: inline-flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(15,23,42,0.1); background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 600; transition: all 0.15s; }
+.action-chip-active-blue { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.3); color: #2563eb; }
+.action-chip-active-green { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.3); color: #16a34a; }
+.action-chip-support { background: rgba(168,85,247,0.08); border-color: rgba(168,85,247,0.2); color: #9333ea; }
+.dark .action-chip { background: #27272a; border-color: rgba(255,255,255,0.06); color: #a1a1aa; }
+.dark .action-chip-active-blue { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); color: #93c5fd; }
+.dark .action-chip-active-green { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.25); color: #86efac; }
+.dark .action-chip-support { background: rgba(168,85,247,0.1); border-color: rgba(168,85,247,0.25); color: #d8b4fe; }
+
+/* Feed struggle variant */
+.feed-item-struggle { border-color: rgba(168,85,247,0.15); background: rgba(250,245,255,0.8); }
+.dark .feed-item-struggle { border-color: rgba(168,85,247,0.2); background: rgba(88,28,135,0.08); }
+
+/* Challenge cards */
+.challenge-card { background: #ffffff; border: 1px solid; border-radius: 18px; padding: 14px; }
+.dark .challenge-card { background: #18181b; }
+
+/* Scrollbar hiding utility */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 @media (max-width: 380px) {
   .privacy-grid { grid-template-columns: 1fr; }
 }
@@ -1384,7 +1443,7 @@ label {
 .profile-header { background: linear-gradient(145deg, #ffffff 0%, #f8fafc 48%, #fed7aa 100%); color: #0f172a; padding: 40px 20px 60px; text-align: center; border-radius: 0 0 32px 32px; border-bottom: 1px solid rgba(15,23,42,0.08); }
 .dark .profile-header { background: linear-gradient(145deg, #18181b 0%, #09090b 48%, #f97316 100%); color: white; border-bottom-color: transparent; }
 .profile-avatar { width: 100px; height: 100px; border-radius: 50%; border: 4px solid rgba(255,255,255,0.2); margin-bottom: 16px; }
-.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: -30px; padding: 0 16px; }
+.stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: -30px; padding: 0 16px; }
 .stat-card { background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 16px; padding: 16px; text-align: center; }
 .dark .stat-card { background: #18181b; border: 1px solid rgba(255,255,255,0.06); }
 .stat-value { font-size: 24px; font-weight: 700; color: #f97316; }

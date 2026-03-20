@@ -206,6 +206,8 @@ export default function ScanScreen() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState('');
   const [scannedFood, setScannedFood] = useState<ScannedFood | null>(null);
+  const [currentNutritionResult, setCurrentNutritionResult] = useState<NutritionResult | null>(null);
+  const [showIngredients, setShowIngredients] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [portionAmount, setPortionAmount] = useState<number>(100);
   const [portionUnit, setPortionUnit] = useState<'g' | 'ml'>('g');
@@ -235,6 +237,7 @@ export default function ScanScreen() {
   const [photoCamActive, setPhotoCamActive] = useState(false);
   const [photoCamReady, setPhotoCamReady] = useState(false);
   const [photoCamError, setPhotoCamError] = useState<string | null>(null);
+  const [cameraDenied, setCameraDenied] = useState(false);
   const [ocrTrackingRect, setOcrTrackingRect] = useState<NormalizedRect | null>(null);
   const [liveTrackedText, setLiveTrackedText] = useState('');
   const [committedTrackedText, setCommittedTrackedText] = useState('');
@@ -429,6 +432,16 @@ export default function ScanScreen() {
   useEffect(() => {
     selectedDishSeedRef.current = selectedDishSeed;
   }, [selectedDishSeed]);
+
+  // Auto-switch to ml and use a sensible default volume when a beverage is detected
+  useEffect(() => {
+    if (!scannedFood) return;
+    const bev = classifyBeverageType(scannedFood.name);
+    if (bev) {
+      setPortionUnit('ml');
+      setPortionAmount((prev) => (prev === 100 ? 330 : prev));
+    }
+  }, [scannedFood]);
 
   useEffect(() => {
     isScanningRef.current = isScanning;
@@ -1687,6 +1700,8 @@ export default function ScanScreen() {
       return;
     }
     setScannedFood(null);
+    setCurrentNutritionResult(null);
+    setShowIngredients(false);
     setScanLogId(null);
     setSubmittingConfirm(false);
     setFeedbackSubmitted(false);
@@ -2284,7 +2299,13 @@ async function startPhotoCamera(preferredDeviceId?: string) {
   } catch (err) {
     if (photoStartTokenRef.current !== startToken) return;
     console.error('Failed to start photo camera:', err);
-    setPhotoCamError('Kunne ikke starte kamera. Sjekk kameratillatelse.');
+    const isDenied = err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError');
+    if (isDenied) {
+      setCameraDenied(true);
+      setPhotoCamError('Kameratilgang nektet. Tillat kamera i nettleserinnstillingene.');
+    } else {
+      setPhotoCamError('Kunne ikke starte kamera. Sjekk kameratillatelse.');
+    }
     stopPhotoCamera();
   }
 }
@@ -2453,7 +2474,13 @@ async function startLiveBarcodeScan(preferredDeviceId?: string) {
   } catch (err) {
     if (liveStartTokenRef.current !== startToken) return;
     console.error('Failed to start live barcode scan:', err);
-    setLiveScanError('Kunne ikke starte kamera. Sjekk kameratillatelse.');
+    const isDenied = err instanceof Error && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError');
+    if (isDenied) {
+      setCameraDenied(true);
+      setLiveScanError('Kameratilgang nektet. Tillat kamera i nettleserinnstillingene.');
+    } else {
+      setLiveScanError('Kunne ikke starte kamera. Sjekk kameratillatelse.');
+    }
     stopLiveBarcodeScan();
   }
 }
@@ -2488,6 +2515,7 @@ async function handleBarcodeDetected(rawCode: string, requireStableRead = true) 
       confidence: Math.round(result.confidence * 100),
       image: extractImageUrl(result.raw),
     });
+    setCurrentNutritionResult(result);
     setScanLogId(null);
     setPredictionOptions([]);
     void storeVisualAnchorFromProduct(result);
@@ -3746,6 +3774,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             confidence: Math.round(combined * 100),
             image: url,
           });
+          setCurrentNutritionResult(directTopMatch.best);
           markResolvedName(directTopMatch.best.name);
           resolverSessionCacheRef.current.setBest(imageHash, {
             name: directTopMatch.best.name,
@@ -4226,6 +4255,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         confidence: Math.round(bestResolved.combined * 100),
         image: url,
       });
+      setCurrentNutritionResult(best);
       markResolvedName(best.name);
       resolverSessionCacheRef.current.setBest(imageHash, {
         name: best.name,
@@ -5112,6 +5142,35 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
       )}
       {!scannedFood ? (
         <div className="camera-container">
+          {cameraDenied && (
+            <div className="absolute inset-0 z-[50] flex flex-col items-center justify-center bg-gray-950/95 px-6 text-center">
+              <div className="w-16 h-16 rounded-full bg-red-500/15 border border-red-500/30 flex items-center justify-center mb-4">
+                <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 12H4.5A2.25 2.25 0 012.25 9.75V7.5A2.25 2.25 0 014.5 5.25h15A2.25 2.25 0 0121.75 7.5v2.25A2.25 2.25 0 0119.5 12h-2.25" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3l18 18" />
+                </svg>
+              </div>
+              <p className="text-white font-semibold text-base mb-1">Kameratilgang nektet</p>
+              <p className="text-white/60 text-sm mb-5 leading-relaxed">
+                Tillat kameratilgang i nettleserinnstillingene, og last siden på nytt. Du kan også søke manuelt.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setScanState('needs_manual_label'); setManualLabel(''); setCameraDenied(false); }}
+                className="w-full max-w-xs rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white mb-3"
+              >
+                Søk manuelt i stedet
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCameraDenied(false); setPhotoCamError(null); setLiveScanError(null); }}
+                className="text-xs text-white/40 underline"
+              >
+                Lukk
+              </button>
+            </div>
+          )}
           {botHealth.status === 'offline' && (
             <div className="absolute top-3 left-3 right-3 z-[42] rounded-xl border border-red-300 bg-red-50/95 px-3 py-2 text-sm text-red-800 backdrop-blur">
               <div className="font-semibold">Scanner backend er utilgjengelig</div>
@@ -5832,53 +5891,157 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
 
           {/* Food Image */}
           <div className="relative">
-            <img 
-              src={scannedFood.image} 
+            <img
+              src={scannedFood.image}
               alt={scannedFood.name}
               className="w-full h-64 object-cover"
             />
-            <div className="absolute top-4 right-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-              {scannedFood.confidence}% sikkerhet
+            {/* ── Confidence badge ── */}
+            {(() => {
+              const conf = scannedFood.confidence;
+              const isBarcode = mode === 'barcode';
+              type ConfTier = { label: string; subLabel: string; bg: string; text: string; dot: string };
+              const tier: ConfTier = isBarcode
+                ? { label: 'Verifisert', subLabel: 'Strekkode', bg: '#16a34a', text: '#fff', dot: '#bbf7d0' }
+                : conf >= 85
+                ? { label: 'Godt samsvar', subLabel: `${conf}% sikkerhet`, bg: '#16a34a', text: '#fff', dot: '#bbf7d0' }
+                : conf >= 65
+                ? { label: 'Anslått', subLabel: `${conf}% • Sjekk`, bg: '#d97706', text: '#fff', dot: '#fde68a' }
+                : { label: 'Usikkert', subLabel: `${conf}% • Korriger`, bg: '#dc2626', text: '#fff', dot: '#fecaca' };
+              return (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 12,
+                    right: 12,
+                    background: tier.bg,
+                    color: tier.text,
+                    borderRadius: 20,
+                    padding: '5px 11px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-end',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+                    minWidth: 90,
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 700, lineHeight: 1.2 }}>{tier.label}</span>
+                  <span style={{ fontSize: 10, opacity: 0.88, lineHeight: 1.2 }}>{tier.subLabel}</span>
+                </div>
+              );
+            })()}
+            {/* Source tag at bottom-left */}
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 10,
+                left: 12,
+                background: 'rgba(0,0,0,0.55)',
+                color: '#fff',
+                borderRadius: 8,
+                padding: '3px 9px',
+                fontSize: 10,
+                fontWeight: 600,
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              {mode === 'barcode' ? '📊 Strekkode-DB' : mode === 'search' ? '🔍 Søk' : '🤖 AI-visuell'}
             </div>
           </div>
 
           {/* Food Details */}
           <div className="p-4">
-            <h1 className="text-2xl font-bold text-gray-800 mb-4">{scannedFood.name}</h1>
-            {scanLogId && (
-              <div className="mb-4 rounded-2xl border border-orange-200 bg-orange-50 p-3 text-sm text-gray-700">
-                This scan is being collected for training right now. Confirm or correct the result before closing so it is saved as training data.
+            {/* Name + brand + beverage tag */}
+            <div className="mb-3">
+              {currentNutritionResult?.brand && (
+                <p className="text-xs font-semibold text-orange-500 uppercase tracking-wide mb-0.5">{currentNutritionResult.brand}</p>
+              )}
+              <h1 className="text-2xl font-bold text-gray-800 leading-tight">{scannedFood.name}</h1>
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                {(() => {
+                  const bev = classifyBeverageType(scannedFood.name);
+                  if (bev) return (
+                    <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 99, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>
+                      💧 Drikke
+                    </span>
+                  );
+                })()}
+                {(() => {
+                  const pi = currentNutritionResult?.processingInfo;
+                  if (!pi) return null;
+                  const novaColors: Record<number, { bg: string; text: string; label: string }> = {
+                    1: { bg: '#dcfce7', text: '#166534', label: 'NOVA 1 · Minimalt prosessert' },
+                    2: { bg: '#fef9c3', text: '#854d0e', label: 'NOVA 2 · Kulinarisk ingrediens' },
+                    3: { bg: '#ffedd5', text: '#9a3412', label: 'NOVA 3 · Prosessert' },
+                    4: { bg: '#fee2e2', text: '#991b1b', label: 'NOVA 4 · Ultra-prosessert' },
+                  };
+                  const c = novaColors[pi.novaGroup] ?? novaColors[3];
+                  return (
+                    <span style={{ background: c.bg, color: c.text, borderRadius: 99, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>
+                      {c.label}
+                    </span>
+                  );
+                })()}
+                {scannedFood.confidence < 65 && mode !== 'barcode' && (
+                  <span style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 99, padding: '2px 10px', fontSize: 11, fontWeight: 600 }}>
+                    ⚠ Lav sikkerhet
+                  </span>
+                )}
               </div>
+            </div>
+            {scannedFood.confidence < 65 && mode !== 'barcode' && (
+              <p style={{ fontSize: 12, color: '#dc2626', marginBottom: 12, fontWeight: 500 }}>
+                Sjekk navn og makroer før du logger.
+              </p>
+            )}
+            {scannedFood.confidence >= 65 && scannedFood.confidence < 85 && mode !== 'barcode' && (
+              <p style={{ fontSize: 12, color: '#92400e', marginBottom: 12 }}>
+                Makroer er anslått (±15%). Korriger mengde ved behov.
+              </p>
+            )}
+            {(scannedFood.confidence >= 85 || mode === 'barcode') && (
+              <p style={{ fontSize: 12, color: '#166534', marginBottom: 12 }}>
+                {mode === 'barcode' ? 'Hentet fra strekkode-database.' : 'Makroer med god presisjon (±5%).'}
+              </p>
             )}
             {scanLogId && (
-              <div className="mb-4 flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => { void confirmCurrentPrediction(); }}
-                  disabled={submittingConfirm}
-                  className="text-sm px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 font-medium disabled:opacity-60"
-                >
-                  {submittingConfirm ? 'Lagrer...' : 'Ser riktig ut'}
-                </button>
-                <button
-                  onClick={() => openCorrectionFlow(primaryCorrectionSuggestion)}
-                  className="text-sm px-3 py-1 rounded-full bg-orange-100 text-orange-700 font-medium"
-                >
-                  Feil gjenkjenning? Korriger
-                </button>
-                <button
-                  onClick={() => { void submitClassificationFeedback('not_food'); }}
-                  disabled={submittingCorrection}
-                  className="text-sm px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-medium disabled:opacity-60"
-                >
-                  Ikke mat
-                </button>
-                <button
-                  onClick={() => { void submitClassificationFeedback('bad_photo'); }}
-                  disabled={submittingCorrection}
-                  className="text-sm px-3 py-1 rounded-full bg-slate-100 text-slate-700 font-medium disabled:opacity-60"
-                >
-                  Dårlig bilde
-                </button>
+              <div className="mb-4 rounded-2xl border-2 border-orange-300 bg-orange-50 p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span style={{ fontSize: 16 }}>🧠</span>
+                  <p className="text-sm font-bold text-orange-800">Hjelp AI-en å lære</p>
+                </div>
+                <p className="text-xs text-orange-700 mb-3">Dette skannet brukes til trening. Bekreft eller korriger resultatet — det gjør gjenkjenningen bedre for alle.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => { void confirmCurrentPrediction(); }}
+                    disabled={submittingConfirm}
+                    className="flex-1 text-sm px-3 py-2 rounded-xl bg-emerald-500 text-white font-semibold disabled:opacity-60 shadow-sm"
+                  >
+                    {submittingConfirm ? 'Lagrer...' : '✓ Ser riktig ut'}
+                  </button>
+                  <button
+                    onClick={() => openCorrectionFlow(primaryCorrectionSuggestion)}
+                    className="flex-1 text-sm px-3 py-2 rounded-xl bg-orange-500 text-white font-semibold shadow-sm"
+                  >
+                    ✏ Korriger
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  <button
+                    onClick={() => { void submitClassificationFeedback('not_food'); }}
+                    disabled={submittingCorrection}
+                    className="text-xs px-3 py-1.5 rounded-xl bg-slate-200 text-slate-700 font-medium disabled:opacity-60"
+                  >
+                    Ikke mat
+                  </button>
+                  <button
+                    onClick={() => { void submitClassificationFeedback('bad_photo'); }}
+                    disabled={submittingCorrection}
+                    className="text-xs px-3 py-1.5 rounded-xl bg-slate-200 text-slate-700 font-medium disabled:opacity-60"
+                  >
+                    Dårlig bilde
+                  </button>
+                </div>
               </div>
             )}
             {scanLogId && primaryDetectorGuess && (
@@ -5954,8 +6117,8 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
             </div>
 
             {nutritionPer100Rows.length > 0 && (
-              <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4">
-                <p className="text-sm font-semibold text-gray-800 mb-3">Flere næringsfakta (per 100g)</p>
+              <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-sm font-semibold text-gray-800 mb-3">Næringsfakta per 100{portionUnit === 'ml' ? 'ml' : 'g'}</p>
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   {nutritionPer100Rows.map((row) => (
                     <div key={row.label} className="flex items-center justify-between rounded-md bg-gray-50 px-3 py-2">
@@ -5964,6 +6127,64 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* NOVA processing detail */}
+            {currentNutritionResult?.processingInfo && (() => {
+              const pi = currentNutritionResult.processingInfo!;
+              const novaStyle: Record<number, { border: string; bg: string; text: string; icon: string }> = {
+                1: { border: '#86efac', bg: '#f0fdf4', text: '#166534', icon: '🌿' },
+                2: { border: '#fde68a', bg: '#fefce8', text: '#854d0e', icon: '🧂' },
+                3: { border: '#fdba74', bg: '#fff7ed', text: '#9a3412', icon: '🏭' },
+                4: { border: '#fca5a5', bg: '#fef2f2', text: '#991b1b', icon: '⚠️' },
+              };
+              const s = novaStyle[pi.novaGroup] ?? novaStyle[3];
+              return (
+                <div className="mb-4 rounded-xl p-4" style={{ border: `1.5px solid ${s.border}`, background: s.bg }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-bold" style={{ color: s.text }}>{s.icon} NOVA {pi.novaGroup} · Prosesseringsgrad</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: s.border, color: s.text }}>
+                      {Math.round(pi.confidence * 100)}% sikker
+                    </span>
+                  </div>
+                  <p className="text-xs mt-1" style={{ color: s.text }}>{pi.explanation}</p>
+                  {pi.detectedAdditives.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {pi.detectedAdditives.slice(0, 8).map((a) => (
+                        <span key={a} className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: 'rgba(0,0,0,0.07)', color: s.text }}>{a}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Allergens */}
+            {currentNutritionResult?.allergens && currentNutritionResult.allergens.length > 0 && (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-bold text-amber-800 mb-2">⚠ Allergener</p>
+                <div className="flex flex-wrap gap-1">
+                  {currentNutritionResult.allergens.map((a) => (
+                    <span key={a} className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-900 font-medium capitalize">{a}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Ingredients (collapsible) */}
+            {currentNutritionResult?.ingredients && (
+              <div className="mb-4 rounded-xl border border-gray-200 bg-white p-4">
+                <button
+                  className="w-full flex items-center justify-between text-sm font-semibold text-gray-800"
+                  onClick={() => setShowIngredients((v) => !v)}
+                >
+                  <span>Ingredienser</span>
+                  <span className="text-gray-400 text-xs">{showIngredients ? '▲ Skjul' : '▼ Vis'}</span>
+                </button>
+                {showIngredients && (
+                  <p className="mt-2 text-xs text-gray-600 leading-relaxed">{currentNutritionResult.ingredients}</p>
+                )}
               </div>
             )}
 

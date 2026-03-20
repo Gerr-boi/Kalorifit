@@ -31,7 +31,7 @@ export type DailyDisciplineMetric = {
 
 export type DailyDisciplineScore = {
   score: number;
-  grade: 'Excellent' | 'Strong' | 'Good' | 'Needs focus';
+  grade: 'Utmerket' | 'Bra' | 'OK' | 'Jobber med det';
   metrics: DailyDisciplineMetric[];
   accomplished: string[];
   missing: string[];
@@ -169,10 +169,10 @@ export function getTotalHydrationMl(log: DayLog): number {
 }
 
 function getGrade(score: number): DailyDisciplineScore['grade'] {
-  if (score >= 85) return 'Excellent';
-  if (score >= 70) return 'Strong';
-  if (score >= 55) return 'Good';
-  return 'Needs focus';
+  if (score >= 85) return 'Utmerket';
+  if (score >= 70) return 'Bra';
+  if (score >= 55) return 'OK';
+  return 'Jobber med det';
 }
 
 export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore {
@@ -199,56 +199,56 @@ export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore
   const metrics: DailyDisciplineMetric[] = [
     {
       key: 'calorie',
-      label: 'Calorie adherence',
+      label: 'Kaloriinntak',
       percent: round(caloriePct),
-      targetLabel: `${CALORIE_GOAL} kcal target`,
-      progressLabel: `${round(consumedKcal)} kcal logged`,
+      targetLabel: `Mål: ${CALORIE_GOAL} kcal`,
+      progressLabel: `${round(consumedKcal)} kcal logget`,
       missingLabel:
         consumedKcal >= CALORIE_GOAL
-          ? `${round(consumedKcal - CALORIE_GOAL)} kcal over target`
-          : `${round(CALORIE_GOAL - consumedKcal)} kcal left to target`,
+          ? `${round(consumedKcal - CALORIE_GOAL)} kcal over mål`
+          : `${round(CALORIE_GOAL - consumedKcal)} kcal igjen`,
     },
     {
       key: 'protein',
-      label: 'Protein adherence',
+      label: 'Protein',
       percent: round(proteinPct),
-      targetLabel: `${PROTEIN_GOAL_G} g target`,
-      progressLabel: `${round(proteinG)} g logged`,
+      targetLabel: `Mål: ${PROTEIN_GOAL_G} g`,
+      progressLabel: `${round(proteinG)} g logget`,
       missingLabel:
-        proteinG >= PROTEIN_GOAL_G ? 'Protein target achieved' : `${round(PROTEIN_GOAL_G - proteinG)} g protein missing`,
+        proteinG >= PROTEIN_GOAL_G ? 'Proteinmål nådd' : `${round(PROTEIN_GOAL_G - proteinG)} g protein mangler`,
     },
     {
       key: 'water',
-      label: 'Hydration',
+      label: 'Hydrering',
       percent: round(waterPct),
-      targetLabel: `${(WATER_GOAL_ML / 1000).toFixed(1)} L target`,
-      progressLabel: `${(hydrationMl / 1000).toFixed(1)} L logged`,
+      targetLabel: `Mål: ${(WATER_GOAL_ML / 1000).toFixed(1)} L`,
+      progressLabel: `${(hydrationMl / 1000).toFixed(1)} L logget`,
       missingLabel:
         hydrationMl >= WATER_GOAL_ML
-          ? 'Hydration target achieved'
-          : `${((WATER_GOAL_ML - hydrationMl) / 1000).toFixed(1)} L missing`,
+          ? 'Hydreringsmål nådd'
+          : `${((WATER_GOAL_ML - hydrationMl) / 1000).toFixed(1)} L mangler`,
     },
     {
       key: 'activity',
-      label: 'Activity',
+      label: 'Aktivitet',
       percent: round(activityPct),
-      targetLabel: `${ACTIVITY_GOAL_KCAL} kcal target`,
-      progressLabel: `${round(log.trainingKcal)} kcal logged`,
+      targetLabel: `Mål: ${ACTIVITY_GOAL_KCAL} kcal`,
+      progressLabel: `${round(log.trainingKcal)} kcal logget`,
       missingLabel:
         log.trainingKcal >= ACTIVITY_GOAL_KCAL
-          ? 'Activity target achieved'
-          : `${round(ACTIVITY_GOAL_KCAL - log.trainingKcal)} kcal activity missing`,
+          ? 'Aktivitetsmål nådd'
+          : `${round(ACTIVITY_GOAL_KCAL - log.trainingKcal)} kcal aktivitet mangler`,
     },
     {
       key: 'logging',
-      label: 'Logging consistency',
+      label: 'Logging',
       percent: round(loggingPct),
-      targetLabel: '3 meals + water + activity log',
-      progressLabel: `${totalMealsLogged} meals, ${hydrationMl > 0 ? 'hydration logged' : 'no hydration log'}, ${log.trainingKcal > 0 ? 'activity logged' : 'no activity log'}`,
+      targetLabel: '3 måltider + vann + aktivitet',
+      progressLabel: `${totalMealsLogged} måltider, ${hydrationMl > 0 ? 'vann logget' : 'ingen vann'}, ${log.trainingKcal > 0 ? 'aktivitet logget' : 'ingen aktivitet'}`,
       missingLabel:
         loggingPct >= 100
-          ? 'Logging fully complete'
-          : `${Math.max(0, 3 - loggedMealSlots)} meal slot(s), ${hydrationMl > 0 ? 'hydration done' : 'hydration missing'}, ${log.trainingKcal > 0 ? 'activity done' : 'activity missing'}`,
+          ? 'Logging fullført'
+          : `${Math.max(0, 3 - loggedMealSlots)} måltid(er) mangler, ${hydrationMl > 0 ? 'vann OK' : 'vann mangler'}, ${log.trainingKcal > 0 ? 'aktivitet OK' : 'aktivitet mangler'}`,
     },
   ];
 
@@ -318,7 +318,7 @@ export function generateWeeklyPerformanceReport(logsByDate: Record<string, DayLo
   if (avgDisciplineScore <= previousAvg - 3) trendDirection = 'down';
 
   const streakDays = calculateStreakDays(logsByDate, weekEndDate);
-  const streakStatus = streakDays > 0 ? `${streakDays} day streak` : 'No active streak';
+  const streakStatus = streakDays > 0 ? `${streakDays} dagers streak` : 'Ingen aktiv streak';
 
   return {
     weekStartKey: toDateKey(weekStart),
