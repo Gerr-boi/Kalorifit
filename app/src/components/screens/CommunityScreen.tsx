@@ -107,6 +107,11 @@ type JoinedChallenge = {
   joinedAt: number;
 };
 
+type FloatingFabPosition = {
+  x: number;
+  y: number;
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // reactionConfig is defined inside the component so labels can be translated
@@ -140,6 +145,11 @@ const EMPTY_CHECK_INS: DailyCheckIn[] = [];
 const EMPTY_SAVED_POSTS: string[] = [];
 const EMPTY_TRIED_POSTS: string[] = [];
 const EMPTY_JOINED_CHALLENGES: JoinedChallenge[] = [];
+const FAB_SIZE_PX = 56;
+const FAB_VIEWPORT_MARGIN_PX = 12;
+const FAB_TOP_OFFSET_PX = 88;
+const FAB_BOTTOM_OFFSET_PX = 96;
+const FAB_DRAG_THRESHOLD_PX = 6;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -205,6 +215,29 @@ function getDailyKcal(log: DayLog): number {
   return Object.values(log.meals).flat().reduce((s, e) => s + e.kcal, 0);
 }
 
+function clampFabPosition(position: FloatingFabPosition, viewportWidth?: number, viewportHeight?: number): FloatingFabPosition {
+  const width = viewportWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 390);
+  const height = viewportHeight ?? (typeof window !== 'undefined' ? window.innerHeight : 844);
+  const minX = FAB_VIEWPORT_MARGIN_PX;
+  const maxX = Math.max(minX, width - FAB_SIZE_PX - FAB_VIEWPORT_MARGIN_PX);
+  const minY = FAB_TOP_OFFSET_PX;
+  const maxY = Math.max(minY, height - FAB_SIZE_PX - FAB_BOTTOM_OFFSET_PX);
+  return {
+    x: Math.min(Math.max(position.x, minX), maxX),
+    y: Math.min(Math.max(position.y, minY), maxY),
+  };
+}
+
+function getDefaultFabPosition(): FloatingFabPosition {
+  if (typeof window === 'undefined') {
+    return { x: FAB_VIEWPORT_MARGIN_PX, y: FAB_TOP_OFFSET_PX };
+  }
+  return clampFabPosition({
+    x: window.innerWidth - FAB_SIZE_PX - FAB_VIEWPORT_MARGIN_PX,
+    y: window.innerHeight - FAB_SIZE_PX - FAB_BOTTOM_OFFSET_PX,
+  });
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function CommunityScreen() {
@@ -268,6 +301,9 @@ export default function CommunityScreen() {
   const [recipePrepMinutes, setRecipePrepMinutes] = useState('20');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandLeaderboard, setExpandLeaderboard] = useState(false);
+  const [fabPosition, setFabPosition] = useLocalStorageState<FloatingFabPosition | null>('community.addPostFabPosition.v1', null);
+  const [fabAnimating, setFabAnimating] = useState(false);
+  const [isDraggingFab, setIsDraggingFab] = useState(false);
 
   // Persistent state
   const [profile] = useLocalStorageState<CommunityProfile>('profile', EMPTY_COMMUNITY_PROFILE);
@@ -281,6 +317,16 @@ export default function CommunityScreen() {
   const [joinedChallenges, setJoinedChallenges] = useLocalStorageState<JoinedChallenge[]>('community.challenges.v1', EMPTY_JOINED_CHALLENGES);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fabOpenTimerRef = useRef<number | null>(null);
+  const fabSuppressClickRef = useRef(false);
+  const fabDragStateRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
 
   const displayName = profile.name?.trim() || 'You';
   const todayKey = useMemo(() => toDateKey(startOfDay(new Date())), []);
@@ -301,6 +347,32 @@ export default function CommunityScreen() {
   }, [activeUserId, setPosts]);
 
   // ─── Derived: today's check-in ──────────────────────────────────────────────
+
+  useEffect(() => {
+    if (fabPosition !== null) return;
+    setFabPosition(getDefaultFabPosition());
+  }, [fabPosition, setFabPosition]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleResize = () => {
+      setFabPosition((prev) => clampFabPosition(prev ?? getDefaultFabPosition(), window.innerWidth, window.innerHeight));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [setFabPosition]);
+
+  useEffect(() => {
+    if (!fabAnimating || typeof window === 'undefined') return undefined;
+    const timeoutId = window.setTimeout(() => setFabAnimating(false), 360);
+    return () => window.clearTimeout(timeoutId);
+  }, [fabAnimating]);
+
+  useEffect(() => () => {
+    if (fabOpenTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(fabOpenTimerRef.current);
+    }
+  }, []);
 
   const todayCheckIn = useMemo(() => {
     return checkIns.find((ci) => ci.dateKey === todayKey) ?? { dateKey: todayKey, types: [] as CheckInType[] };
@@ -528,6 +600,76 @@ export default function CommunityScreen() {
   function closeAddPostModal() {
     setShowAddPost(false);
     setImageDataUrl(null);
+  }
+
+  function triggerFabAnimation() {
+    if (typeof window === 'undefined') {
+      setFabAnimating(true);
+      return;
+    }
+    setFabAnimating(false);
+    window.requestAnimationFrame(() => setFabAnimating(true));
+  }
+
+  function activateFab() {
+    triggerFabAnimation();
+    if (typeof window === 'undefined') {
+      openAddPostModal('workout');
+      return;
+    }
+    if (fabOpenTimerRef.current !== null) window.clearTimeout(fabOpenTimerRef.current);
+    fabOpenTimerRef.current = window.setTimeout(() => {
+      fabOpenTimerRef.current = null;
+      openAddPostModal('workout');
+    }, 120);
+  }
+
+  function handleFabPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!fabPosition) return;
+    fabSuppressClickRef.current = false;
+    fabDragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: fabPosition.x,
+      originY: fabPosition.y,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleFabPointerMove(event: React.PointerEvent<HTMLButtonElement>) {
+    const dragState = fabDragStateRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+    if (!dragState.moved && Math.hypot(deltaX, deltaY) > FAB_DRAG_THRESHOLD_PX) {
+      dragState.moved = true;
+      fabSuppressClickRef.current = true;
+      setIsDraggingFab(true);
+    }
+    if (!dragState.moved) return;
+    setFabPosition(clampFabPosition({
+      x: dragState.originX + deltaX,
+      y: dragState.originY + deltaY,
+    }));
+  }
+
+  function resetFabDrag(event?: React.PointerEvent<HTMLButtonElement>) {
+    const dragState = fabDragStateRef.current;
+    if (dragState && event && dragState.pointerId === event.pointerId && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    fabDragStateRef.current = null;
+    setIsDraggingFab(false);
+  }
+
+  function handleFabClick() {
+    if (fabSuppressClickRef.current) {
+      fabSuppressClickRef.current = false;
+      return;
+    }
+    activateFab();
   }
 
   function onPickImage(e: ChangeEvent<HTMLInputElement>) {
@@ -1336,9 +1478,13 @@ export default function CommunityScreen() {
       {/* Floating action button */}
       <button
         type="button"
-        onClick={() => openAddPostModal('workout')}
-        className="fixed bottom-24 right-4 z-[999] w-14 h-14 rounded-full bg-orange-500 text-white flex items-center justify-center shadow-xl active:scale-95 transition-transform"
-        style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
+        onClick={handleFabClick}
+        onPointerDown={handleFabPointerDown}
+        onPointerMove={handleFabPointerMove}
+        onPointerUp={resetFabDrag}
+        onPointerCancel={resetFabDrag}
+        className={`community-add-post-fab ${fabAnimating ? 'community-add-post-fab-animate' : ''} ${isDraggingFab ? 'community-add-post-fab-dragging' : ''}`}
+        style={fabPosition ? { left: `${fabPosition.x}px`, top: `${fabPosition.y}px` } : undefined}
         aria-label="Ny innlegg"
       >
         <Plus className="w-6 h-6" />
