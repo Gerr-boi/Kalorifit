@@ -29,6 +29,7 @@ import {
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
   CALORIE_GOAL,
+  PROTEIN_GOAL_G,
   WATER_GOAL_ML,
   addDays,
   calculateDailyDisciplineScore,

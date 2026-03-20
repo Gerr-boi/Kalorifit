@@ -62,7 +62,6 @@ export function tryAcquire(key: string, opts: RateLimitOpts): boolean {
 export function getCallCount(key: string): number {
   const entry = store.get(key);
   if (!entry) return 0;
-  const cutoff = Date.now() - (entry.calls.length ? 0 : Infinity);
   return entry.calls.filter((t) => t > Date.now() - 60_000).length;
 }
 
