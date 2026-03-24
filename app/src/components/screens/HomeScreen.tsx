@@ -11,6 +11,7 @@ import {
   Menu,
   Pencil,
   Plus,
+  Minus,
   ScanLine,
   Apple,
   Egg,
@@ -25,7 +26,11 @@ import {
   Settings,
   BookOpen,
   ChevronDown,
+  Scale,
+  TrendingUp,
+  Microscope,
 } from 'lucide-react';
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
   CALORIE_GOAL,
@@ -388,7 +393,7 @@ function localizeBehaviorInsight(insight: string, t: (key: string) => string) {
 export default function HomeScreen() {
   const t = useT();
   const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
-  const [profilePrefs] = useLocalStorageState<HomeProfile>('profile', EMPTY_HOME_PROFILE);
+  const [profilePrefs, setProfilePrefs] = useLocalStorageState<HomeProfile>('profile', EMPTY_HOME_PROFILE);
   const [lastLoggedFood, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
   const [logEvents, setLogEvents] = useLocalStorageState<LogEvent[]>('home.logEvents.v1', EMPTY_LOG_EVENTS);
   const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', EMPTY_SAVED_MEAL_TEMPLATES);
@@ -431,6 +436,10 @@ export default function HomeScreen() {
   const [workoutNotes, setWorkoutNotes] = useState('');
   const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
   const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
+  const [showWeightModal, setShowWeightModal] = useState(false);
+  const [weightInput, setWeightInput] = useState('');
+  const [showCustomWater, setShowCustomWater] = useState(false);
+  const [customWaterInput, setCustomWaterInput] = useState('');
 
   const [animatedProgressRatio, setAnimatedProgressRatio] = useState(0);
   const [animatedProgressValue, setAnimatedProgressValue] = useState(0);
@@ -1511,6 +1520,32 @@ export default function HomeScreen() {
     waterPourTimerRef.current = window.setTimeout(() => setWaterPourActive(false), 2200);
   };
 
+  const removeWater = (ml: number) => {
+    const previousDay = cloneDayLog(dayLog);
+    updateDayLog(selectedDateKey, (current) => ({
+      ...current,
+      waterMl: Math.max(0, current.waterMl - ml),
+    }));
+    setUndoAction({
+      label: `Vann -${ml} ml`,
+      undo: () => setDayLog(selectedDateKey, previousDay),
+    });
+  };
+
+  const logWeight = (kg: number) => {
+    if (!Number.isFinite(kg) || kg <= 0) return;
+    const entry = { date: selectedDateKey, weightKg: kg };
+    setProfilePrefs((prev) => ({
+      ...prev,
+      weightKg: kg,
+      bmiHistory: [entry, ...(Array.isArray(prev.bmiHistory) ? prev.bmiHistory : [])].filter(
+        (e, i, arr) => arr.findIndex((x) => x.date === e.date) === i
+      ).slice(0, 20),
+    }));
+    setShowWeightModal(false);
+    setWeightInput('');
+  };
+
   const repeatMealFromDate = (mealId: MealId, sourceKey: string | null, actionId: string) => {
     if (!sourceKey) return;
     const source = logsByDate[sourceKey];
@@ -1938,6 +1973,22 @@ export default function HomeScreen() {
                           <ChevronRight className="w-4 h-4 text-white/25 shrink-0" />
                         </button>
                       ))}
+                      <button
+                        type="button"
+                        onClick={() => { setShowSidebar(false); setShowNutrientModal(true); }}
+                        className="w-full text-left flex items-center justify-between rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 active:bg-white/[0.09] transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-teal-400 bg-teal-500/15">
+                            <Microscope className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-white/90">Mikronæring</p>
+                            <p className="text-[11px] text-white/35">Omega-3, vitaminer, mineraler</p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-white/25 shrink-0" />
+                      </button>
                     </div>
                   </div>
                 </>
@@ -2799,15 +2850,24 @@ export default function HomeScreen() {
                 const isFirstUnfilled = cupIndex === cupsNeeded + 1;
                 const isAnimating = animatingWaterCups.includes(cupIndex);
               
+              const isLastFilled = isFilled && cupIndex === Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
               return (
                 <button
                   key={cupIndex}
                   type="button"
-                  onClick={() => !isFilled && addWater(WATER_CUP_SIZE_ML, 'water:cup:tap')}
+                  onClick={() => {
+                    if (isPastSelectedDay) return;
+                    if (isFilled) {
+                      removeWater(WATER_CUP_SIZE_ML);
+                    } else {
+                      addWater(WATER_CUP_SIZE_ML, 'water:cup:tap');
+                    }
+                  }}
+                  title={isFilled ? 'Klikk for å fjerne 250 ml' : 'Klikk for å legge til 250 ml'}
                   className={`relative h-14 w-9 transition-all duration-200 ${
-                    !isFilled && !isPastSelectedDay ? 'cursor-pointer' : 'cursor-default'
+                    !isPastSelectedDay ? 'cursor-pointer active:scale-95' : 'cursor-default'
                   }`}
-                  disabled={isPastSelectedDay || isFilled}
+                  disabled={isPastSelectedDay}
                 >
                   <div className={`water-bottle-shell ${isAnimating ? 'water-cup-shell-fill' : ''} ${isFilled ? 'water-bottle-shell-filled' : 'water-bottle-shell-empty'}`}>
                     <div className="water-bottle-cap" />
@@ -2816,7 +2876,13 @@ export default function HomeScreen() {
                       <div className="water-bottle-shine" />
                     </div>
                   </div>
-                  
+
+                  {/* Minus overlay for last filled cup */}
+                  {isLastFilled && !isPastSelectedDay && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
+                      <Minus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
+                    </div>
+                  )}
                   {/* Plus overlay for first unfilled cup */}
                   {isFirstUnfilled && !isPastSelectedDay && (
                     <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
@@ -2829,9 +2895,60 @@ export default function HomeScreen() {
           </div>
           
             {/* Water progress text */}
-            <div className="text-center">
+            <div className="text-center mb-3">
               <p className="text-sm text-cyan-700 dark:text-cyan-300 font-medium">{hydrationMl} / {WATER_GOAL_ML} ml</p>
             </div>
+
+            {/* Quick-add water buttons */}
+            {!isPastSelectedDay && (
+              <div className="flex gap-2 justify-center flex-wrap">
+                {[250, 500, 750].map((ml) => (
+                  <button
+                    key={ml}
+                    type="button"
+                    onClick={() => addWater(ml, `water:quick:${ml}`)}
+                    className="px-3 py-1.5 rounded-lg bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-semibold hover:bg-cyan-200 dark:hover:bg-cyan-800/40 transition-colors"
+                  >
+                    +{ml} ml
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setShowCustomWater((v) => !v)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-white/[0.1] transition-colors"
+                >
+                  Egendefinert
+                </button>
+              </div>
+            )}
+
+            {/* Custom water amount input */}
+            {showCustomWater && !isPastSelectedDay && (
+              <div className="flex gap-2 mt-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="ml"
+                  value={customWaterInput}
+                  onChange={(e) => setCustomWaterInput(e.target.value)}
+                  className="flex-1 rounded-lg border border-cyan-200 dark:border-cyan-800/40 bg-white dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ml = Number(customWaterInput);
+                    if (ml > 0) {
+                      addWater(ml, 'water:custom');
+                      setCustomWaterInput('');
+                      setShowCustomWater(false);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-600 transition-colors"
+                >
+                  Legg til
+                </button>
+              </div>
+            )}
           </div>
 
       </div>
@@ -2840,73 +2957,224 @@ export default function HomeScreen() {
       <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kroppsvekt</h3>
+            <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
+              <Scale className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kroppsvekt</h3>
+              {journeyWeightSeries.length >= 2 && (() => {
+                const first = journeyWeightSeries[0].value;
+                const last = journeyWeightSeries[journeyWeightSeries.length - 1].value;
+                const delta = last - first;
+                return (
+                  <p className={`text-xs font-medium ${delta < 0 ? 'text-green-600 dark:text-green-400' : delta > 0 ? 'text-red-500' : 'text-slate-500 dark:text-white/40'}`}>
+                    {delta > 0 ? '+' : ''}{delta.toFixed(1)} kg totalt
+                  </p>
+                );
+              })()}
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-sm text-slate-600 dark:text-white/60">Ingen endring</p>
-          </div>
-        </div>
-
-        {/* Time Range Tabs */}
-        <div className="flex gap-2 mb-4">
-          {[
-            { label: '1 Måned', value: 1 },
-            { label: '3 Måneder', value: 3 },
-            { label: '6 Måneder', value: 6 }
-          ].map((tab, index) => (
-            <button
-              key={tab.value}
-              type="button"
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
-                index === 0 
-                  ? 'bg-orange-500 text-white' 
-                  : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/40 hover:bg-slate-200 dark:hover:bg-white/[0.1] hover:text-slate-600 dark:hover:text-white/60'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Simple Weight Chart */}
-        <div className="h-32 bg-slate-50 dark:bg-white/[0.02] rounded-lg border border-slate-200 dark:border-white/[0.05] mb-4 flex items-center justify-center">
-          {journeyWeightSeries.length > 0 ? (
-            <svg className="w-full h-full p-4" viewBox="0 0 300 100">
-              {/* Simple line chart */}
-              <polyline
-                fill="none"
-                stroke="#f97316"
-                strokeWidth="2"
-                points={journeyWeightSeries.map((point, index) => 
-                  `${(index / (journeyWeightSeries.length - 1)) * 280 + 10},${80 - (point.value - Math.min(...journeyWeightSeries.map(p => p.value))) / (Math.max(...journeyWeightSeries.map(p => p.value)) - Math.min(...journeyWeightSeries.map(p => p.value))) * 60}`
-                ).join(' ')}
-              />
-              {/* Data points */}
-              {journeyWeightSeries.map((point, index) => (
-                <circle
-                  key={index}
-                  cx={(index / (journeyWeightSeries.length - 1)) * 280 + 10}
-                  cy={80 - (point.value - Math.min(...journeyWeightSeries.map(p => p.value))) / (Math.max(...journeyWeightSeries.map(p => p.value)) - Math.min(...journeyWeightSeries.map(p => p.value))) * 60}
-                  r="3"
-                  fill="#f97316"
-                />
-              ))}
-              {/* Y-axis labels */}
-              <text x="5" y="15" fill="#ffffff60" fontSize="10">{Math.max(...journeyWeightSeries.map(p => p.value)).toFixed(1)}</text>
-              <text x="5" y="85" fill="#ffffff60" fontSize="10">{Math.min(...journeyWeightSeries.map(p => p.value)).toFixed(1)}</text>
-            </svg>
-          ) : (
-            <p className="text-slate-500 dark:text-white/40 text-sm">Ingen vektdata tilgjengelig</p>
+          {journeyWeightSeries.length > 0 && (
+            <div className="text-right">
+              <p className="text-xl font-bold text-slate-900 dark:text-white/90">
+                {journeyWeightSeries[journeyWeightSeries.length - 1].value.toFixed(1)} kg
+              </p>
+              <p className="text-xs text-slate-500 dark:text-white/40">Siste måling</p>
+            </div>
           )}
         </div>
+
+        {/* Improved Weight Chart */}
+        {journeyWeightSeries.length > 0 ? (() => {
+          const values = journeyWeightSeries.map((p) => p.value);
+          const minVal = Math.min(...values);
+          const maxVal = Math.max(...values);
+          const range = Math.max(0.5, maxVal - minVal);
+          const padded = { min: minVal - range * 0.15, max: maxVal + range * 0.15 };
+          const W = 340;
+          const H = 140;
+          const PL = 36; // left padding for y-axis labels
+          const PR = 10;
+          const PT = 20;
+          const PB = 30; // bottom padding for x-axis labels
+          const chartW = W - PL - PR;
+          const chartH = H - PT - PB;
+
+          const toX = (i: number) => journeyWeightSeries.length === 1
+            ? PL + chartW / 2
+            : PL + (i / (journeyWeightSeries.length - 1)) * chartW;
+          const toY = (v: number) => PT + chartH - ((v - padded.min) / (padded.max - padded.min)) * chartH;
+
+          // Y-axis gridlines — 3 levels
+          const gridLevels = [minVal, (minVal + maxVal) / 2, maxVal];
+
+          // X-axis: show first, last, and middle dates
+          const showDateAt = new Set([0, Math.floor((journeyWeightSeries.length - 1) / 2), journeyWeightSeries.length - 1]);
+
+          const coords = journeyWeightSeries.map((p, i) => ({ x: toX(i), y: toY(p.value), value: p.value, date: p.date }));
+          const polyPoints = coords.map((c) => `${c.x},${c.y}`).join(' ');
+
+          return (
+            <div className="mb-4 bg-white dark:bg-white/[0.02] rounded-xl border border-slate-200 dark:border-white/[0.05] overflow-hidden">
+              <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: '160px' }}>
+                {/* Grid lines */}
+                {gridLevels.map((v) => {
+                  const gy = toY(v);
+                  return (
+                    <g key={v}>
+                      <line x1={PL} y1={gy} x2={W - PR} y2={gy} stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" className="text-slate-900 dark:text-white" />
+                      <text x={PL - 4} y={gy + 4} textAnchor="end" fontSize="9" fill="currentColor" fillOpacity="0.45" className="text-slate-700 dark:text-white">{v.toFixed(1)}</text>
+                    </g>
+                  );
+                })}
+
+                {/* Area fill */}
+                <defs>
+                  <linearGradient id="wgt-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f97316" stopOpacity="0.25" />
+                    <stop offset="100%" stopColor="#f97316" stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+                <polygon
+                  fill="url(#wgt-grad)"
+                  points={`${coords[0].x},${PT + chartH} ${polyPoints} ${coords[coords.length - 1].x},${PT + chartH}`}
+                />
+
+                {/* Line */}
+                <polyline fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={polyPoints} />
+
+                {/* Data points with weight labels */}
+                {coords.map((c, i) => (
+                  <g key={`${c.date}-${i}`}>
+                    <circle cx={c.x} cy={c.y} r="4" fill="#f97316" />
+                    <text
+                      x={c.x}
+                      y={c.y - 8}
+                      textAnchor="middle"
+                      fontSize="9"
+                      fontWeight="600"
+                      fill="#f97316"
+                    >
+                      {c.value.toFixed(1)}
+                    </text>
+                    {/* X-axis date labels */}
+                    {showDateAt.has(i) && (
+                      <text
+                        x={c.x}
+                        y={H - 4}
+                        textAnchor="middle"
+                        fontSize="8"
+                        fill="currentColor"
+                        fillOpacity="0.4"
+                        className="text-slate-700 dark:text-white"
+                      >
+                        {c.date.slice(5)}
+                      </text>
+                    )}
+                  </g>
+                ))}
+              </svg>
+            </div>
+          );
+        })() : (
+          <div className="h-40 flex flex-col items-center justify-center gap-2 bg-white dark:bg-white/[0.02] rounded-xl border border-slate-200 dark:border-white/[0.05] mb-4">
+            <Scale className="w-8 h-8 text-slate-300 dark:text-white/20" />
+            <p className="text-slate-500 dark:text-white/40 text-sm">Ingen vektdata enda</p>
+            <p className="text-xs text-slate-400 dark:text-white/30">Logg vekt for å se graf</p>
+          </div>
+        )}
 
         {/* Log Weight Button */}
         <button
           type="button"
-          className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium py-3 rounded-xl transition-colors duration-200"
+          onClick={() => {
+            setWeightInput(profilePrefs.weightKg?.toString() ?? '');
+            setShowWeightModal(true);
+          }}
+          className="w-full bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-semibold py-3 rounded-xl transition-colors duration-200 flex items-center justify-center gap-2"
         >
+          <Scale className="w-4 h-4" />
           Logg vekt
         </button>
+      </div>
+
+      {/* Diet / Goal Section */}
+      <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center">
+            <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kosthold & Mål</h3>
+        </div>
+
+        {/* Goal toggle */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {([
+            { key: 'fat_loss', label: 'Gå ned i vekt', emoji: '🔥', desc: 'Kaloriunderskudd' },
+            { key: 'muscle_gain', label: 'Øke i vekt', emoji: '💪', desc: 'Kalorioverskudd' },
+          ] as { key: HomeProfile['goalMode']; label: string; emoji: string; desc: string }[]).map(({ key, label, emoji, desc }) => {
+            const isActive = (profilePrefs.goalMode ?? 'fat_loss') === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setProfilePrefs((prev) => ({ ...prev, goalMode: key }))}
+                className={`p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                  isActive
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                    : 'border-slate-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.03] opacity-60'
+                }`}
+              >
+                <div className="text-xl mb-1">{emoji}</div>
+                <p className={`text-sm font-semibold ${isActive ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-white/60'}`}>{label}</p>
+                <p className={`text-xs ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-white/30'}`}>{desc}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Diet targets based on goal */}
+        <div className="bg-white dark:bg-white/[0.03] rounded-xl p-3 border border-slate-200 dark:border-white/[0.06]">
+          {profilePrefs.goalMode === 'muscle_gain' ? (
+            <>
+              <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide mb-2">Bulkdiett — daglige mål</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-base font-bold text-slate-900 dark:text-white/90">{smartDietPlan.optimizedTargetKcal} kcal</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
+                </div>
+                <div>
+                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros.proteinG}g</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
+                </div>
+                <div>
+                  <p className="text-base font-bold text-emerald-600 dark:text-emerald-400">{smartDietPlan.macros.carbsG}g</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/40">Karbohydrat</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-white/40 mt-2 text-center">Høyt protein + kalorioverskudd for muskelvekst</p>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-2">Slankediett — daglige mål</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-base font-bold text-slate-900 dark:text-white/90">{smartDietPlan.optimizedTargetKcal} kcal</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
+                </div>
+                <div>
+                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros.proteinG}g</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
+                </div>
+                <div>
+                  <p className="text-base font-bold text-amber-600 dark:text-amber-400">{smartDietPlan.macros.fatG}g</p>
+                  <p className="text-[11px] text-slate-500 dark:text-white/40">Fett</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-white/40 mt-2 text-center">Kaloriunderskudd med høyt protein for å bevare muskler</p>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ===== NUTRITION TWIN / TRAJECTORY ===== */}
@@ -2942,6 +3210,52 @@ export default function HomeScreen() {
             <div className="popup-icon">Goal</div>
             <h3 className="popup-title">MAL NADD</h3>
             <p className="popup-text">Sterk dag. Du holder deg innenfor kalorimarginen.</p>
+          </div>
+        </div>
+      )}
+
+      {showWeightModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowWeightModal(false); }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Logg vekt</h3>
+              <button type="button" onClick={() => setShowWeightModal(false)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 flex items-center justify-center">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="mb-4">
+              <label className="text-xs text-slate-500 dark:text-white/40 block mb-1">Vekt (kg)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                placeholder="f.eks. 75.5"
+                value={weightInput}
+                onChange={(e) => setWeightInput(e.target.value)}
+                autoFocus
+                className="w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-2xl font-bold text-slate-900 dark:text-white/90 text-center"
+              />
+            </div>
+            {journeyWeightSeries.length > 0 && (
+              <p className="text-xs text-slate-500 dark:text-white/40 text-center mb-4">
+                Forrige: {journeyWeightSeries[journeyWeightSeries.length - 1].value.toFixed(1)} kg
+                {(() => {
+                  const prev = journeyWeightSeries[journeyWeightSeries.length - 1].value;
+                  const curr = Number(weightInput);
+                  if (!Number.isFinite(curr) || weightInput === '') return null;
+                  const d = curr - prev;
+                  return <span className={d < 0 ? 'text-green-500' : d > 0 ? 'text-red-500' : ''}> ({d > 0 ? '+' : ''}{d.toFixed(1)} kg)</span>;
+                })()}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => logWeight(Number(weightInput))}
+              disabled={!weightInput || Number(weightInput) <= 0}
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-semibold py-3 rounded-xl transition-colors"
+            >
+              Lagre
+            </button>
           </div>
         </div>
       )}
@@ -3406,6 +3720,32 @@ export default function HomeScreen() {
                     })}
                   </div>
                   <p className="text-[10px] text-slate-400 dark:text-white/25 text-center mt-2">Stiplet linje = dagsmål</p>
+                </div>
+
+                {/* ── Micro radar chart ── */}
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-3">Mikronæring – oversikt</p>
+                  <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/[0.06] py-3 px-1">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <RadarChart data={microDefs.map(({ label, key, est, target }) => ({
+                        subject: label,
+                        value: Math.min(120, Math.round((microVal(key, est) / Math.max(1, target)) * 100)),
+                        fullMark: 100,
+                      }))}>
+                        <PolarGrid stroke="rgba(148,163,184,0.2)" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(148,163,184,0.7)', fontSize: 10, fontWeight: 600 }} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
+                        <Radar dataKey="value" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.25} dot={{ r: 3, fill: '#14b8a6', strokeWidth: 0 }} />
+                        <RechartsTooltip
+                          formatter={(val: number) => [`${val}%`, 'Av dagsmål']}
+                          contentStyle={{ background: 'rgba(15,15,20,0.92)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }}
+                          labelStyle={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}
+                          itemStyle={{ color: '#14b8a6' }}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                    <p className="text-[10px] text-slate-400 dark:text-white/25 text-center -mt-1">% av dagsmål per næringsstoff</p>
+                  </div>
                 </div>
 
                 {/* ── Micro loggable bars ── */}

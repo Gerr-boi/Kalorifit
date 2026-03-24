@@ -14,7 +14,7 @@ import {
   Heart,
   Zap,
 } from 'lucide-react';
-import { useLocalStorageState, getActiveUserIdFromStorage } from '../../hooks/useLocalStorageState';
+import { useLocalStorageState, getActiveUserIdFromStorage, emitLocalStorageStateChanged } from '../../hooks/useLocalStorageState';
 import type { GoalCategory, GoalStrategy, DietStyle, TrainingType, ActivityLevel } from '../../lib/nutritionPlanner';
 import { useT } from '../../lib/i18n';
 import { requestNotificationPermission } from '../../lib/notificationService';
@@ -252,6 +252,7 @@ export default function OnboardingScreen(_props: OnboardingScreenProps) {
     try {
       const userId = getActiveUserIdFromStorage();
       window.localStorage.setItem(`u:${userId}:profile`, JSON.stringify(payload));
+      emitLocalStorageStateChanged('profile');
     } catch {
       // fall through to hook write
     }

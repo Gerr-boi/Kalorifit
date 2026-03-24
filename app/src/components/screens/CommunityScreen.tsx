@@ -1,4 +1,5 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Award,
@@ -112,6 +113,13 @@ type FloatingFabPosition = {
   y: number;
 };
 
+type FloatingFabBounds = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // reactionConfig is defined inside the component so labels can be translated
@@ -215,28 +223,33 @@ function getDailyKcal(log: DayLog): number {
   return Object.values(log.meals).flat().reduce((s, e) => s + e.kcal, 0);
 }
 
-function clampFabPosition(position: FloatingFabPosition, viewportWidth?: number, viewportHeight?: number): FloatingFabPosition {
-  const width = viewportWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 390);
-  const height = viewportHeight ?? (typeof window !== 'undefined' ? window.innerHeight : 844);
-  const minX = FAB_VIEWPORT_MARGIN_PX;
-  const maxX = Math.max(minX, width - FAB_SIZE_PX - FAB_VIEWPORT_MARGIN_PX);
-  const minY = FAB_TOP_OFFSET_PX;
-  const maxY = Math.max(minY, height - FAB_SIZE_PX - FAB_BOTTOM_OFFSET_PX);
+// Returns container-local bounds (origin = container top-left).
+// The FAB is absolutely positioned inside .app-container, so coordinates
+// are always relative to the container — no viewport-offset issues.
+function getFabContainerBounds(el: Element): FloatingFabBounds {
+  return { left: 0, right: el.clientWidth, top: 0, bottom: el.clientHeight };
+}
+
+function clampFabPosition(position: FloatingFabPosition, bounds: FloatingFabBounds): FloatingFabPosition {
+  const minX = bounds.left + FAB_VIEWPORT_MARGIN_PX;
+  const maxX = Math.max(minX, bounds.right - FAB_SIZE_PX - FAB_VIEWPORT_MARGIN_PX);
+  const minY = bounds.top + FAB_TOP_OFFSET_PX;
+  const maxY = Math.max(minY, bounds.bottom - FAB_SIZE_PX - FAB_BOTTOM_OFFSET_PX);
   return {
     x: Math.min(Math.max(position.x, minX), maxX),
     y: Math.min(Math.max(position.y, minY), maxY),
   };
 }
 
-function getDefaultFabPosition(): FloatingFabPosition {
-  if (typeof window === 'undefined') {
-    return { x: FAB_VIEWPORT_MARGIN_PX, y: FAB_TOP_OFFSET_PX };
-  }
+function getDefaultFabPosition(bounds: FloatingFabBounds): FloatingFabPosition {
   return clampFabPosition({
-    x: window.innerWidth - FAB_SIZE_PX - FAB_VIEWPORT_MARGIN_PX,
-    y: window.innerHeight - FAB_SIZE_PX - FAB_BOTTOM_OFFSET_PX,
-  });
+    x: bounds.right - FAB_SIZE_PX - 24,
+    y: bounds.bottom - FAB_SIZE_PX - FAB_BOTTOM_OFFSET_PX,
+  }, bounds);
 }
+
+// Fallback bounds for SSR / before container mounts
+const FALLBACK_FAB_BOUNDS: FloatingFabBounds = { left: 0, right: 390, top: 0, bottom: 844 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -316,6 +329,8 @@ export default function CommunityScreen() {
   const [triedPostIds, setTriedPostIds] = useLocalStorageState<string[]>('community.triedPosts.v1', EMPTY_TRIED_POSTS);
   const [joinedChallenges, setJoinedChallenges] = useLocalStorageState<JoinedChallenge[]>('community.challenges.v1', EMPTY_JOINED_CHALLENGES);
 
+  const [fabPortalEl, setFabPortalEl] = useState<Element | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fabOpenTimerRef = useRef<number | null>(null);
   const fabSuppressClickRef = useRef(false);
@@ -332,6 +347,7 @@ export default function CommunityScreen() {
   const todayKey = useMemo(() => toDateKey(startOfDay(new Date())), []);
   const currentStreak = useMemo(() => calculateStreak(logsByDate), [logsByDate]);
   const todayLog = useMemo(() => logsByDate[todayKey] ?? createEmptyDayLog(), [logsByDate, todayKey]);
+  const fabRenderPosition = fabPosition ?? getDefaultFabPosition(FALLBACK_FAB_BOUNDS);
 
   // Migrate old 'self' authorId
   useEffect(() => {
@@ -348,15 +364,27 @@ export default function CommunityScreen() {
 
   // ─── Derived: today's check-in ──────────────────────────────────────────────
 
+  // Mount the portal target and initialise / re-clamp FAB position using
+  // container-local coordinates (0,0 = container top-left).
   useEffect(() => {
-    if (fabPosition !== null) return;
-    setFabPosition(getDefaultFabPosition());
-  }, [fabPosition, setFabPosition]);
+    const el = document.querySelector('.app-container');
+    if (!el) return;
+    setFabPortalEl(el);
+    const bounds = getFabContainerBounds(el);
+    setFabPosition((prev) => {
+      const candidate = prev ?? getDefaultFabPosition(bounds);
+      return clampFabPosition(candidate, bounds);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const handleResize = () => {
-      setFabPosition((prev) => clampFabPosition(prev ?? getDefaultFabPosition(), window.innerWidth, window.innerHeight));
+      const el = document.querySelector('.app-container');
+      if (!el) return;
+      const bounds = getFabContainerBounds(el);
+      setFabPosition((prev) => clampFabPosition(prev ?? getDefaultFabPosition(bounds), bounds));
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -625,14 +653,13 @@ export default function CommunityScreen() {
   }
 
   function handleFabPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
-    if (!fabPosition) return;
     fabSuppressClickRef.current = false;
     fabDragStateRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      originX: fabPosition.x,
-      originY: fabPosition.y,
+      originX: fabRenderPosition.x,
+      originY: fabRenderPosition.y,
       moved: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -649,10 +676,12 @@ export default function CommunityScreen() {
       setIsDraggingFab(true);
     }
     if (!dragState.moved) return;
+    const el = fabPortalEl ?? document.querySelector('.app-container');
+    const bounds = el ? getFabContainerBounds(el) : FALLBACK_FAB_BOUNDS;
     setFabPosition(clampFabPosition({
       x: dragState.originX + deltaX,
       y: dragState.originY + deltaY,
-    }));
+    }, bounds));
   }
 
   function resetFabDrag(event?: React.PointerEvent<HTMLButtonElement>) {
@@ -1475,20 +1504,24 @@ export default function CommunityScreen() {
       {/* Post modal */}
       {showAddPost && renderPostModal()}
 
-      {/* Floating action button */}
-      <button
-        type="button"
-        onClick={handleFabClick}
-        onPointerDown={handleFabPointerDown}
-        onPointerMove={handleFabPointerMove}
-        onPointerUp={resetFabDrag}
-        onPointerCancel={resetFabDrag}
-        className={`community-add-post-fab ${fabAnimating ? 'community-add-post-fab-animate' : ''} ${isDraggingFab ? 'community-add-post-fab-dragging' : ''}`}
-        style={fabPosition ? { left: `${fabPosition.x}px`, top: `${fabPosition.y}px` } : undefined}
-        aria-label="Ny innlegg"
-      >
-        <Plus className="w-6 h-6" />
-      </button>
+      {/* Floating action button — portalled to .app-container (sibling of scroll area)
+          so it escapes -webkit-overflow-scrolling:touch while staying in container coords */}
+      {fabPortalEl && createPortal(
+        <button
+          type="button"
+          onClick={handleFabClick}
+          onPointerDown={handleFabPointerDown}
+          onPointerMove={handleFabPointerMove}
+          onPointerUp={resetFabDrag}
+          onPointerCancel={resetFabDrag}
+          className={`community-add-post-fab ${fabAnimating ? 'community-add-post-fab-animate' : ''} ${isDraggingFab ? 'community-add-post-fab-dragging' : ''}`}
+          style={{ left: `${fabRenderPosition.x}px`, top: `${fabRenderPosition.y}px` }}
+          aria-label="Ny innlegg"
+        >
+          <Plus className="w-6 h-6" />
+        </button>,
+        fabPortalEl
+      )}
     </div>
   );
 }
