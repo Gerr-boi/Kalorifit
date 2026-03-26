@@ -3144,11 +3144,11 @@ export default function HomeScreen() {
                   <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
                 </div>
                 <div>
-                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros.proteinG}g</p>
+                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros?.proteinG ?? '—'}g</p>
                   <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
                 </div>
                 <div>
-                  <p className="text-base font-bold text-emerald-600 dark:text-emerald-400">{smartDietPlan.macros.carbsG}g</p>
+                  <p className="text-base font-bold text-emerald-600 dark:text-emerald-400">{smartDietPlan.macros?.carbsG ?? '—'}g</p>
                   <p className="text-[11px] text-slate-500 dark:text-white/40">Karbohydrat</p>
                 </div>
               </div>
@@ -3163,11 +3163,11 @@ export default function HomeScreen() {
                   <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
                 </div>
                 <div>
-                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros.proteinG}g</p>
+                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros?.proteinG ?? '—'}g</p>
                   <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
                 </div>
                 <div>
-                  <p className="text-base font-bold text-amber-600 dark:text-amber-400">{smartDietPlan.macros.fatG}g</p>
+                  <p className="text-base font-bold text-amber-600 dark:text-amber-400">{smartDietPlan.macros?.fatG ?? '—'}g</p>
                   <p className="text-[11px] text-slate-500 dark:text-white/40">Fett</p>
                 </div>
               </div>
