@@ -1,25 +1,25 @@
 -- =====================================================
--- KALORIFIT - DATABASE SETUP
+-- KALORIFIT - KOMPLETT DATABASE SETUP
 -- =====================================================
 -- Kjør denne SQL-koden i Supabase SQL Editor:
 -- https://supabase.com/dashboard → SQL Editor → New Query
 -- =====================================================
 
--- STEG 1: Opprett user_kv_store (generisk nøkkel-verdi tabell for app-data)
--- Denne tabellen synkroniserer all localStorage-data til skyen.
+-- =====================================================
+-- DEL 1: SYNC-TABELL (generisk nøkkel-verdi for app-data)
+-- =====================================================
+
 CREATE TABLE IF NOT EXISTS user_kv_store (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
-  scope TEXT NOT NULL DEFAULT 'user',  -- 'user' eller 'global'
+  scope TEXT NOT NULL DEFAULT 'user',
   value JSONB,
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (user_id, key)
 );
 
--- STEG 2: Aktiver Row Level Security (RLS)
 ALTER TABLE user_kv_store ENABLE ROW LEVEL SECURITY;
 
--- STEG 3: RLS-policyer — brukere kan kun lese/skrive egen data
 CREATE POLICY "Users can read own kv data"
   ON user_kv_store FOR SELECT
   USING (auth.uid() = user_id);
@@ -37,11 +37,204 @@ CREATE POLICY "Users can delete own kv data"
   ON user_kv_store FOR DELETE
   USING (auth.uid() = user_id);
 
--- STEG 4: Indeks for raskere oppslag
 CREATE INDEX IF NOT EXISTS idx_user_kv_store_user_id ON user_kv_store(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_kv_store_scope ON user_kv_store(scope);
 
 -- =====================================================
+-- DEL 2: SPESIFIKKE TABELLER (for fremtidig direkte API-bruk)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  email TEXT NOT NULL,
+  display_name TEXT,
+  avatar_url TEXT,
+  onboarding_completed BOOLEAN DEFAULT FALSE,
+  language TEXT DEFAULT 'Norsk',
+  notifications_enabled BOOLEAN DEFAULT FALSE,
+  meal_reminders JSONB DEFAULT '{"breakfast": false, "breakfastTime": "08:00", "lunch": false, "lunchTime": "12:00", "dinner": false, "dinnerTime": "18:00"}'::JSONB,
+  goals JSONB DEFAULT '{"calories": 2000, "protein": 150, "carbs": 250, "fat": 70}'::JSONB,
+  privacy_settings JSONB DEFAULT '{"anonymousPosting": false, "hideWeightNumbers": false, "hideBodyPhotos": false}'::JSONB
+);
+
+CREATE TABLE IF NOT EXISTS daily_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  calories_consumed INTEGER DEFAULT 0,
+  calories_goal INTEGER DEFAULT 2000,
+  protein INTEGER DEFAULT 0,
+  carbs INTEGER DEFAULT 0,
+  fat INTEGER DEFAULT 0,
+  meals JSONB DEFAULT '[]'::JSONB,
+  water_glasses INTEGER DEFAULT 0,
+  water_ml INTEGER DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS foods (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  barcode TEXT,
+  calories_per_100g INTEGER NOT NULL,
+  protein_per_100g NUMERIC(6,2) DEFAULT 0,
+  carbs_per_100g NUMERIC(6,2) DEFAULT 0,
+  fat_per_100g NUMERIC(6,2) DEFAULT 0,
+  serving_size INTEGER DEFAULT 100,
+  serving_unit TEXT DEFAULT 'g',
+  is_custom BOOLEAN DEFAULT FALSE,
+  is_favorite BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS community_posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  author_name TEXT NOT NULL,
+  author_initials TEXT,
+  author_avatar TEXT,
+  kind TEXT NOT NULL DEFAULT 'workout',
+  caption TEXT,
+  image_url TEXT,
+  duration_minutes INTEGER,
+  calories INTEGER,
+  pr_highlight TEXT,
+  streak INTEGER DEFAULT 0,
+  visibility TEXT DEFAULT 'public',
+  reactions JSONB DEFAULT '{"fire": 0, "strong": 0, "beast": 0, "insane": 0, "watching": 0}'::JSONB,
+  saves INTEGER DEFAULT 0,
+  tries INTEGER DEFAULT 0,
+  recipe_title TEXT,
+  recipe_ingredients TEXT[],
+  recipe_steps TEXT[],
+  recipe_servings INTEGER,
+  recipe_prep_minutes INTEGER,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS community_reactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  reaction_type TEXT NOT NULL DEFAULT 'fire',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(post_id, user_id, reaction_type)
+);
+
+CREATE TABLE IF NOT EXISTS community_saves (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  post_id UUID NOT NULL REFERENCES community_posts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(post_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS check_ins (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  types TEXT[] DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, date)
+);
+
+CREATE TABLE IF NOT EXISTS user_challenges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  challenge_id TEXT NOT NULL,
+  joined_at TIMESTAMPTZ DEFAULT NOW(),
+  progress INTEGER DEFAULT 0,
+  completed BOOLEAN DEFAULT FALSE,
+  UNIQUE(user_id, challenge_id)
+);
+
+-- =====================================================
+-- DEL 3: ROW LEVEL SECURITY (RLS)
+-- =====================================================
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE community_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE community_reactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE community_saves ENABLE ROW LEVEL SECURITY;
+ALTER TABLE check_ins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_challenges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE foods ENABLE ROW LEVEL SECURITY;
+
+-- Profiles
+CREATE POLICY "Users own data" ON profiles
+  FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
+-- Daily logs
+CREATE POLICY "Users own daily_logs" ON daily_logs
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Check-ins
+CREATE POLICY "Users own check_ins" ON check_ins
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Challenges
+CREATE POLICY "Users own challenges" ON user_challenges
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Community posts (public read, own write)
+CREATE POLICY "Public can view posts" ON community_posts
+  FOR SELECT USING (true);
+
+CREATE POLICY "Users create own posts" ON community_posts
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users edit own posts" ON community_posts
+  FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users delete own posts" ON community_posts
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Reactions
+CREATE POLICY "Users own reactions" ON community_reactions
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Saves
+CREATE POLICY "Users own saves" ON community_saves
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Foods (public read for shared foods, own write for custom)
+CREATE POLICY "Public foods visible" ON foods
+  FOR SELECT USING (is_custom = false OR auth.uid() = user_id);
+
+CREATE POLICY "Users create custom foods" ON foods
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users edit own foods" ON foods
+  FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- =====================================================
+-- DEL 4: AUTO-OPPDATER PROFIL VED REGISTRERING
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, display_name)
+  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)));
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- =====================================================
 -- FERDIG! 🎉
--- Nå kan KaloriFit synkronisere data mellom enheter.
+-- Kjør hele denne filen i Supabase SQL Editor.
 -- =====================================================
