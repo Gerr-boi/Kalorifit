@@ -260,6 +260,71 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- =====================================================
+-- DEL 6: STANDARD MATVARER (norske)
+-- =====================================================
+
+INSERT INTO foods (name, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, serving_size, serving_unit, is_custom) VALUES
+('Egg', 143, 12.6, 0.7, 9.5, 60, 'g', FALSE),
+('Kyllingfilet', 165, 31, 0, 3.6, 150, 'g', FALSE),
+('Laks', 208, 20, 0, 13, 150, 'g', FALSE),
+('Rundstykke', 250, 8, 45, 3, 60, 'g', FALSE),
+('Brød (grovt)', 220, 9, 40, 2, 40, 'g', FALSE),
+('Ris (kokt)', 130, 2.7, 28, 0.3, 150, 'g', FALSE),
+('Pasta (kokt)', 131, 5, 25, 1.1, 150, 'g', FALSE),
+('Potet (kokt)', 87, 1.9, 20, 0.1, 150, 'g', FALSE),
+('Brokkoli', 34, 2.8, 7, 0.4, 100, 'g', FALSE),
+('Gulrot', 41, 0.9, 10, 0.2, 100, 'g', FALSE),
+('Tomat', 18, 0.9, 3.9, 0.2, 100, 'g', FALSE),
+('Agurk', 15, 0.7, 3.6, 0.1, 100, 'g', FALSE),
+('Ost (gul)', 400, 25, 1, 33, 30, 'g', FALSE),
+('Melk (lett)', 47, 3.4, 4.9, 1, 200, 'ml', FALSE),
+('Yoghurt (naturell)', 61, 3.5, 4.7, 3.3, 150, 'g', FALSE),
+('Banan', 89, 1.1, 23, 0.3, 120, 'g', FALSE),
+('Eple', 52, 0.3, 14, 0.2, 150, 'g', FALSE),
+('Appelsin', 47, 0.9, 12, 0.1, 150, 'g', FALSE),
+('Jordbær', 32, 0.7, 7.7, 0.3, 100, 'g', FALSE),
+('Blåbær', 57, 0.7, 14, 0.3, 100, 'g', FALSE),
+('Avokado', 160, 2, 8.5, 14.7, 100, 'g', FALSE),
+('Mandler', 579, 21, 22, 50, 30, 'g', FALSE),
+('Valnøtter', 654, 15, 14, 65, 30, 'g', FALSE),
+('Havregryn', 389, 16.9, 66, 6.9, 50, 'g', FALSE),
+('Musli', 350, 8, 65, 6, 50, 'g', FALSE),
+('Kjøttdeig (karbonadedeig)', 250, 18, 0, 20, 150, 'g', FALSE),
+('Kjøttkaker', 280, 15, 8, 21, 100, 'g', FALSE),
+('Pølser', 280, 12, 2, 25, 80, 'g', FALSE),
+('Fiskepinner', 220, 10, 18, 12, 100, 'g', FALSE),
+('Grandiosa', 260, 11, 30, 10, 100, 'g', FALSE),
+('Coca-Cola', 42, 0, 10.6, 0, 330, 'ml', FALSE),
+('Appelsinjuice', 45, 0.7, 10, 0.2, 200, 'ml', FALSE),
+('Kaffe (svart)', 2, 0.3, 0, 0, 200, 'ml', FALSE),
+('Te (uten melk)', 1, 0, 0.3, 0, 200, 'ml', FALSE),
+('Sjokolade (melk)', 535, 7.7, 59, 30, 25, 'g', FALSE),
+('Potetgull', 536, 7, 53, 35, 50, 'g', FALSE),
+('Knekkebrød', 380, 10, 70, 5, 10, 'g', FALSE),
+('Smør', 717, 0.9, 0.1, 81, 10, 'g', FALSE),
+('Syltetøy', 250, 0.3, 62, 0.3, 20, 'g', FALSE),
+('Leverpostei', 300, 15, 5, 25, 40, 'g', FALSE),
+('Makrell i tomat', 220, 15, 5, 16, 110, 'g', FALSE),
+('Tunfisk (hermetisk)', 116, 26, 0, 1, 80, 'g', FALSE),
+('Bønner (kidney, hermetisk)', 100, 7, 15, 0.5, 120, 'g', FALSE),
+('Erter (hermetisk)', 80, 5, 12, 0.5, 100, 'g', FALSE),
+('Mais (hermetisk)', 90, 3, 18, 1, 100, 'g', FALSE),
+('Olivenolje', 884, 0, 0, 100, 15, 'ml', FALSE),
+('Ketchup', 100, 1, 25, 0, 20, 'ml', FALSE),
+('Sennep', 60, 4, 6, 3, 10, 'ml', FALSE),
+('Majones', 680, 1, 1, 75, 15, 'ml', FALSE),
+('Pesto', 460, 6, 5, 46, 30, 'g', FALSE)
+ON CONFLICT DO NOTHING;
+
+-- =====================================================
+-- DEL 7: REALTIME (live oppdateringer)
+-- =====================================================
+
+ALTER PUBLICATION supabase_realtime ADD TABLE daily_logs;
+ALTER PUBLICATION supabase_realtime ADD TABLE community_posts;
+ALTER PUBLICATION supabase_realtime ADD TABLE community_reactions;
+
+-- =====================================================
 -- FERDIG! 🎉
 -- Kjør hele denne filen i Supabase SQL Editor.
 -- =====================================================
