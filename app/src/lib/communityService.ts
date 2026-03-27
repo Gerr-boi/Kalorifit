@@ -204,7 +204,7 @@ class LocalStorageCommunityService implements ICommunityService {
     return ok(undefined);
   }
 
-  async setReaction(postId: string, userId: string, reaction: ReactionKey | null): Promise<ServiceResult<Record<ReactionKey, number>>> {
+  async setReaction(postId: string, _userId: string, reaction: ReactionKey | null): Promise<ServiceResult<Record<ReactionKey, number>>> {
     const posts = lsGet<CommunityPost[]>(LS_POSTS_KEY, []);
     const myReactions = lsGet<Record<string, ReactionKey | undefined>>(LS_MY_REACTIONS_KEY, {});
     const previous = myReactions[postId];
@@ -223,7 +223,7 @@ class LocalStorageCommunityService implements ICommunityService {
     return ok(updated?.reactions ?? { fire: 0, strong: 0, beast: 0, insane: 0, watching: 0 });
   }
 
-  async toggleSave(postId: string, userId: string): Promise<ServiceResult<{ saves: number; saved: boolean }>> {
+  async toggleSave(postId: string, _userId: string): Promise<ServiceResult<{ saves: number; saved: boolean }>> {
     const saved = lsGet<string[]>(LS_SAVED_POSTS_KEY, []);
     const alreadySaved = saved.includes(postId);
     const nextSaved = alreadySaved ? saved.filter((id) => id !== postId) : [...saved, postId];
@@ -236,7 +236,7 @@ class LocalStorageCommunityService implements ICommunityService {
     return ok({ saves: Math.max(0, (updatedPost?.saves ?? 0) + delta), saved: !alreadySaved });
   }
 
-  async toggleTry(postId: string, userId: string): Promise<ServiceResult<{ tries: number; tried: boolean }>> {
+  async toggleTry(postId: string, _userId: string): Promise<ServiceResult<{ tries: number; tried: boolean }>> {
     const tried = lsGet<string[]>(LS_TRIED_POSTS_KEY, []);
     const alreadyTried = tried.includes(postId);
     const nextTried = alreadyTried ? tried.filter((id) => id !== postId) : [...tried, postId];
@@ -280,15 +280,15 @@ class LocalStorageCommunityService implements ICommunityService {
     return ok(all.filter((c) => c.userId === userId));
   }
 
-  async fetchSavedPostIds(userId: string): Promise<ServiceResult<string[]>> {
+  async fetchSavedPostIds(_userId: string): Promise<ServiceResult<string[]>> {
     return ok(lsGet<string[]>(LS_SAVED_POSTS_KEY, []));
   }
 
-  async fetchTriedPostIds(userId: string): Promise<ServiceResult<string[]>> {
+  async fetchTriedPostIds(_userId: string): Promise<ServiceResult<string[]>> {
     return ok(lsGet<string[]>(LS_TRIED_POSTS_KEY, []));
   }
 
-  async fetchMyReactions(userId: string): Promise<ServiceResult<Record<string, ReactionKey>>> {
+  async fetchMyReactions(_userId: string): Promise<ServiceResult<Record<string, ReactionKey>>> {
     const raw = lsGet<Record<string, ReactionKey | undefined>>(LS_MY_REACTIONS_KEY, {});
     const clean: Record<string, ReactionKey> = {};
     for (const [k, v] of Object.entries(raw)) {

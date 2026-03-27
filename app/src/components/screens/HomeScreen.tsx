@@ -34,7 +34,6 @@ import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Responsi
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
   ACTIVITY_GOAL_KCAL,
-  CALORIE_GOAL,
   PROTEIN_GOAL_G,
   WATER_GOAL_ML,
   addDays,
@@ -1422,7 +1421,7 @@ export default function HomeScreen() {
       },
     });
     setLogEvents((prev) =>
-      [...prev, { type: 'meal', actionId, mealId, kcal: food.kcal, id: eventId, timestampIso: new Date().toISOString() }].slice(-1200),
+      [...prev, { type: 'meal' as const, actionId, mealId, kcal: food.kcal, id: eventId, timestampIso: new Date().toISOString() }].slice(-1200),
     );
     maybeSuggestTemplate(mealId, nextMealItems);
     reward();

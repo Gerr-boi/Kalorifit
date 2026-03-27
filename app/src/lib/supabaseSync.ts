@@ -11,7 +11,6 @@
 
 import { supabase } from './supabase';
 import {
-  getActiveUserIdFromStorage,
   getScopedStorageKey,
   emitLocalStorageStateChanged,
 } from '../hooks/useLocalStorageState';

@@ -125,7 +125,7 @@ type FloatingFabBounds = {
 
 // reactionConfig is defined inside the component so labels can be translated
 
-const emptyReactions: Record<ReactionKey, number> = {
+export const emptyReactions: Record<ReactionKey, number> = {
   fire: 0, strong: 0, beast: 0, insane: 0, watching: 0,
 };
 
@@ -162,7 +162,7 @@ const FAB_DRAG_THRESHOLD_PX = 6;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function createId(prefix: string) {
+export function createId(prefix: string) {
   if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 }

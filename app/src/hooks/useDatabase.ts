@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase, getCurrentUser } from '../lib/supabase';
-import { getProfile, getDailyLog, upsertDailyLog, addWater } from '../lib/database';
+import { getProfile, upsertDailyLog, addWater } from '../lib/database';
 import type { User } from '@supabase/supabase-js';
 import type { Profile, DailyLog } from '../lib/supabase';
 
