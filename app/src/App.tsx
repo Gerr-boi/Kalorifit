@@ -12,6 +12,7 @@ import { useLocalStorageState } from './hooks/useLocalStorageState';
 import { useSupabaseAuth } from './hooks/useSupabaseAuth';
 import { useSupabaseSync } from './hooks/useSupabaseSync';
 import { isSupabaseConfigured } from './lib/supabase';
+import { DatabaseProvider } from './components/DatabaseProvider';
 import { I18nProvider, useT, type Language } from './lib/i18n';
 import {
   ensureWeeklyReportForSunday,
@@ -176,21 +177,25 @@ function App() {
 
   if (!onboardingCompleted) {
     return (
-      <I18nProvider language={language}>
-        <OnboardingScreen />
-      </I18nProvider>
+      <DatabaseProvider>
+        <I18nProvider language={language}>
+          <OnboardingScreen />
+        </I18nProvider>
+      </DatabaseProvider>
     );
   }
 
   return (
-    <I18nProvider language={language}>
-      <AppShell
-        activeTab={activeTab}
-        transitioning={transitioning}
-        navigateTo={navigateTo}
-        renderScreen={renderScreen}
-      />
-    </I18nProvider>
+    <DatabaseProvider>
+      <I18nProvider language={language}>
+        <AppShell
+          activeTab={activeTab}
+          transitioning={transitioning}
+          navigateTo={navigateTo}
+          renderScreen={renderScreen}
+        />
+      </I18nProvider>
+    </DatabaseProvider>
   );
 }
 
