@@ -555,43 +555,11 @@ export default function MealsScreen() {
     if (recipe.origin === 'community' && recipe.customIngredients && recipe.customIngredients.length > 0) {
       return recipe.customIngredients;
     }
-    const lowerTitle = recipe.title.toLowerCase();
-    const slotDefaults: Record<Exclude<MealSlot, 'alle'>, string[]> = {
-      frokost: ['Havregryn 40 g', 'Baer 100 g'],
-      lunsj: ['Blandet salat 80 g', 'Olivenolje 1 ss'],
-      middag: ['Sesonggronnsaker 150 g', 'Urter og krydder'],
-      snacks: ['Frukt 1 stk', 'Nodder 20 g'],
-    };
-    const keywordIngredients: Array<[string, string]> = [
-      ['kimchi', 'Kimchi 60 g'],
-      ['laks', 'Laks 150 g'],
-      ['kylling', 'Kyllingfilet 150 g'],
-      ['kalkun', 'Kalkun 150 g'],
-      ['tofu', 'Tofu 180 g'],
-      ['linse', 'Linser 140 g kokt'],
-      ['kiker', 'Kikerter 120 g kokt'],
-      ['bonn', 'Bonner 120 g kokt'],
-      ['ris', 'Kokt ris 150 g'],
-      ['quinoa', 'Quinoa 140 g kokt'],
-      ['avocado', 'Avokado 1/2 stk'],
-      ['spinat', 'Spinat 70 g'],
-      ['broccoli', 'Brokkoli 120 g'],
-      ['kefir', 'Kefir 2 dl'],
-      ['yoghurt', 'Gresk yoghurt 170 g'],
-      ['egg', 'Egg 2 stk'],
-      ['omelett', 'Egg 2 stk'],
-      ['wrap', 'Fullkornstortilla 1 stk'],
-      ['pasta', 'Fullkornspasta 90 g ukokt'],
-      ['soba', 'Sobanudler 80 g ukokt'],
-      ['feta', 'Feta 40 g'],
-      ['biff', 'Mager biff 140 g'],
-      ['tunfisk', 'Tunfisk 150 g'],
-      ['reker', 'Reker 150 g'],
-    ];
-    const inferred = keywordIngredients.filter(([k]) => lowerTitle.includes(k)).map(([, v]) => v);
-    const slot = recipe.mealSlots[0] ?? 'lunsj';
-    const combined = [...inferred, ...slotDefaults[slot], 'Sitron/eddik + salt og pepper'];
-    return Array.from(new Set(combined)).slice(0, 8);
+    // Use ingredients from recipe data if available
+    if ('ingredients' in recipe && Array.isArray((recipe as MealRecipe & { ingredients?: string[] }).ingredients) && ((recipe as MealRecipe & { ingredients?: string[] }).ingredients ?? []).length > 0) {
+      return (recipe as MealRecipe & { ingredients?: string[] }).ingredients ?? [];
+    }
+    return ['Ingredienser ikke tilgjengelig'];
   }
 
   function getRecipeSteps(recipe: DisplayRecipe) {
@@ -601,31 +569,11 @@ export default function MealsScreen() {
     if (recipe.origin === 'community' && recipe.customSteps && recipe.customSteps.length > 0) {
       return recipe.customSteps;
     }
-    const slot = recipe.mealSlots[0] ?? 'lunsj';
-    const base: Record<Exclude<MealSlot, 'alle'>, string[]> = {
-      frokost: [
-        'Bland hovedingrediensene i en bolle.',
-        'Topp med frukt/baer og litt nodder eller frø.',
-        'Server med en proteinkilde for bedre metthet.',
-      ],
-      lunsj: [
-        'Stek eller varm opp proteinkilden.',
-        'Sett sammen med gronnsaker og karbohydratkilde.',
-        'Smak til med syre, urter og litt sunt fett.',
-      ],
-      middag: [
-        'Forvarm panne eller ovn og klargjor alle ingredienser.',
-        'Tilbered protein, deretter gronnsaker til de er møre.',
-        'Server med valgfri karbohydratkilde og frisk topping.',
-      ],
-      snacks: [
-        'Kutt og porsjoner ingrediensene.',
-        'Kombiner en rask proteinkilde med frukt/gront.',
-        'Smak til og server med en gang.',
-      ],
-    };
-    if (recipe.signals.fermented) return [...base[slot], 'Legg til fermentert topping rett for servering.'];
-    return base[slot];
+    // Use steps from recipe data if available
+    if ('steps' in recipe && Array.isArray((recipe as MealRecipe & { steps?: string[] }).steps) && ((recipe as MealRecipe & { steps?: string[] }).steps ?? []).length > 0) {
+      return (recipe as MealRecipe & { steps?: string[] }).steps ?? [];
+    }
+    return ['Fremgangsmate ikke tilgjengelig'];
   }
 
   function addRecipeToDiary(recipe: DisplayRecipe) {
