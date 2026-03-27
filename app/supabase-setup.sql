@@ -208,7 +208,7 @@ CREATE POLICY "Users own saves" ON community_saves
 
 -- Foods (public read for shared foods, own write for custom)
 CREATE POLICY "Public foods visible" ON foods
-  FOR SELECT USING (is_custom = false OR auth.uid() = user_id);
+  FOR SELECT USING (user_id IS NULL OR auth.uid() = user_id);
 
 CREATE POLICY "Users create custom foods" ON foods
   FOR INSERT WITH CHECK (auth.uid() = user_id);
@@ -217,19 +217,44 @@ CREATE POLICY "Users edit own foods" ON foods
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- =====================================================
--- DEL 4: AUTO-OPPDATER PROFIL VED REGISTRERING
+-- DEL 4: TRIGGERS (auto-oppdater updated_at)
 -- =====================================================
+
+DROP TRIGGER IF EXISTS update_profiles_updated_at ON profiles;
+DROP TRIGGER IF EXISTS update_daily_logs_updated_at ON daily_logs;
+DROP TRIGGER IF EXISTS update_posts_updated_at ON community_posts;
+DROP TRIGGER IF EXISTS update_foods_updated_at ON foods;
+DROP FUNCTION IF EXISTS update_updated_at_column();
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_daily_logs_updated_at BEFORE UPDATE ON daily_logs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_posts_updated_at BEFORE UPDATE ON community_posts FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_foods_updated_at BEFORE UPDATE ON foods FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- =====================================================
+-- DEL 5: AUTO-OPPDATER PROFIL VED REGISTRERING
+-- =====================================================
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
   INSERT INTO public.profiles (id, email, display_name)
-  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)));
+  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'display_name', NEW.email));
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
