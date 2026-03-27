@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Home, Users, Camera, UtensilsCrossed, User } from 'lucide-react';
 import HomeScreen from './components/screens/HomeScreen';
 import CommunityScreen from './components/screens/CommunityScreen';
@@ -6,8 +6,12 @@ import ScanScreen from './components/screens/ScanScreen';
 import MealsScreen from './components/screens/MealsScreen';
 import ProfileScreen from './components/screens/ProfileScreen';
 import OnboardingScreen from './components/screens/OnboardingScreen';
+import AuthScreen from './components/screens/AuthScreen';
 import { useCurrentUser } from './hooks/useCurrentUser';
 import { useLocalStorageState } from './hooks/useLocalStorageState';
+import { useSupabaseAuth } from './hooks/useSupabaseAuth';
+import { useSupabaseSync } from './hooks/useSupabaseSync';
+import { isSupabaseConfigured } from './lib/supabase';
 import { I18nProvider, useT, type Language } from './lib/i18n';
 import {
   ensureWeeklyReportForSunday,
@@ -32,7 +36,37 @@ function App() {
   const [transitioning, setTransitioning] = useState(false);
   const [displayedTab, setDisplayedTab] = useState<Tab>('home');
   const pendingTab = useRef<Tab | null>(null);
+  const [skippedAuth, setSkippedAuth] = useState(() => {
+    try { return window.localStorage.getItem('kalorifit:skippedAuth') === 'true'; } catch { return false; }
+  });
   useCurrentUser();
+
+  // Supabase auth + sync
+  const { user, loading: authLoading, isAuthenticated, signUp, signIn } = useSupabaseAuth();
+  useSupabaseSync(user);
+
+  const handleAuth = useCallback(async (email: string, password: string, mode: 'login' | 'signup') => {
+    if (mode === 'signup') {
+      const result = await signUp(email, password);
+      if (result.error) {
+        const msg = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || 'Noe gikk galt';
+        return { error: msg };
+      }
+      return {};
+    } else {
+      const result = await signIn(email, password);
+      if (result.error) {
+        const msg = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || 'Feil e-post eller passord';
+        return { error: msg };
+      }
+      return {};
+    }
+  }, [signIn, signUp]);
+
+  const handleSkipAuth = useCallback(() => {
+    setSkippedAuth(true);
+    try { window.localStorage.setItem('kalorifit:skippedAuth', 'true'); } catch {}
+  }, []);
   const [profileRaw] = useLocalStorageState<Record<string, unknown>>('profile', EMPTY_PROFILE);
   const onboardingCompleted = Boolean((profileRaw as { onboardingCompleted?: boolean }).onboardingCompleted);
   const language = ((profileRaw as { language?: string }).language === 'English' ? 'English' : 'Norsk') as Language;
@@ -120,6 +154,25 @@ function App() {
         return <HomeScreen />;
     }
   };
+
+  // Show auth screen if Supabase is configured and user hasn't logged in or skipped
+  if (isSupabaseConfigured() && !isAuthenticated && !skippedAuth && !authLoading) {
+    return (
+      <AuthScreen
+        onAuth={handleAuth}
+        onSkip={handleSkipAuth}
+      />
+    );
+  }
+
+  // Show loading spinner during auth check
+  if (isSupabaseConfigured() && authLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (!onboardingCompleted) {
     return (
