@@ -1770,13 +1770,20 @@ export default function ScanScreen() {
     const factor = amount / 100;
     const beverageType = classifyBeverageType(scannedFood.name);
     const drinkMl = beverageType ? amount : undefined;
+    const per100g = scannedFood.per100g;
     const loggedEntry: FoodEntry = {
       id: window.crypto?.randomUUID ? window.crypto.randomUUID() : `food-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
       name: amount !== 100 ? `${scannedFood.name} (${amount}${portionUnit})` : scannedFood.name,
-      kcal: Math.round((scannedFood.per100g?.kcal ?? scannedFood.calories ?? 0) * factor),
-      protein: Math.round((scannedFood.per100g?.protein_g ?? scannedFood.protein ?? 0) * factor * 10) / 10,
-      carbs: Math.round((scannedFood.per100g?.carbs_g ?? scannedFood.carbs ?? 0) * factor * 10) / 10,
-      fat: Math.round((scannedFood.per100g?.fat_g ?? scannedFood.fat ?? 0) * factor * 10) / 10,
+      kcal: Math.round((per100g?.kcal ?? scannedFood.calories ?? 0) * factor),
+      protein: Math.round((per100g?.protein_g ?? scannedFood.protein ?? 0) * factor * 10) / 10,
+      carbs: Math.round((per100g?.carbs_g ?? scannedFood.carbs ?? 0) * factor * 10) / 10,
+      fat: Math.round((per100g?.fat_g ?? scannedFood.fat ?? 0) * factor * 10) / 10,
+      // Extended macros from food label — preserve when available
+      fiber_g: per100g?.fiber_g != null ? Math.round(per100g.fiber_g * factor * 10) / 10 : undefined,
+      sugars_g: per100g?.sugars_g != null ? Math.round(per100g.sugars_g * factor * 10) / 10 : undefined,
+      saturated_fat_g: per100g?.saturated_fat_g != null ? Math.round(per100g.saturated_fat_g * factor * 10) / 10 : undefined,
+      salt_g: per100g?.salt_g != null ? Math.round(per100g.salt_g * factor * 100) / 100 : undefined,
+      sodium_mg: per100g?.sodium_mg != null ? Math.round(per100g.sodium_mg * factor) : undefined,
       drinkMl,
       beverageType: beverageType ?? undefined,
       hydrationFactor: beverageType ? getHydrationFactor(beverageType) : undefined,
@@ -3728,6 +3735,18 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
         return;
       }
       if (rawResultObject?.isDummyProvider === true) {
+        if (!isDev) {
+          // In production a dummy provider means the real model is not wired up — treat as unavailable.
+          setBotHealth((prev) => ({
+            ...prev,
+            status: 'offline',
+            message: 'Skanneren returnerte dummy-data. PROVIDER=yolo er ikke satt i produksjon.',
+            checkedAt: Date.now(),
+          }));
+          setScanState('idle');
+          showFeedback('Bildeskanning er ikke tilgjengelig akkurat nå. Prøv manuelt søk.', 'error');
+          return;
+        }
         showFeedback('Bildegjenkjenning kjører i dummy-modus. Sett PROVIDER=yolo i food_detection_bot/.env for ekte deteksjon.', 'info');
       }
 
@@ -5173,27 +5192,44 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
           )}
           {botHealth.status === 'offline' && (
             <div className="absolute top-3 left-3 right-3 z-[42] rounded-xl border border-red-300 bg-red-50/95 px-3 py-2 text-sm text-red-800 backdrop-blur">
-              <div className="font-semibold">Scanner backend er utilgjengelig</div>
-              <p className="mt-1">
-                {botHealth.baseUrl
-                  ? <>food_detection_bot ser ut til å være nede på <code>{botHealth.baseUrl}</code>.</>
-                  : <>food_detection_bot er ikke konfigurert med en gyldig, tilgjengelig URL.</>}
-              </p>
-              {botHealth.message && (
-                <p className="mt-1 text-xs text-red-700 break-words">Detalj: {botHealth.message}</p>
+              <div className="font-semibold">Bildeskanning er ikke tilgjengelig</div>
+              {isDev ? (
+                <>
+                  <p className="mt-1">
+                    {botHealth.baseUrl
+                      ? <>food_detection_bot ser ut til å være nede på <code>{botHealth.baseUrl}</code>.</>
+                      : <>food_detection_bot er ikke konfigurert med en gyldig URL.</>}
+                  </p>
+                  {botHealth.message && (
+                    <p className="mt-1 text-xs text-red-700 break-words">Detalj: {botHealth.message}</p>
+                  )}
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { void refreshBotHealth({ showToastOnOffline: true }); }}
+                      className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      Prøv igjen
+                    </button>
+                    <span className="text-xs text-red-700">
+                      Start bot med: <code>uvicorn src.main:app --host 127.0.0.1 --port 8001 --reload</code>
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1">Skannerservicen er midlertidig utilgjengelig. Prøv igjen om litt, eller bruk manuelt søk.</p>
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={() => { void refreshBotHealth({ showToastOnOffline: true }); }}
+                      className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
+                    >
+                      Prøv igjen
+                    </button>
+                  </div>
+                </>
               )}
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => { void refreshBotHealth({ showToastOnOffline: true }); }}
-                  className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  Prøv igjen
-                </button>
-                <span className="text-xs text-red-700">
-                  Start bot med: <code>uvicorn src.main:app --host 127.0.0.1 --port 8001 --reload</code>
-                </span>
-              </div>
             </div>
           )}
           {/* Camera Preview */}
@@ -5865,16 +5901,18 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                     </div>
                   )}
 
-            <div className="mt-4 rounded-2xl border border-orange-200 bg-white/90 p-4 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">Training Mode</p>
-              <p className="mt-2 text-sm text-gray-700">
-                På localhost lagres hvert skann for modelltrening. Avslutt skannet med
-                {' '}<span className="font-medium">Ser riktig ut</span>,{' '}
-                <span className="font-medium">Korriger</span>,{' '}
-                <span className="font-medium">Ikke mat</span> eller{' '}
-                <span className="font-medium">Dårlig bilde</span> for at dataene skal kunne brukes.
-              </p>
-            </div>
+            {isDev && (
+              <div className="mt-4 rounded-2xl border border-orange-200 bg-white/90 p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">Training Mode</p>
+                <p className="mt-2 text-sm text-gray-700">
+                  På localhost lagres hvert skann for modelltrening. Avslutt skannet med
+                  {' '}<span className="font-medium">Ser riktig ut</span>,{' '}
+                  <span className="font-medium">Korriger</span>,{' '}
+                  <span className="font-medium">Ikke mat</span> eller{' '}
+                  <span className="font-medium">Dårlig bilde</span> for at dataene skal kunne brukes.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       ) : (

@@ -343,6 +343,8 @@ export default function ProfileScreen() {
     } else {
       document.documentElement.classList.remove('dark');
     }
+    // Remove the temporary background set by the inline pre-React script
+    document.documentElement.style.removeProperty('background');
   }, [darkMode]);
 
   const toggleDarkMode = () => {

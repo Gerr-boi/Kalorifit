@@ -59,10 +59,10 @@ label {
   display: none;
 }
 
-/* Screen transition animations */
+/* Screen transition animations — opacity only (no transform to avoid fixed-position containment issues) */
 @keyframes screenEnter {
-  0% { opacity: 0; transform: translateY(10px); }
-  100% { opacity: 1; transform: translateY(0); }
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 @keyframes screenExit {
   0% { opacity: 1; }
@@ -70,10 +70,10 @@ label {
 }
 
 .screen-enter {
-  animation: screenEnter 180ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  animation: screenEnter 160ms ease-out both;
 }
 .screen-exit {
-  animation: screenExit 120ms ease both;
+  animation: screenExit 100ms ease both;
 }
 
 /* ============================================

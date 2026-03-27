@@ -9,6 +9,13 @@ export type FoodEntry = {
   protein: number;
   carbs: number;
   fat: number;
+  // Extended macros — populated from scanned food labels when available
+  fiber_g?: number;
+  sugars_g?: number;
+  saturated_fat_g?: number;
+  salt_g?: number;
+  sodium_mg?: number;
+  // Beverage tracking
   drinkMl?: number;
   beverageType?: BeverageType;
   hydrationFactor?: number;
@@ -175,16 +182,34 @@ function getGrade(score: number): DailyDisciplineScore['grade'] {
   return 'Jobber med det';
 }
 
-export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore {
+export type DisciplineTargets = {
+  calorieGoal?: number;
+  proteinGoalG?: number;
+  waterGoalMl?: number;
+  activityGoalKcal?: number;
+};
+
+export function calculateDailyDisciplineScore(log: DayLog, targets?: DisciplineTargets): DailyDisciplineScore {
   const { consumedKcal, proteinG, loggedMealSlots, totalMealsLogged } = getDailyTotals(log);
   const hydrationMl = getTotalHydrationMl(log);
-  const caloriePct = clamp(100 - (Math.abs(consumedKcal - CALORIE_GOAL) / CALORIE_GOAL) * 100, 0, 100);
-  const proteinPct = clamp((proteinG / PROTEIN_GOAL_G) * 100, 0, 100);
-  const waterPct = clamp((hydrationMl / WATER_GOAL_ML) * 100, 0, 100);
-  const activityPct = clamp((log.trainingKcal / ACTIVITY_GOAL_KCAL) * 100, 0, 100);
 
-  const mealCoveragePct = clamp((loggedMealSlots / 3) * 100, 0, 100);
-  const hydrationLoggedPct = hydrationMl > 0 ? 100 : 0;
+  // Use personalized targets when provided, fall back to default constants
+  const calorieGoal = (targets?.calorieGoal && targets.calorieGoal > 0) ? targets.calorieGoal : CALORIE_GOAL;
+  const proteinGoal = (targets?.proteinGoalG && targets.proteinGoalG > 0) ? targets.proteinGoalG : PROTEIN_GOAL_G;
+  const waterGoal = (targets?.waterGoalMl && targets.waterGoalMl > 0) ? targets.waterGoalMl : WATER_GOAL_ML;
+  const activityGoal = (targets?.activityGoalKcal && targets.activityGoalKcal > 0) ? targets.activityGoalKcal : ACTIVITY_GOAL_KCAL;
+
+  // Calorie score: proximity to goal (within ±10% = perfect, >50% off = 0)
+  const calorieDeviation = Math.abs(consumedKcal - calorieGoal) / calorieGoal;
+  const caloriePct = clamp(round(100 - calorieDeviation * 100), 0, 100);
+
+  const proteinPct = clamp(round((proteinG / proteinGoal) * 100), 0, 100);
+  const waterPct = clamp(round((hydrationMl / waterGoal) * 100), 0, 100);
+  const activityPct = clamp(round((log.trainingKcal / activityGoal) * 100), 0, 100);
+
+  // Logging score: proportional across all three dimensions (not binary)
+  const mealCoveragePct = clamp(round((loggedMealSlots / 3) * 100), 0, 100);
+  const hydrationLoggedPct = clamp(round((hydrationMl / waterGoal) * 100), 0, 100); // proportional, not binary
   const activityLoggedPct = log.trainingKcal > 0 ? 100 : 0;
   const loggingPct = round(mealCoveragePct * 0.6 + hydrationLoggedPct * 0.2 + activityLoggedPct * 0.2);
 
@@ -200,55 +225,55 @@ export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore
     {
       key: 'calorie',
       label: 'Kaloriinntak',
-      percent: round(caloriePct),
-      targetLabel: `Mål: ${CALORIE_GOAL} kcal`,
+      percent: caloriePct,
+      targetLabel: `Mål: ${calorieGoal} kcal`,
       progressLabel: `${round(consumedKcal)} kcal logget`,
       missingLabel:
-        consumedKcal >= CALORIE_GOAL
-          ? `${round(consumedKcal - CALORIE_GOAL)} kcal over mål`
-          : `${round(CALORIE_GOAL - consumedKcal)} kcal igjen`,
+        consumedKcal >= calorieGoal
+          ? `${round(consumedKcal - calorieGoal)} kcal over mål`
+          : `${round(calorieGoal - consumedKcal)} kcal igjen`,
     },
     {
       key: 'protein',
       label: 'Protein',
-      percent: round(proteinPct),
-      targetLabel: `Mål: ${PROTEIN_GOAL_G} g`,
+      percent: proteinPct,
+      targetLabel: `Mål: ${proteinGoal} g`,
       progressLabel: `${round(proteinG)} g logget`,
       missingLabel:
-        proteinG >= PROTEIN_GOAL_G ? 'Proteinmål nådd' : `${round(PROTEIN_GOAL_G - proteinG)} g protein mangler`,
+        proteinG >= proteinGoal ? 'Proteinmål nådd ✓' : `${round(proteinGoal - proteinG)} g protein mangler`,
     },
     {
       key: 'water',
       label: 'Hydrering',
-      percent: round(waterPct),
-      targetLabel: `Mål: ${(WATER_GOAL_ML / 1000).toFixed(1)} L`,
+      percent: waterPct,
+      targetLabel: `Mål: ${(waterGoal / 1000).toFixed(1)} L`,
       progressLabel: `${(hydrationMl / 1000).toFixed(1)} L logget`,
       missingLabel:
-        hydrationMl >= WATER_GOAL_ML
-          ? 'Hydreringsmål nådd'
-          : `${((WATER_GOAL_ML - hydrationMl) / 1000).toFixed(1)} L mangler`,
+        hydrationMl >= waterGoal
+          ? 'Hydreringsmål nådd ✓'
+          : `${((waterGoal - hydrationMl) / 1000).toFixed(1)} L mangler`,
     },
     {
       key: 'activity',
       label: 'Aktivitet',
-      percent: round(activityPct),
-      targetLabel: `Mål: ${ACTIVITY_GOAL_KCAL} kcal`,
+      percent: activityPct,
+      targetLabel: `Mål: ${activityGoal} kcal`,
       progressLabel: `${round(log.trainingKcal)} kcal logget`,
       missingLabel:
-        log.trainingKcal >= ACTIVITY_GOAL_KCAL
-          ? 'Aktivitetsmål nådd'
-          : `${round(ACTIVITY_GOAL_KCAL - log.trainingKcal)} kcal aktivitet mangler`,
+        log.trainingKcal >= activityGoal
+          ? 'Aktivitetsmål nådd ✓'
+          : `${round(activityGoal - log.trainingKcal)} kcal aktivitet mangler`,
     },
     {
       key: 'logging',
       label: 'Logging',
-      percent: round(loggingPct),
+      percent: loggingPct,
       targetLabel: '3 måltider + vann + aktivitet',
-      progressLabel: `${totalMealsLogged} måltider, ${hydrationMl > 0 ? 'vann logget' : 'ingen vann'}, ${log.trainingKcal > 0 ? 'aktivitet logget' : 'ingen aktivitet'}`,
+      progressLabel: `${totalMealsLogged} matvarer, ${hydrationMl > 0 ? `${(hydrationMl / 1000).toFixed(1)} L vann` : 'ingen vann'}, ${log.trainingKcal > 0 ? 'aktivitet logget' : 'ingen aktivitet'}`,
       missingLabel:
         loggingPct >= 100
-          ? 'Logging fullført'
-          : `${Math.max(0, 3 - loggedMealSlots)} måltid(er) mangler, ${hydrationMl > 0 ? 'vann OK' : 'vann mangler'}, ${log.trainingKcal > 0 ? 'aktivitet OK' : 'aktivitet mangler'}`,
+          ? 'Logging fullført ✓'
+          : `${Math.max(0, 3 - loggedMealSlots)} måltid(er) mangler${hydrationMl === 0 ? ', vann mangler' : ''}${log.trainingKcal === 0 ? ', aktivitet mangler' : ''}`,
     },
   ];
 

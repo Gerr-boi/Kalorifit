@@ -26,7 +26,24 @@
     <link rel="icon" type="image/png" href="/icon-192x192.png" />
     
     <title>KaloriFit - Logg maten. Få kontroll. Lev lettere.</title>
-    
+
+    <!-- Dark mode: apply class before React mounts to prevent flash -->
+    <script>
+      (function () {
+        try {
+          var userId = localStorage.getItem('app.activeUserId.v1') || 'default';
+          var raw = localStorage.getItem('u:' + userId + ':darkMode');
+          // Fallback: try global key
+          if (raw === null) raw = localStorage.getItem('darkMode');
+          var isDark = raw !== null ? JSON.parse(raw) === true : false;
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.background = '#09090b';
+          }
+        } catch (e) {}
+      })();
+    </script>
+
     <style>
       :root {
         --splash-bg-start: #0f172a;

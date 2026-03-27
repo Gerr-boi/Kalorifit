@@ -91,6 +91,10 @@ export type MacroTargets = {
   proteinG: number;
   fatG: number;
   carbsG: number;
+  fiberG: number;
+  sugarsMaxG: number;       // recommended upper limit
+  saturatedFatMaxG: number; // recommended upper limit (<10% of kcal)
+  sodiumMaxMg: number;      // WHO limit: 2000 mg/day
 };
 
 export type SmartDietPlan = {
@@ -181,6 +185,17 @@ function mapDietModeFromStyle(style: DietStyle): DietMode {
   return 'standard';
 }
 
+const FAT_LOSS_STRATEGIES = new Set<GoalStrategy>(['slow_cut', 'standard_cut', 'aggressive_cut', 'event_prep', 'fat_reduction_no_scale']);
+const MUSCLE_GAIN_STRATEGIES = new Set<GoalStrategy>(['lean_bulk', 'standard_bulk', 'aggressive_bulk', 'strength_focus']);
+const MAINTENANCE_STRATEGIES = new Set<GoalStrategy>(['high_protein_maintenance', 'blood_markers', 'stable_energy', 'hormonal_balance', 'gut_health', 'endurance_focus', 'hybrid_athlete']);
+
+function goalStrategyMatchesMode(strategy: GoalStrategy, mode: GoalMode): boolean {
+  if (mode === 'fat_loss') return FAT_LOSS_STRATEGIES.has(strategy);
+  if (mode === 'muscle_gain') return MUSCLE_GAIN_STRATEGIES.has(strategy);
+  if (mode === 'recomp') return true;
+  return MAINTENANCE_STRATEGIES.has(strategy);
+}
+
 export function normalizeNutritionProfile(raw: Partial<NutritionProfile> | null | undefined): NutritionProfile {
   const merged = { ...DEFAULT_NUTRITION_PROFILE, ...(raw ?? {}) };
 
@@ -210,6 +225,17 @@ export function normalizeNutritionProfile(raw: Partial<NutritionProfile> | null 
     ? (merged.goalMode as GoalMode)
     : mapGoalModeFromCategory(goalCategory);
 
+  // If the stored goalStrategy doesn't match goalMode, reset it to the mode's default strategy
+  const DEFAULT_STRATEGY_FOR_MODE: Record<GoalMode, GoalStrategy> = {
+    fat_loss: 'standard_cut',
+    muscle_gain: 'lean_bulk',
+    recomp: 'fat_reduction_no_scale',
+    maintenance: 'high_protein_maintenance',
+  };
+  const resolvedGoalStrategy: GoalStrategy = goalStrategyMatchesMode(goalStrategy, goalMode)
+    ? goalStrategy
+    : DEFAULT_STRATEGY_FOR_MODE[goalMode];
+
   const dietMode = ['standard', 'performance', 'athlete', 'minimal'].includes(String(merged.dietMode))
     ? (merged.dietMode as DietMode)
     : mapDietModeFromStyle(dietStyle);
@@ -227,7 +253,7 @@ export function normalizeNutritionProfile(raw: Partial<NutritionProfile> | null 
 
     settingsTier: merged.settingsTier === 'advanced' ? 'advanced' : 'basic',
     goalCategory,
-    goalStrategy,
+    goalStrategy: resolvedGoalStrategy,
     dietStyle,
     trainingType: ['strength', 'running', 'crossfit', 'cycling', 'mixed', 'sedentary'].includes(String(merged.trainingType))
       ? (merged.trainingType as TrainingType)
@@ -273,8 +299,21 @@ export function calculateTdee(profile: NutritionProfile): number {
   return round(bmr * ACTIVITY_FACTORS[profile.activityLevel]);
 }
 
+/** Goal-mode fallback offsets when goalStrategy is mismatched */
+const GOAL_MODE_FALLBACK_OFFSETS: Record<GoalMode, number> = {
+  fat_loss: -400,
+  muscle_gain: 300,
+  recomp: -150,
+  maintenance: 0,
+};
+
 function getGoalOffset(profile: NutritionProfile): number {
-  let offset = GOAL_OFFSETS[profile.goalStrategy] ?? 0;
+  const strategyMatches = goalStrategyMatchesMode(profile.goalStrategy, profile.goalMode);
+  const baseOffset = strategyMatches
+    ? (GOAL_OFFSETS[profile.goalStrategy] ?? 0)
+    : GOAL_MODE_FALLBACK_OFFSETS[profile.goalMode];
+
+  let offset = baseOffset;
   if (profile.specialPhase === 'reverse_diet') offset += 150;
   if (profile.specialPhase === 'recovery') offset += 200;
   return offset;
@@ -296,25 +335,60 @@ function cycleAdjustmentKcal(profile: NutritionProfile, date: Date): number {
 function calculateMacroTargets(profile: NutritionProfile, targetKcal: number, trainingDay: boolean): MacroTargets {
   const weight = profile.weightKg;
 
+  // Protein: higher for fat loss (muscle sparing) and muscle gain
   let proteinPerKg = 1.8;
-  if (profile.goalMode === 'fat_loss') proteinPerKg = 1.9;
-  if (profile.goalMode === 'muscle_gain') proteinPerKg = 2.1;
+  if (profile.goalMode === 'fat_loss') proteinPerKg = 2.0;
+  if (profile.goalMode === 'muscle_gain') proteinPerKg = 2.2;
+  if (profile.goalMode === 'recomp') proteinPerKg = 2.1;
   if (profile.dietStyle === 'high_protein') proteinPerKg += 0.2;
+  if (profile.trainingType === 'strength' || profile.trainingType === 'crossfit') proteinPerKg += 0.1;
+  if (trainingDay) proteinPerKg += 0.1;
 
+  // Fat: minimum 0.6 g/kg for hormonal health, higher for keto/low-carb
   let fatPerKg = 0.8;
-  if (profile.dietStyle === 'low_carb' || profile.dietStyle === 'keto') fatPerKg = 1.0;
-  if (profile.goalMode === 'fat_loss') fatPerKg = Math.min(fatPerKg, 0.8);
+  if (profile.dietStyle === 'low_carb') fatPerKg = 1.1;
+  if (profile.dietStyle === 'keto') fatPerKg = 1.4;
+  if (profile.dietStyle === 'mediterranean') fatPerKg = 1.0;
+  if (profile.goalMode === 'fat_loss') fatPerKg = Math.min(fatPerKg, 0.9);
 
   const proteinG = round(weight * proteinPerKg);
-  const fatG = round(weight * fatPerKg);
+  const fatG = round(Math.max(weight * 0.6, weight * fatPerKg)); // floor at 0.6g/kg
 
-  let carbsKcal = targetKcal - proteinG * 4 - fatG * 9;
-  if (profile.dietStyle === 'high_carb_performance') carbsKcal += trainingDay ? 140 : 0;
-  if (profile.dietStyle === 'carb_cycling') carbsKcal += trainingDay ? 180 : -120;
-  if (profile.dietStyle === 'keto') carbsKcal = Math.min(carbsKcal, 120);
+  // Carbs fill remaining calories after protein + fat are accounted for
+  const proteinKcal = proteinG * 4;
+  const fatKcal = fatG * 9;
+  let remainingKcal = targetKcal - proteinKcal - fatKcal;
 
-  const carbsG = Math.max(0, round(carbsKcal / 4));
-  return { proteinG, fatG, carbsG };
+  // Keto: cap carbs at 30g (120 kcal)
+  if (profile.dietStyle === 'keto') remainingKcal = Math.min(remainingKcal, 120);
+
+  // Carb cycling: add on training days, reduce on rest days
+  if (profile.dietStyle === 'carb_cycling') remainingKcal += trainingDay ? 200 : -100;
+  if (profile.dietStyle === 'high_carb_performance') remainingKcal += trainingDay ? 160 : 0;
+
+  const carbsG = Math.max(0, round(remainingKcal / 4));
+
+  // Redistribute rounding errors into carbs so total kcal matches targetKcal exactly
+  const totalKcal = proteinG * 4 + fatG * 9 + carbsG * 4;
+  const roundingError = targetKcal - totalKcal;
+  const adjustedCarbsG = Math.max(0, carbsG + round(roundingError / 4));
+
+  // Fiber: DRI recommendation — 14g per 1000 kcal, with sex-based floor/ceiling
+  const fiberBase = round((targetKcal / 1000) * 14);
+  const fiberG = profile.sex === 'male'
+    ? clamp(fiberBase, 30, 45)
+    : clamp(fiberBase, 21, 35);
+
+  // Sugars: WHO recommends <10% of total energy (<5% for extra benefit)
+  const sugarsMaxG = round((targetKcal * 0.10) / 4);
+
+  // Saturated fat: <10% of total energy
+  const saturatedFatMaxG = round((targetKcal * 0.10) / 9);
+
+  // Sodium: WHO limit 2000 mg/day regardless of calorie intake
+  const sodiumMaxMg = 2000;
+
+  return { proteinG, fatG, carbsG: adjustedCarbsG, fiberG, sugarsMaxG, saturatedFatMaxG, sodiumMaxMg };
 }
 
 function avgForDateKeys(logsByDate: Record<string, DayLog>, keys: string[]): number {
@@ -358,21 +432,21 @@ function deriveWeeklyAdjustment(profile: NutritionProfile, weightDeltaKg: number
   const step = profile.plateauSensitivity === 'conservative' ? 60 : profile.plateauSensitivity === 'aggressive' ? 140 : 100;
 
   if (profile.goalMode === 'fat_loss') {
-    if (weightDeltaKg > -0.1) return { kcal: -step, reason: `Weight is not dropping. Applying -${step} kcal.` };
-    if (weightDeltaKg < -1.0) return { kcal: step, reason: `Weight is dropping too fast. Adding +${step} kcal.` };
-    return { kcal: 0, reason: 'Weight trend is in healthy fat-loss range.' };
+    if (weightDeltaKg > -0.1) return { kcal: -step, reason: `Vekten synker ikke. Justerer ned ${step} kcal.` };
+    if (weightDeltaKg < -1.0) return { kcal: step, reason: `Vekttap er for raskt. Legger til +${step} kcal.` };
+    return { kcal: 0, reason: 'Vekttrend er innenfor sunt fettapstempo.' };
   }
 
   if (profile.goalMode === 'muscle_gain') {
-    if (weightDeltaKg < 0.05) return { kcal: step, reason: `Weight gain is too slow. Applying +${step} kcal.` };
-    if (weightDeltaKg > 0.7) return { kcal: -step, reason: `Weight gain is too fast. Applying -${step} kcal.` };
-    return { kcal: 0, reason: 'Weight trend is in healthy muscle-gain range.' };
+    if (weightDeltaKg < 0.05) return { kcal: step, reason: `Vektøkning er for langsom. Legger til +${step} kcal.` };
+    if (weightDeltaKg > 0.7) return { kcal: -step, reason: `Vektøkning er for rask. Justerer ned ${step} kcal.` };
+    return { kcal: 0, reason: 'Vekttrend er innenfor sunt muskelopbygningstempo.' };
   }
 
   if (Math.abs(weightDeltaKg) > 0.4) {
-    return { kcal: weightDeltaKg > 0 ? -step : step, reason: `Drift detected. Adjusting by ${step} kcal.` };
+    return { kcal: weightDeltaKg > 0 ? -step : step, reason: `Vektdrift oppdaget. Justerer med ${step} kcal.` };
   }
-  return { kcal: 0, reason: 'Trend is stable.' };
+  return { kcal: 0, reason: 'Vekttrend er stabil.' };
 }
 
 function generateBehaviorInsights(
@@ -413,9 +487,9 @@ function generateBehaviorInsights(
 
   const insights: string[] = [];
 
-  if (weekendAvg > weekdayAvg + 250) insights.push('Weekend calorie intake is higher than weekdays. Consider a weekend buffer.');
-  if (sundayProteinAvg > 0 && sundayProteinAvg < proteinTargetG * 0.75) insights.push('You under-eat protein on Sundays compared with your target.');
-  if (totalEventKcal > 0 && lateKcal / totalEventKcal > 0.35) insights.push('Calories often spike after 8 PM. Plan a protein-forward evening meal.');
+  if (weekendAvg > weekdayAvg + 250) insights.push('Helger: du spiser i gjennomsnitt mer enn på hverdager. Planlegg litt bedre i helgen.');
+  if (sundayProteinAvg > 0 && sundayProteinAvg < proteinTargetG * 0.75) insights.push('Søndager: proteininntak er lavere enn anbefalt. Legg til en proteinrik lunsj.');
+  if (totalEventKcal > 0 && lateKcal / totalEventKcal > 0.35) insights.push('Mange kalorier spises etter kl. 20. Planlegg et proteinrikt kveldsmåltid.');
 
   const recentWeek = keys.slice(0, 7);
   const consistency = recentWeek.reduce((sum, key) => {
@@ -423,25 +497,39 @@ function generateBehaviorInsights(
     if (!log) return sum;
     return sum + (calculateDailyDisciplineScore(log).score >= 70 ? 1 : 0);
   }, 0);
-  if (consistency <= 3) insights.push('Consistency dropped this week. Use a simpler logging mode temporarily.');
+  if (consistency <= 2) insights.push('Konsistensen falt denne uken. Prøv å logge minst ett måltid per dag.');
+  else if (consistency >= 5) insights.push('Imponerende konsistens denne uken! Fortsett i samme spor.');
+
+  // Protein under-achievement check
+  const proteinDays = recentWeek.filter((key) => {
+    const log = logsByDate[key];
+    if (!log) return false;
+    const dayProtein = Object.values(log.meals).flat().reduce((s, e) => s + (e.protein ?? 0), 0);
+    return dayProtein > 0 && dayProtein < proteinTargetG * 0.8;
+  }).length;
+  if (proteinDays >= 4) insights.push('Du treffer sjelden proteinmålet ditt. Legg til en ekstra proteinkilde per dag.');
 
   return insights.slice(0, 3);
 }
 
 function projectedProgressText(profile: NutritionProfile, optimizedTargetKcal: number, tdee: number): string {
   const delta = optimizedTargetKcal - tdee;
+  // 7700 kcal ≈ 1 kg body mass (fat + muscle combined estimate)
   const weeklyKg = round(((delta * 7) / 7700) * 100) / 100;
+  const sign = weeklyKg >= 0 ? '+' : '';
 
   if (profile.timelineType === 'event_based' && profile.eventDate) {
-    return `Projected change to event: ~${weeklyKg >= 0 ? '+' : ''}${weeklyKg} kg/week`;
+    return `Estimert endring frem til arrangement: ~${sign}${weeklyKg} kg/uke`;
   }
   if (profile.timelineType === '8_week_cut') {
-    return `8-week projection: ~${round(weeklyKg * 8 * 10) / 10} kg`;
+    const total = round(weeklyKg * 8 * 10) / 10;
+    return `8-ukers prognose: ~${total < 0 ? '' : '+'}${total} kg`;
   }
   if (profile.timelineType === '12_week_bulk') {
-    return `12-week projection: ~${round(weeklyKg * 12 * 10) / 10} kg`;
+    const total = round(weeklyKg * 12 * 10) / 10;
+    return `12-ukers prognose: ~${sign}${total} kg`;
   }
-  return `Open projection: ~${weeklyKg >= 0 ? '+' : ''}${weeklyKg} kg/week`;
+  return `Estimert tempo: ~${sign}${weeklyKg} kg/uke`;
 }
 
 export function buildSmartDietPlan(params: {
@@ -469,20 +557,40 @@ export function buildSmartDietPlan(params: {
 
   let optimizedTargetKcal = baseTargetKcal + adjustment.kcal;
 
+  // Adaptive nudge: if recent intake consistently exceeds/misses target, soft-correct
   if (recentAvgCalories > 0) {
     const gap = recentAvgCalories - baseTargetKcal;
-    if (profile.goalMode === 'fat_loss' && gap > 250) optimizedTargetKcal -= 40;
-    if (profile.goalMode === 'muscle_gain' && gap < -250) optimizedTargetKcal += 40;
+    // Only nudge if consistently off-target for >3 days with data
+    const daysWithData = recentKeys.filter((k) => {
+      const log = params.logsByDate[k];
+      return log && Object.values(log.meals).flat().length > 0;
+    }).length;
+    if (daysWithData >= 3) {
+      if (profile.goalMode === 'fat_loss' && gap > 250) optimizedTargetKcal -= 50;
+      else if (profile.goalMode === 'fat_loss' && gap < -400) optimizedTargetKcal += 30; // avoid too steep a deficit
+      if (profile.goalMode === 'muscle_gain' && gap < -250) optimizedTargetKcal += 50;
+    }
   }
 
+  // NOTE: trainingDayCalorieBoost is NOT added here.
+  // In the UI, the daily training calories (dayLog.trainingKcal) are added to the
+  // net goal directly so the user sees the actual calories burned reflected in their budget.
+  // trainingDayCalorieBoost is only used for the base target estimate when no workout is logged yet.
   const trainingDay = (params.logsByDate[toDateKey(endDate)]?.trainingKcal ?? 0) > 0;
-  if (trainingDay) optimizedTargetKcal += profile.trainingDayCalorieBoost;
+  // If no workout logged yet today, add the estimated training day boost for planning purposes
+  if (!trainingDay && profile.trainingDayCalorieBoost > 0) {
+    // Don't add it — the UI adds trainingKcal to netGoal. This avoids double counting.
+  }
+
   optimizedTargetKcal += cycleAdjustmentKcal(profile, endDate);
 
-  if (profile.metabolicSensitivity === 'gain_easy') optimizedTargetKcal -= 40;
-  if (profile.metabolicSensitivity === 'lose_easy') optimizedTargetKcal += 40;
+  // Metabolic sensitivity fine-tuning
+  if (profile.metabolicSensitivity === 'gain_easy') optimizedTargetKcal -= 60;
+  if (profile.metabolicSensitivity === 'lose_easy') optimizedTargetKcal += 60;
 
-  optimizedTargetKcal = round(clamp(optimizedTargetKcal, 1200, 5200));
+  // Enforce safe minimums: 1400 kcal for women, 1600 for men, 5500 ceiling
+  const minKcal = profile.sex === 'female' ? 1400 : 1600;
+  optimizedTargetKcal = round(clamp(optimizedTargetKcal, minKcal, 5500));
 
   const macros = profile.dietMode === 'minimal' ? null : calculateMacroTargets(profile, optimizedTargetKcal, trainingDay);
 

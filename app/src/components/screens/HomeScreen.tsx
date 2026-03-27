@@ -33,6 +33,7 @@ import {
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
+  ACTIVITY_GOAL_KCAL,
   CALORIE_GOAL,
   PROTEIN_GOAL_G,
   WATER_GOAL_ML,
@@ -284,9 +285,10 @@ function sumMealTotals(items: FoodEntry[]) {
   );
 }
 
-function getRingColor(caloriesRemaining: number) {
+function getRingColor(caloriesRemaining: number, netGoal: number) {
   if (caloriesRemaining < 0) return '#ef4444';
-  if (caloriesRemaining <= 250) return '#f97316';
+  const threshold = Math.max(150, netGoal * 0.1);
+  if (caloriesRemaining <= threshold) return '#f97316';
   return '#22c55e';
 }
 
@@ -296,12 +298,14 @@ function getWeeklyBarColor(fillRatio: number) {
   return `hsl(${hue}, 78%, 46%)`;
 }
 
-function isWithinCalorieRange(log: DayLog) {
+function isWithinCalorieRange(log: DayLog, targetKcal: number) {
   const consumed = Object.values(log.meals)
     .flat()
     .reduce((sum, item) => sum + item.kcal, 0);
-  const remaining = CALORIE_GOAL + log.trainingKcal - consumed;
-  return consumed > 0 && remaining >= -250 && remaining <= 300;
+  const goal = targetKcal + log.trainingKcal;
+  const tolerance = Math.max(200, goal * 0.12);
+  const remaining = goal - consumed;
+  return consumed > 0 && remaining >= -tolerance && remaining <= tolerance * 1.5;
 }
 
 function roundToNearest(value: number, nearest: number) {
@@ -530,10 +534,42 @@ export default function HomeScreen() {
     [mealTotals],
   );
 
+  // Extended macros — summed from scanned food labels (undefined = no data available)
+  const dayEntries = useMemo(() => Object.values(dayLog.meals).flat(), [dayLog.meals]);
+  const dayFiber = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.fiber_g != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.fiber_g ?? 0), 0) * 10) / 10;
+  }, [dayEntries]);
+  const daySugars = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.sugars_g != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.sugars_g ?? 0), 0) * 10) / 10;
+  }, [dayEntries]);
+  const daySatFat = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.saturated_fat_g != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.saturated_fat_g ?? 0), 0) * 10) / 10;
+  }, [dayEntries]);
+  const daySodium = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.sodium_mg != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.sodium_mg ?? 0), 0));
+  }, [dayEntries]);
+
   const smartDietPlan = useMemo(() => {
+    // Use the most recent weight from BEFORE today so that logging weight
+    // today does not immediately shift the calorie target mid-day.
+    const historyBeforeToday = (profilePrefs.bmiHistory ?? [])
+      .filter((e) => e.date < todayKey && Number.isFinite(e.weightKg))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const stableWeightKg = historyBeforeToday.length > 0
+      ? historyBeforeToday[0].weightKg
+      : (profilePrefs.weightKg ?? 70);
+
     const normalizedProfile = normalizeNutritionProfile({
       age: profilePrefs.age,
-      weightKg: profilePrefs.weightKg,
+      weightKg: stableWeightKg,
       heightCm: profilePrefs.heightCm,
       sex: profilePrefs.sex,
       activityLevel: profilePrefs.activityLevel,
@@ -574,6 +610,7 @@ export default function HomeScreen() {
       date: selectedDate,
     });
   }, [logEvents, logsByDate, profilePrefs.activityLevel, profilePrefs.age, profilePrefs.bmiHistory, profilePrefs.dietMode, profilePrefs.goalMode, profilePrefs.heightCm, profilePrefs.sex, profilePrefs.weightKg, selectedDate, todayKey]);
+  // Note: weightKg still in deps so new users without bmiHistory get correct initial plan
 
   const optimizedTargetKcal = smartDietPlan.optimizedTargetKcal;
   const netGoal = optimizedTargetKcal + dayLog.trainingKcal;
@@ -581,8 +618,16 @@ export default function HomeScreen() {
   const hydrationMl = getTotalHydrationMl(dayLog);
   const waterProgress = Math.min(hydrationMl / WATER_GOAL_ML, 1);
   const progressRatio = netGoal <= 0 ? 0 : Math.min(consumed / netGoal, 1);
-  const ringColor = getRingColor(caloriesRemaining);
-  const discipline = useMemo(() => calculateDailyDisciplineScore(dayLog), [dayLog]);
+  const ringColor = getRingColor(caloriesRemaining, netGoal);
+  const discipline = useMemo(
+    () => calculateDailyDisciplineScore(dayLog, {
+      calorieGoal: netGoal,
+      proteinGoalG: smartDietPlan.macros?.proteinG ?? PROTEIN_GOAL_G,
+      waterGoalMl: WATER_GOAL_ML,
+      activityGoalKcal: ACTIVITY_GOAL_KCAL,
+    }),
+    [dayLog, netGoal, smartDietPlan.macros?.proteinG],
+  );
 
   // Adaptive coach message — one concrete action for today
   const coachMessage = useMemo(
@@ -745,19 +790,19 @@ export default function HomeScreen() {
     for (let i = 0; i < 365; i += 1) {
       const key = toDateKey(addDays(today, -i));
       const log = logsByDate[key];
-      if (!log || !isWithinCalorieRange(log)) break;
+      if (!log || !isWithinCalorieRange(log, optimizedTargetKcal)) break;
       days += 1;
     }
     return days;
-  }, [logsByDate, today]);
+  }, [logsByDate, today, optimizedTargetKcal]);
 
   const weeklyConsistencyScore = useMemo(() => {
     const passes = weeklyData.filter((day) => {
       const log = logsByDate[day.key];
-      return log ? isWithinCalorieRange(log) : false;
+      return log ? isWithinCalorieRange(log, optimizedTargetKcal) : false;
     }).length;
     return Math.round((passes / weeklyData.length) * 100);
-  }, [logsByDate, weeklyData]);
+  }, [logsByDate, weeklyData, optimizedTargetKcal]);
   const todaysLoggedItems = useMemo<LoggedMealEntry[]>(
     () =>
       mealTemplates.flatMap((meal) =>
@@ -1199,12 +1244,15 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const selectedLog = logsByDate[selectedDateKey] ?? createEmptyDayLog();
-    const firstLoggedMeal = mealTemplates.find((meal) => selectedLog.meals[meal.id].length > 0)?.id;
-    if (!firstLoggedMeal) {
-      setExpandedMeals(collapsedMeals);
-      return;
+    const next: Record<MealId, boolean> = { breakfast: false, lunch: false, dinner: false, snacks: false };
+    let anyLogged = false;
+    for (const meal of mealTemplates) {
+      if (selectedLog.meals[meal.id].length > 0) {
+        next[meal.id] = true;
+        anyLogged = true;
+      }
     }
-    setExpandedMeals({ ...collapsedMeals, [firstLoggedMeal]: true });
+    setExpandedMeals(anyLogged ? next : collapsedMeals);
   }, [selectedDateKey]);
 
   useEffect(() => {
@@ -1354,6 +1402,7 @@ export default function HomeScreen() {
 
   const addFoodToMeal = (mealId: MealId, food: FoodEntry, actionId = `food:${mealId}`) => {
     const addedId = createFoodId();
+    const eventId = createFoodId();
     const previousDay = cloneDayLog(dayLog);
     const nextMealItems = [...dayLog.meals[mealId], { ...food, id: addedId }];
     updateDayLog(selectedDateKey, (current) => ({
@@ -1367,9 +1416,14 @@ export default function HomeScreen() {
     setExpandedMeals({ ...collapsedMeals, [mealId]: true });
     setUndoAction({
       label: `${food.name} lagt til`,
-      undo: () => setDayLog(selectedDateKey, previousDay),
+      undo: () => {
+        setDayLog(selectedDateKey, previousDay);
+        setLogEvents((prev) => prev.filter((e) => e.id !== eventId));
+      },
     });
-    recordEvent({ type: 'meal', actionId, mealId, kcal: food.kcal });
+    setLogEvents((prev) =>
+      [...prev, { type: 'meal', actionId, mealId, kcal: food.kcal, id: eventId, timestampIso: new Date().toISOString() }].slice(-1200),
+    );
     maybeSuggestTemplate(mealId, nextMealItems);
     reward();
     // Allergy check — warn but still log the food
@@ -1781,7 +1835,7 @@ export default function HomeScreen() {
   };
 
   const toggleMealExpanded = (mealId: MealId) => {
-    setExpandedMeals((prev) => (prev[mealId] ? collapsedMeals : { ...collapsedMeals, [mealId]: true }));
+    setExpandedMeals((prev) => ({ ...prev, [mealId]: !prev[mealId] }));
   };
 
   const onMealTouchEnd = (mealId: MealId, x: number) => {
@@ -2041,6 +2095,12 @@ export default function HomeScreen() {
                         <p className="text-[11px] text-white/40 mt-0.5">{label}</p>
                       </div>
                     ))}
+                    {dayLog.trainingKcal > 0 && (
+                      <div className="col-span-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
+                        <p className="text-base font-bold text-emerald-400">+{dayLog.trainingKcal} kcal → {netGoal} kcal</p>
+                        <p className="text-[11px] text-white/40 mt-0.5">Treningsbonus inkludert i nettomål</p>
+                      </div>
+                    )}
                   </div>
                   {smartDietPlan.macros && (
                     <div className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3">
@@ -2059,8 +2119,14 @@ export default function HomeScreen() {
                       </div>
                     </div>
                   )}
-                  <p className="text-xs text-white/40 px-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason, t)}</p>
-                  <p className="text-xs text-white/40 px-1">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
+                  {smartDietPlan.adjustmentReason && (
+                    <p className="text-xs text-white/50 px-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason, t)}</p>
+                  )}
+                  {smartDietPlan.projectedProgressText && (
+                    <div className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3 text-center">
+                      <p className="text-xs font-semibold text-emerald-400">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2189,7 +2255,20 @@ export default function HomeScreen() {
       {/* ===== DAILY COACH CARD ===== */}
       {isTodaySelected && (
         <div style={{ padding: '0 16px 0 16px' }}>
-          <CoachCard message={coachMessage} />
+          <CoachCard
+            message={coachMessage}
+            onAction={(priority) => {
+              if (priority === 'protein' || priority === 'calories_under' || priority === 'logging') {
+                window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
+              } else if (priority === 'water') {
+                setShowWorkoutModal(false);
+                // Scroll to water section — trigger by setting focus hint
+                document.getElementById('water-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              } else if (priority === 'workout') {
+                setShowWorkoutModal(true);
+              }
+            }}
+          />
         </div>
       )}
 
@@ -2826,7 +2905,7 @@ export default function HomeScreen() {
         )}
       </div>
 
-      <div className="card">
+      <div id="water-section" className="card">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
@@ -3135,45 +3214,41 @@ export default function HomeScreen() {
 
         {/* Diet targets based on goal */}
         <div className="bg-white dark:bg-white/[0.03] rounded-xl p-3 border border-slate-200 dark:border-white/[0.06]">
-          {profilePrefs.goalMode === 'muscle_gain' ? (
-            <>
-              <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide mb-2">Bulkdiett — daglige mål</p>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-base font-bold text-slate-900 dark:text-white/90">{smartDietPlan.optimizedTargetKcal} kcal</p>
-                  <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
+          {(() => {
+            const goalMode = profilePrefs.goalMode ?? 'fat_loss';
+            const dietLabel =
+              goalMode === 'muscle_gain' ? { title: 'Bulkdiett — daglige mål', color: 'text-emerald-600 dark:text-emerald-400', desc: 'Høyt protein + kalorioverskudd for muskelvekst' }
+              : goalMode === 'recomp'     ? { title: 'Rekomposisjon — daglige mål', color: 'text-sky-600 dark:text-sky-400', desc: 'Moderat underskudd + høyt protein for fettforbrenning og muskelbevaring' }
+              : goalMode === 'maintenance'? { title: 'Vedlikehold — daglige mål', color: 'text-slate-600 dark:text-slate-400', desc: 'Kaloribalanse med høyt protein for å holde vekten stabil' }
+              : { title: 'Slankediett — daglige mål', color: 'text-orange-600 dark:text-orange-400', desc: 'Kaloriunderskudd med høyt protein for å bevare muskler' };
+            return (
+              <>
+                <p className={`text-xs font-semibold ${dietLabel.color} uppercase tracking-wide mb-2`}>{dietLabel.title}</p>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white/90">{netGoal} kcal</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros?.proteinG ?? '—'}g</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{smartDietPlan.macros?.carbsG ?? '—'}g</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Karbo</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{smartDietPlan.macros?.fatG ?? '—'}g</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Fett</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros?.proteinG ?? '—'}g</p>
-                  <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
-                </div>
-                <div>
-                  <p className="text-base font-bold text-emerald-600 dark:text-emerald-400">{smartDietPlan.macros?.carbsG ?? '—'}g</p>
-                  <p className="text-[11px] text-slate-500 dark:text-white/40">Karbohydrat</p>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-white/40 mt-2 text-center">Høyt protein + kalorioverskudd for muskelvekst</p>
-            </>
-          ) : (
-            <>
-              <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-2">Slankediett — daglige mål</p>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-base font-bold text-slate-900 dark:text-white/90">{smartDietPlan.optimizedTargetKcal} kcal</p>
-                  <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
-                </div>
-                <div>
-                  <p className="text-base font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros?.proteinG ?? '—'}g</p>
-                  <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
-                </div>
-                <div>
-                  <p className="text-base font-bold text-amber-600 dark:text-amber-400">{smartDietPlan.macros?.fatG ?? '—'}g</p>
-                  <p className="text-[11px] text-slate-500 dark:text-white/40">Fett</p>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-white/40 mt-2 text-center">Kaloriunderskudd med høyt protein for å bevare muskler</p>
-            </>
-          )}
+                {dayLog.trainingKcal > 0 && (
+                  <p className="text-[11px] text-emerald-500 dark:text-emerald-400 mt-2 text-center">+{dayLog.trainingKcal} kcal trening inkludert i kalorimål</p>
+                )}
+                <p className="text-xs text-slate-500 dark:text-white/40 mt-1 text-center">{dietLabel.desc}</p>
+              </>
+            );
+          })()}
         </div>
       </div>
 
@@ -3190,13 +3265,14 @@ export default function HomeScreen() {
         </p>
       )}
 
-      {scanHint && (
+      {scanHint && createPortal(
         <div className="fixed left-1/2 -translate-x-1/2 bottom-28 bg-gray-900 text-white text-xs px-3 py-2 rounded-full z-50">
           {scanHint}
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showPopup && (
+      {showPopup && createPortal(
         <div className="popup-overlay">
           <div className="popup">
             <button
@@ -3207,14 +3283,15 @@ export default function HomeScreen() {
             >
               x
             </button>
-            <div className="popup-icon">Goal</div>
-            <h3 className="popup-title">MAL NADD</h3>
+            <div className="popup-icon">🎯</div>
+            <h3 className="popup-title">MÅL NÅDD</h3>
             <p className="popup-text">Sterk dag. Du holder deg innenfor kalorimarginen.</p>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showWeightModal && (
+      {showWeightModal && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowWeightModal(false); }}>
           <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-5">
             <div className="flex items-center justify-between mb-4">
@@ -3257,10 +3334,11 @@ export default function HomeScreen() {
               Lagre
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showWorkoutModal && (
+      {showWorkoutModal && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
@@ -3361,10 +3439,11 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {manualAddMeal && (
+      {manualAddMeal && createPortal(
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0">
           <div className="w-full max-w-lg rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-white/[0.08] overflow-hidden shadow-2xl">
             <div className="px-5 pt-5 pb-4 bg-gradient-to-br from-orange-500/10 to-amber-500/5">
@@ -3473,10 +3552,11 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {editingFood && (
+      {editingFood && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
@@ -3556,10 +3636,11 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showQuickAddMenu && (
+      {showQuickAddMenu && createPortal(
         <div className="fixed right-4 bottom-24 z-50 w-72 rounded-2xl bg-white shadow-xl border border-slate-200 dark:border-white/[0.06] p-2">
           <p className="text-[11px] uppercase text-slate-400 dark:text-white/30 px-3 py-1">Smart quick buttons</p>
           {smartQuickActions.slice(0, 6).map((action) => (
@@ -3600,10 +3681,11 @@ export default function HomeScreen() {
           <button type="button" onClick={() => handleQuickAdd('macro-fat')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             +20g fat
           </button>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {undoAction && (
+      {undoAction && createPortal(
         <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-50 rounded-full bg-gray-900 text-white text-xs px-3 py-2 flex items-center gap-3">
           <span>{undoAction.label}</span>
           <button
@@ -3615,16 +3697,22 @@ export default function HomeScreen() {
             }}
             className="text-orange-700 dark:text-orange-300 font-semibold"
           >
-            Undo
+            Angre
           </button>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* ===== NUTRIENT DETAIL MODAL ===== */}
-      {showNutrientModal && (() => {
-        const proteinTarget = smartDietPlan.macros?.proteinG ?? 120;
-        const carbsTarget = smartDietPlan.macros?.carbsG ?? 200;
-        const fatTarget = smartDietPlan.macros?.fatG ?? 70;
+      {showNutrientModal && createPortal((() => {
+        const macroTargets = smartDietPlan.macros;
+        const proteinTarget = macroTargets?.proteinG ?? 120;
+        const carbsTarget = macroTargets?.carbsG ?? 200;
+        const fatTarget = macroTargets?.fatG ?? 70;
+        const fiberTarget = macroTargets?.fiberG ?? (profilePrefs.sex === 'male' ? 38 : 25);
+        const sugarsMaxTarget = macroTargets?.sugarsMaxG ?? 50;
+        const satFatMaxTarget = macroTargets?.saturatedFatMaxG ?? 22;
+        const sodiumMaxTarget = macroTargets?.sodiumMaxMg ?? 2000;
 
         const dayMicro = microLogsByDate[selectedDateKey] ?? {};
 
@@ -3658,23 +3746,41 @@ export default function HomeScreen() {
           return '#3b82f6';
         };
 
+        const isMale = profilePrefs.sex === 'male';
+        const age = profilePrefs.age ?? 30;
+
+        // Fiber: use actual scanned data if available, otherwise estimate at 14g/1000 kcal
+        const fiberEst = Math.round((consumed / 1000) * 14);
+        const fiberValue = dayFiber ?? dayMicro['fiberG'] ?? fiberEst;
+        const fiberIsScanned = dayFiber != null;
+
         const macros = [
           { label: 'Protein', value: Math.round(protein), target: proteinTarget, unit: 'g', color: '#3b82f6' },
           { label: 'Karbo', value: Math.round(carbs), target: carbsTarget, unit: 'g', color: '#f97316' },
           { label: 'Fett', value: Math.round(fat), target: fatTarget, unit: 'g', color: '#a855f7' },
+          { label: 'Fiber', value: typeof fiberValue === 'number' ? Math.round(fiberValue) : 0, target: fiberTarget, unit: 'g', color: '#22c55e' },
         ];
         const maxMacroVal = Math.max(...macros.map(m => Math.max(m.value, m.target)));
 
+        // Personalized micro targets by sex and age (Nordic/WHO recommendations)
+        const ironTarget = isMale ? 9 : age < 50 ? 18 : 9;
+        const calciumTarget = age >= 70 ? 1200 : 1000;
+        const vitCTarget = isMale ? 90 : 75;
+        const vitDTarget = age >= 70 ? 25 : 20;
+        const magTarget = isMale ? (age >= 31 ? 420 : 400) : age >= 31 ? 320 : 310;
+        const zincTarget = isMale ? 11 : 8;
+
         type MicroDef = { label: string; key: keyof DayMicroLog; est: number; target: number; unit: string; step: number };
         const microDefs: MicroDef[] = [
-          { label: 'Fiber', key: 'fiberG', est: Math.round((consumed / 1000) * 12), target: 28, unit: 'g', step: 1 },
-          { label: 'Omega-3', key: 'omega3G', est: Math.round(fat * 0.06), target: 2, unit: 'g', step: 0.1 },
-          { label: 'Jern', key: 'ironMg', est: Math.round((consumed / 2000) * 14), target: 18, unit: 'mg', step: 1 },
-          { label: 'Kalsium', key: 'calciumMg', est: Math.round((consumed / 2000) * 900), target: 1000, unit: 'mg', step: 50 },
-          { label: 'Vitamin C', key: 'vitCMg', est: Math.round((consumed / 2000) * 65), target: 90, unit: 'mg', step: 10 },
-          { label: 'Vitamin D', key: 'vitDUg', est: Math.round((consumed / 2000) * 12), target: 20, unit: 'µg', step: 1 },
-          { label: 'Magnesium', key: 'magMg', est: Math.round((consumed / 2000) * 300), target: 420, unit: 'mg', step: 25 },
-          { label: 'Sink', key: 'zincMg', est: Math.round((consumed / 2000) * 9), target: 11, unit: 'mg', step: 1 },
+          // Fiber: use scanned data when available, otherwise estimate
+          { label: 'Fiber', key: 'fiberG', est: typeof fiberValue === 'number' ? fiberValue : fiberEst, target: fiberTarget, unit: 'g', step: 1 },
+          { label: 'Omega-3', key: 'omega3G', est: Math.round(fat * 0.06 * 10) / 10, target: isMale ? 1.6 : 1.1, unit: 'g', step: 0.1 },
+          { label: 'Jern', key: 'ironMg', est: Math.round((consumed / 2000) * ironTarget), target: ironTarget, unit: 'mg', step: 1 },
+          { label: 'Kalsium', key: 'calciumMg', est: Math.round((consumed / 2000) * calciumTarget), target: calciumTarget, unit: 'mg', step: 50 },
+          { label: 'Vitamin C', key: 'vitCMg', est: Math.round((consumed / 2000) * vitCTarget), target: vitCTarget, unit: 'mg', step: 10 },
+          { label: 'Vitamin D', key: 'vitDUg', est: Math.round((consumed / 2000) * vitDTarget), target: vitDTarget, unit: 'µg', step: 1 },
+          { label: 'Magnesium', key: 'magMg', est: Math.round((consumed / 2000) * magTarget), target: magTarget, unit: 'mg', step: 25 },
+          { label: 'Sink', key: 'zincMg', est: Math.round((consumed / 2000) * zincTarget), target: zincTarget, unit: 'mg', step: 1 },
         ];
 
         return (
@@ -3719,8 +3825,42 @@ export default function HomeScreen() {
                       );
                     })}
                   </div>
-                  <p className="text-[10px] text-slate-400 dark:text-white/25 text-center mt-2">Stiplet linje = dagsmål</p>
+                  <p className="text-[10px] text-slate-400 dark:text-white/25 text-center mt-2">
+                    Stiplet linje = dagsmål · Fiber: {fiberIsScanned ? 'fra matvare' : 'estimert'}
+                  </p>
                 </div>
+
+                {/* ── Limits: sugars, saturated fat, sodium ── */}
+                {(daySugars != null || daySatFat != null || daySodium != null) && (
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-3">Begrensninger – fra matvarer</p>
+                    <div className="space-y-3">
+                      {([
+                        { label: 'Sukker', value: daySugars, max: sugarsMaxTarget, unit: 'g' },
+                        { label: 'Mettet fett', value: daySatFat, max: satFatMaxTarget, unit: 'g' },
+                        { label: 'Natrium', value: daySodium, max: sodiumMaxTarget, unit: 'mg' },
+                      ] as const).filter((row) => row.value != null).map(({ label, value, max, unit }) => {
+                        const pct = Math.min(130, Math.round(((value as number) / Math.max(1, max)) * 100));
+                        const over = pct > 100;
+                        const barColor = pct <= 70 ? '#22c55e' : pct <= 100 ? '#eab308' : '#ef4444';
+                        return (
+                          <div key={label}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-sm font-medium text-slate-700 dark:text-white/70">{label}</span>
+                              <span className="text-xs font-semibold tabular-nums" style={{ color: barColor }}>
+                                {value}{unit} <span className="text-slate-400 dark:text-white/30 font-normal">/ maks {max}{unit}</span>
+                              </span>
+                            </div>
+                            <div className="h-2.5 bg-slate-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, pct)}%`, background: `linear-gradient(to right, ${barColor}88, ${barColor})` }} />
+                            </div>
+                            <p className="text-[10px] text-slate-400 dark:text-white/25 mt-0.5">{over ? `${pct - 100}% over grense` : `${100 - pct}% under grense`}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* ── Micro radar chart ── */}
                 <div>
@@ -3766,7 +3906,9 @@ export default function HomeScreen() {
                           <div className="flex items-center justify-between mb-1 gap-2">
                             <div className="flex items-center gap-1.5 min-w-0">
                               <span className="text-sm font-medium text-slate-700 dark:text-white/70">{label}</span>
-                              {logged && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 font-bold">LOGGET</span>}
+                              {key === 'fiberG' && fiberIsScanned && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-500/15 text-sky-600 dark:text-sky-300 font-bold">SKANN</span>}
+                              {logged && key !== 'fiberG' && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 font-bold">LOGGET</span>}
+                              {key === 'fiberG' && !fiberIsScanned && dayMicro['fiberG'] != null && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 font-bold">LOGGET</span>}
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                               <span className="text-xs font-semibold tabular-nums" style={{ color: barColor }}>{value}{unit}</span>
@@ -3798,20 +3940,23 @@ export default function HomeScreen() {
                           <div className="h-2.5 bg-slate-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
                             <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: `linear-gradient(to right, ${barColor}88, ${barColor})` }} />
                           </div>
-                          <p className="text-[10px] text-slate-400 dark:text-white/25 mt-0.5">{pct}% av dagsmål{!logged ? ' · estimert' : ''}</p>
+                          <p className="text-[10px] text-slate-400 dark:text-white/25 mt-0.5">
+                            {pct}% av dagsmål
+                            {key === 'fiberG' && fiberIsScanned ? ' · fra matvarer' : (!logged ? ' · estimert' : '')}
+                          </p>
                         </div>
                       );
                     })}
                   </div>
                   <p className="mt-5 text-[11px] text-slate-400 dark:text-white/25 text-center leading-relaxed">
-                    Trykk + / − for å justere, eller ✏️ for manuell verdi. Uloggede verdier er estimert fra kaloriinntak.
+                    Trykk + / − for å justere, eller ✏️ for manuell verdi. Verdier er estimert fra kaloriinntak – mål inn faktiske verdier for nøyaktighet.
                   </p>
                 </div>
               </div>
             </div>
           </div>
         );
-      })()}
+      })(), document.body)}
 
       <style>{`
         @keyframes waterBottleWaveMove {
@@ -4114,7 +4259,7 @@ export default function HomeScreen() {
                 const dayScore = calculateDailyDisciplineScore(log);
                 const detailRings = [
                   { label: 'Kalorier', value: `${kcalNumberFormat.format(dayConsumed)}`, sub: `av ${kcalNumberFormat.format(dayTarget)}`, ratio: Math.min(1, dayConsumed / Math.max(1, dayTarget)), color: '#f97316' },
-                  { label: 'Protein', value: `${Math.round(dayProtein)}g`, sub: `av ${PROTEIN_GOAL_G}g`, ratio: Math.min(1, dayProtein / PROTEIN_GOAL_G), color: '#a855f7' },
+                  { label: 'Protein', value: `${Math.round(dayProtein)}g`, sub: `av ${smartDietPlan.macros?.proteinG ?? PROTEIN_GOAL_G}g`, ratio: Math.min(1, dayProtein / (smartDietPlan.macros?.proteinG ?? PROTEIN_GOAL_G)), color: '#a855f7' },
                   { label: 'Vann', value: `${Math.round(dayWater / 100) / 10}L`, sub: `av ${WATER_GOAL_ML / 1000}L`, ratio: Math.min(1, dayWater / WATER_GOAL_ML), color: '#38bdf8' },
                   { label: 'Trening', value: log.trainingKcal > 0 ? `${log.trainingKcal} kcal` : '—', sub: log.trainingKcal > 0 ? 'trent' : 'ikke trent', ratio: Math.min(1, log.trainingKcal / 300), color: '#22c55e' },
                 ];
@@ -4188,7 +4333,7 @@ export default function HomeScreen() {
       )}
 
       {/* Delete confirmation sheet */}
-      {pendingDelete && (
+      {pendingDelete && createPortal(
         <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-black/40 p-4" onClick={() => setPendingDelete(null)}>
           <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <p className="text-sm font-semibold text-slate-800 dark:text-white/90 mb-1">{t('home.deleteConfirm.title')}</p>
@@ -4210,7 +4355,8 @@ export default function HomeScreen() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

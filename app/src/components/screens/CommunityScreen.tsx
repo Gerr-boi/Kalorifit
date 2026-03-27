@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { communityService } from '../../lib/communityService';
 import {
   addDays,
   CALORIE_GOAL,
@@ -710,7 +711,7 @@ export default function CommunityScreen() {
     e.target.value = '';
   }
 
-  function createPost() {
+  async function createPost() {
     const isRecipe = postKind === 'recipe';
     const normalizedIngredients = recipeIngredients.split('\n').map((l) => l.trim()).filter(Boolean);
     const normalizedSteps = recipeSteps.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -720,8 +721,7 @@ export default function CommunityScreen() {
     const goal = profile.goalStrategy ? profile.goalStrategy.split('_').join(' ') : 'General fitness';
     const trainingStyle = profile.trainingType ? profile.trainingType.split('_').join(' ') : 'Mixed training';
 
-    const nextPost: CommunityPost = {
-      id: createId('post'),
+    const draft = {
       kind: postKind,
       authorId: activeUserId,
       authorName: profile.socialAnonymousPosting ? 'Anonymous' : displayName,
@@ -738,28 +738,42 @@ export default function CommunityScreen() {
       calories: Math.max(1, Number.parseInt(calories, 10) || 250),
       prHighlight: prHighlight.trim() || 'Solid session complete',
       streak: currentStreak,
-      createdAt: Date.now(),
       hideCalories: Boolean(profile.socialHideWeightNumbers),
       hideBodyPhoto: Boolean(profile.socialHideBodyPhotos),
       visibility: postVisibility,
-      reactions: { ...emptyReactions },
       recipeTitle: isRecipe ? recipeTitle.trim() : undefined,
       recipeIngredients: isRecipe ? normalizedIngredients : undefined,
       recipeSteps: isRecipe ? normalizedSteps : undefined,
       recipeServings: isRecipe ? (Number.parseInt(recipeServings, 10) || 2) : undefined,
       recipePrepMinutes: isRecipe ? (Number.parseInt(recipePrepMinutes, 10) || 20) : undefined,
-      saves: 0,
-      tries: 0,
-    };
+    } as const;
 
-    setPosts((prev) => [nextPost, ...prev]);
+    // ← DB_HOOK: communityService.createPost handles persistence.
+    // With localStorage backend the service writes synchronously and
+    // the useLocalStorageState hooks pick up the change automatically.
+    const result = await communityService.createPost(draft);
+    if (result.ok) {
+      setPosts((prev) => {
+        // Avoid duplicate if service already wrote to the same LS key
+        const exists = prev.some((p) => p.id === result.data.id);
+        return exists ? prev : [result.data, ...prev];
+      });
+    }
     closeAddPostModal();
+  }
+
+  async function deleteOwnPost(postId: string) {
+    // Optimistic remove
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    // ← DB_HOOK: service handles remote delete
+    await communityService.deletePost(postId, activeUserId);
   }
 
   // ─── Reaction + action handlers ──────────────────────────────────────────────
 
-  function chooseReaction(postId: string, reaction: ReactionKey) {
+  async function chooseReaction(postId: string, reaction: ReactionKey) {
     const previous = myReactions[postId];
+    // Optimistic update
     setPosts((prev) =>
       prev.map((post) => {
         if (post.id !== postId) return post;
@@ -770,35 +784,38 @@ export default function CommunityScreen() {
       }),
     );
     setMyReactions((prev) => ({ ...prev, [postId]: previous === reaction ? undefined : reaction }));
+    // ← DB_HOOK: persist reaction remotely
+    await communityService.setReaction(postId, activeUserId, previous === reaction ? null : reaction);
   }
 
-  function toggleSave(postId: string) {
+  async function toggleSave(postId: string) {
     const alreadySaved = savedPostIds.includes(postId);
+    // Optimistic update
     setSavedPostIds((prev) => alreadySaved ? prev.filter((id) => id !== postId) : [...prev, postId]);
-    if (!alreadySaved) {
-      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, saves: (p.saves ?? 0) + 1 } : p));
-    } else {
-      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, saves: Math.max(0, (p.saves ?? 0) - 1) } : p));
-    }
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, saves: Math.max(0, (p.saves ?? 0) + (alreadySaved ? -1 : 1)) } : p));
+    // ← DB_HOOK
+    await communityService.toggleSave(postId, activeUserId);
   }
 
-  function toggleTry(postId: string) {
+  async function toggleTry(postId: string) {
     const alreadyTried = triedPostIds.includes(postId);
+    // Optimistic update
     setTriedPostIds((prev) => alreadyTried ? prev.filter((id) => id !== postId) : [...prev, postId]);
-    if (!alreadyTried) {
-      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, tries: (p.tries ?? 0) + 1 } : p));
-    } else {
-      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, tries: Math.max(0, (p.tries ?? 0) - 1) } : p));
-    }
+    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, tries: Math.max(0, (p.tries ?? 0) + (alreadyTried ? -1 : 1)) } : p));
+    // ← DB_HOOK
+    await communityService.toggleTry(postId, activeUserId);
   }
 
-  function toggleChallenge(id: ChallengeId) {
+  async function toggleChallenge(id: ChallengeId) {
     const alreadyJoined = joinedChallenges.some((c) => c.challengeId === id);
+    // Optimistic update
     if (alreadyJoined) {
       setJoinedChallenges((prev) => prev.filter((c) => c.challengeId !== id));
     } else {
       setJoinedChallenges((prev) => [...prev, { challengeId: id, joinedAt: Date.now() }]);
     }
+    // ← DB_HOOK
+    await communityService.toggleChallenge(activeUserId, id);
   }
 
   // ─── Render helpers ──────────────────────────────────────────────────────────
@@ -1036,6 +1053,7 @@ export default function CommunityScreen() {
     const isSaved = savedPostIds.includes(post.id);
     const isTried = triedPostIds.includes(post.id);
     const isStruggle = post.kind === 'struggle';
+    const isOwnPost = post.authorId === activeUserId;
 
     return (
       <div key={post.id} className={`feed-item ${isStruggle ? 'feed-item-struggle' : ''}`}>
@@ -1049,15 +1067,29 @@ export default function CommunityScreen() {
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{post.authorName}</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{post.authorName}</h3>
+              {isOwnPost && <span className="text-[10px] font-medium text-orange-500 bg-orange-50 dark:bg-orange-950/30 px-1.5 py-0.5 rounded-full">Deg</span>}
+            </div>
             <div className="flex items-center gap-1.5 flex-wrap">
               {renderPostTypeBadge(post.kind)}
               <span className="text-[10px] text-gray-400">{relativeTimeFrom(post.createdAt)}</span>
             </div>
           </div>
-          <button type="button" className="text-gray-300 dark:text-gray-600 hover:text-gray-400">
-            <UserPlus className="w-4 h-4" />
-          </button>
+          {isOwnPost ? (
+            <button
+              type="button"
+              onClick={() => deleteOwnPost(post.id)}
+              className="w-7 h-7 rounded-full flex items-center justify-center text-red-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+              title="Slett innlegg"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button type="button" className="text-gray-300 dark:text-gray-600 hover:text-gray-400">
+              <UserPlus className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {/* Stats strip (for workout/meal_win) */}
@@ -1070,7 +1102,7 @@ export default function CommunityScreen() {
               </div>
               {!post.hideCalories && (
                 <div>
-                  <p className="workout-label">Calories</p>
+                  <p className="workout-label">Kalorier</p>
                   <p className="workout-value">{post.calories}</p>
                 </div>
               )}
@@ -1315,7 +1347,7 @@ export default function CommunityScreen() {
           <div className="p-4">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">New post</h3>
+              <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">Nytt innlegg</h3>
               <button type="button" onClick={closeAddPostModal} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-200 flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
@@ -1501,8 +1533,8 @@ export default function CommunityScreen() {
 
 
 
-      {/* Post modal */}
-      {showAddPost && renderPostModal()}
+      {/* Post modal — portalled to body so fixed positioning works under any CSS transform */}
+      {showAddPost && createPortal(renderPostModal(), document.body)}
 
       {/* Floating action button — portalled to .app-container (sibling of scroll area)
           so it escapes -webkit-overflow-scrolling:touch while staying in container coords */}

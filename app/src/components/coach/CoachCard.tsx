@@ -10,6 +10,7 @@ import type { CoachMessage, CoachPriority } from '../../lib/coachEngine';
 interface CoachCardProps {
   message: CoachMessage;
   onDismiss?: () => void;
+  onAction?: (priority: CoachPriority) => void;
 }
 
 const priorityConfig: Record<CoachPriority, { icon: typeof Flame; color: string; bg: string; border: string }> = {
@@ -100,7 +101,15 @@ function MacroPill({ label, value, unit, done }: { label: string; value: number;
   );
 }
 
-export default function CoachCard({ message }: CoachCardProps) {
+const ACTION_LABELS: Partial<Record<CoachPriority, string>> = {
+  protein: 'Logg mat',
+  calories_under: 'Logg mat',
+  logging: 'Logg mat',
+  water: 'Logg vann',
+  workout: 'Logg trening',
+};
+
+export default function CoachCard({ message, onAction }: CoachCardProps) {
   const [expanded, setExpanded] = useState(false);
   const cfg = priorityConfig[message.priority];
   const Icon = cfg.icon;
@@ -197,23 +206,40 @@ export default function CoachCard({ message }: CoachCardProps) {
       {expanded && (
         <div
           style={{
-            padding: '0 14px 12px 56px',
+            padding: '10px 14px 12px 56px',
             fontSize: 12,
             color: '#6b7280',
             lineHeight: 1.5,
             borderTop: `1px solid ${cfg.border}`,
-            paddingTop: 10,
-            marginTop: -2,
           }}
         >
           {message.reason}
-          <div style={{ marginTop: 6, display: 'flex', gap: 16 }}>
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11 }}>
               Mål: <strong>{Math.round(message.targetKcal)} kcal</strong>
             </span>
             <span style={{ fontSize: 11 }}>
               Protein: <strong>{Math.round(message.targetProteinG)}g</strong>
             </span>
+            {onAction && ACTION_LABELS[message.priority] && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onAction(message.priority); }}
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '4px 12px',
+                  borderRadius: 20,
+                  border: `1.5px solid ${cfg.color}`,
+                  background: cfg.color + '15',
+                  color: cfg.color,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {ACTION_LABELS[message.priority]} →
+              </button>
+            )}
           </div>
         </div>
       )}
