@@ -20,6 +20,12 @@ import {
   type IdentityReportsByMonth,
 } from '../../lib/identityEngine';
 import {
+  ALL_BADGES,
+  type EarnedBadge,
+  type BadgeRarity,
+} from '../../lib/achievementsEngine';
+import {
+  calculateBaseTargetKcal,
   DEFAULT_NUTRITION_PROFILE,
   normalizeNutritionProfile,
   type ActivityLevel,
@@ -138,11 +144,12 @@ const DIET_EXPLORER_OPTIONS: Array<{
 ];
 
 export default function ProfileScreen() {
-  const { users, currentUser, setActiveUserId, createUser, updateUserName } = useCurrentUser();
+  const { currentUser, updateUserName } = useCurrentUser();
   const [profile, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
   const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
   const [weeklyReports, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>('home.weeklyReports.v1', {});
   const [identityReports, setIdentityReports] = useLocalStorageState<IdentityReportsByMonth>('home.identityReports.v1', {});
+  const [earnedBadges] = useLocalStorageState<EarnedBadge[]>('app.earnedBadges.v1', []);
   const [showBmi, setShowBmi] = useState(false);
   const [showPersonalSettings, setShowPersonalSettings] = useState(false);
   const [showDietExplorer, setShowDietExplorer] = useState(false);
@@ -173,7 +180,6 @@ export default function ProfileScreen() {
   const [draftEventDate, setDraftEventDate] = useState(profile.eventDate ?? '');
   const [draftPsychologyType, setDraftPsychologyType] = useState<PsychologyType>(profile.psychologyType ?? DEFAULT_NUTRITION_PROFILE.psychologyType);
   const [draftSpecialPhase, setDraftSpecialPhase] = useState<SpecialPhase>(profile.specialPhase ?? DEFAULT_NUTRITION_PROFILE.specialPhase);
-  const [newUserName, setNewUserName] = useState('');
   const [darkMode, setDarkMode] = useLocalStorageState<boolean>('darkMode', false);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -223,7 +229,14 @@ export default function ProfileScreen() {
   const today = useMemo(() => startOfDay(new Date()), []);
   const todayKey = useMemo(() => toDateKey(today), [today]);
   const todayLog = logsByDate[todayKey] ?? createEmptyDayLog();
-  const dailyDiscipline = useMemo(() => calculateDailyDisciplineScore(todayLog), [todayLog]);
+  const profileCalorieGoal = useMemo(
+    () => calculateBaseTargetKcal(normalizeNutritionProfile(profile)),
+    [profile],
+  );
+  const dailyDiscipline = useMemo(
+    () => calculateDailyDisciplineScore(todayLog, profileCalorieGoal),
+    [todayLog, profileCalorieGoal],
+  );
 
   const stats = useMemo(() => {
     const allLogs = Object.values(logsByDate);
@@ -404,11 +417,6 @@ export default function ProfileScreen() {
     }));
     updateUserName(currentUser.id, nextName);
     setShowPersonalSettings(false);
-  };
-
-  const handleCreateUser = () => {
-    createUser(newUserName);
-    setNewUserName('');
   };
 
   const applyDietStyle = (style: DietStyle) => {
@@ -903,38 +911,6 @@ export default function ProfileScreen() {
       </div>
 
       <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Account</p>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Current user: {currentUser.name}</p>
-          </div>
-          <select
-            value={currentUser.id}
-            onChange={(e) => setActiveUserId(e.target.value)}
-            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-100"
-          >
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="mt-3 flex gap-2">
-          <input
-            type="text"
-            value={newUserName}
-            onChange={(e) => setNewUserName(e.target.value)}
-            placeholder="New user name"
-            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
-          />
-          <button type="button" onClick={handleCreateUser} className="rounded-lg bg-orange-500 text-white px-3 py-2 text-sm font-medium">
-            Add user
-          </button>
-        </div>
-      </div>
-
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Smart diet profile</p>
@@ -1238,7 +1214,10 @@ export default function ProfileScreen() {
                 </p>
               </div>
               <div className="h-2 bg-white dark:bg-gray-600 rounded-full mt-2 overflow-hidden">
-                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${monthlyIdentity.level.progressPct}%` }} />
+                <div
+                  className="h-full bg-amber-500 rounded-full progress-bar-animated transition-all duration-700"
+                  style={{ width: `${monthlyIdentity.level.progressPct}%` }}
+                />
               </div>
             </div>
 
@@ -1292,6 +1271,44 @@ export default function ProfileScreen() {
                     <p className="text-xs text-gray-500 dark:text-gray-400">{titleDescriptions[title]}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            {/* Badge Collection */}
+            <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mt-3">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                  Prestasjoner
+                </p>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {earnedBadges.length}/{ALL_BADGES.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {ALL_BADGES.map((badge) => {
+                  const earned = earnedBadges.some((e) => e.badgeId === badge.id);
+                  const rarityColors: Record<BadgeRarity, string> = {
+                    common:    'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700',
+                    rare:      'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700',
+                    epic:      'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700',
+                    legendary: 'bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700',
+                  };
+                  return (
+                    <div
+                      key={badge.id}
+                      title={earned ? `${badge.name}: ${badge.description}` : '???'}
+                      className={`aspect-square rounded-xl border flex items-center justify-center text-xl transition-all ${
+                        earned
+                          ? rarityColors[badge.rarity]
+                          : 'bg-gray-200 dark:bg-gray-600 border-gray-300 dark:border-gray-500 grayscale opacity-40'
+                      }`}
+                    >
+                      <span style={{ filter: earned ? 'none' : 'blur(2px)' }}>
+                        {earned ? badge.icon : '?'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

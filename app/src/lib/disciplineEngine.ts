@@ -1,5 +1,17 @@
 export type MealId = 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 
+export type Micros = {
+  fiber_g?: number;
+  sugar_g?: number;
+  saturatedFat_g?: number;
+  salt_g?: number;
+  calcium_mg?: number;
+  iron_mg?: number;
+  potassium_mg?: number;
+  vitaminC_mg?: number;
+  vitaminD_ug?: number;
+};
+
 export type FoodEntry = {
   id: string;
   name: string;
@@ -7,6 +19,7 @@ export type FoodEntry = {
   protein: number;
   carbs: number;
   fat: number;
+  micros?: Micros;
 };
 
 export type DayLog = {
@@ -118,9 +131,9 @@ function getGrade(score: number): DailyDisciplineScore['grade'] {
   return 'Needs focus';
 }
 
-export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore {
+export function calculateDailyDisciplineScore(log: DayLog, calorieGoalKcal = CALORIE_GOAL): DailyDisciplineScore {
   const { consumedKcal, proteinG, loggedMealSlots, totalMealsLogged } = getDailyTotals(log);
-  const caloriePct = clamp(100 - (Math.abs(consumedKcal - CALORIE_GOAL) / CALORIE_GOAL) * 100, 0, 100);
+  const caloriePct = clamp(100 - (Math.abs(consumedKcal - calorieGoalKcal) / calorieGoalKcal) * 100, 0, 100);
   const proteinPct = clamp((proteinG / PROTEIN_GOAL_G) * 100, 0, 100);
   const waterPct = clamp((log.waterMl / WATER_GOAL_ML) * 100, 0, 100);
   const activityPct = clamp((log.trainingKcal / ACTIVITY_GOAL_KCAL) * 100, 0, 100);
@@ -143,12 +156,12 @@ export function calculateDailyDisciplineScore(log: DayLog): DailyDisciplineScore
       key: 'calorie',
       label: 'Calorie adherence',
       percent: round(caloriePct),
-      targetLabel: `${CALORIE_GOAL} kcal target`,
-      progressLabel: `${round(consumedKcal)} kcal logged`,
+      targetLabel: `${calorieGoalKcal} kcal mål`,
+      progressLabel: `${round(consumedKcal)} kcal logget`,
       missingLabel:
-        consumedKcal >= CALORIE_GOAL
-          ? `${round(consumedKcal - CALORIE_GOAL)} kcal over target`
-          : `${round(CALORIE_GOAL - consumedKcal)} kcal left to target`,
+        consumedKcal >= calorieGoalKcal
+          ? `${round(consumedKcal - calorieGoalKcal)} kcal over mål`
+          : `${round(calorieGoalKcal - consumedKcal)} kcal igjen til mål`,
     },
     {
       key: 'protein',
