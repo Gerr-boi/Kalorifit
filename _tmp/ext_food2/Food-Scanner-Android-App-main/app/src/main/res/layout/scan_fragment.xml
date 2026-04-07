@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ll_parent"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:keepScreenOn="true">
+
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!--  OCR  -->
+        <com.foodscan.OCR.CameraSourcePreview
+            android:id="@+id/preview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <com.foodscan.OCR.GraphicOverlay
+                android:id="@+id/graphicOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+        </com.foodscan.OCR.CameraSourcePreview>
+
+        <!--&lt;!&ndash;  Barcode  &ndash;&gt;-->
+        <com.foodscan.OCR.CameraSourcePreview
+            android:id="@+id/preview_barcode"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone">
+
+            <com.foodscan.OCR.GraphicOverlay
+                android:id="@+id/graphicOverlay_barcode"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+
+        </com.foodscan.OCR.CameraSourcePreview>
+
+
+    </LinearLayout>
+
+
+    <LinearLayout
+        android:layout_width="@dimen/dp200"
+        android:layout_height="@dimen/dp40"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="@dimen/dp20"
+        android:background="@drawable/rounded_green_border"
+        android:orientation="horizontal"
+        android:weightSum="1">
+        <!--app:cardBackgroundColor="@android:color/transparent"-->
+        <!--app:cardCornerRadius="@dimen/dp5"-->
+        <!--app:cardPreventCornerOverlap="true"-->
+
+        <com.foodscan.CustomViews.TextViewCustom
+            android:id="@+id/txt_product"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5"
+            android:gravity="center"
+            android:text="Product"
+            android:textColor="@color/white"
+            android:textSize="@dimen/sp14" />
+
+        <View
+            android:layout_width="@dimen/dp0_5"
+            android:layout_height="match_parent"
+            android:background="@color/colorPrimary" />
+
+        <com.foodscan.CustomViews.TextViewCustom
+            android:id="@+id/txt_barcode"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5"
+            android:gravity="center"
+            android:text="Barcode"
+            android:textColor="@color/white"
+            android:textSize="@dimen/sp14" />
+
+    </LinearLayout>
+
+
+    <!--</LinearLayout>-->
+
+</RelativeLayout>

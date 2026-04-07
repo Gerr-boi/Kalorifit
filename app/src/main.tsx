@@ -1,5 +1,5 @@
 import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
+import * as ReactDOMClient from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary.tsx'
@@ -11,7 +11,7 @@ window.addEventListener('unhandledrejection', (event) => {
   bootStatus.innerHTML = `<strong>Unhandled promise rejection:</strong> ${reason}`;
 });
 
-createRoot(document.getElementById('root')!).render(
+ReactDOMClient.createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <App />

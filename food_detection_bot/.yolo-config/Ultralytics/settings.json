@@ -1,0 +1,21 @@
+{
+  "settings_version": "0.0.6",
+  "datasets_dir": "C:\\Users\\hrger\\datasets",
+  "weights_dir": "C:\\Users\\hrger\\Kalorifit\\weights",
+  "runs_dir": "C:\\Users\\hrger\\Kalorifit\\runs",
+  "uuid": "8210b80bf7591ba9d27c2a9b6eb13f75735b188474e51cfa2a7f905f1c54c964",
+  "sync": true,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": true,
+  "comet": true,
+  "dvc": true,
+  "hub": true,
+  "mlflow": true,
+  "neptune": true,
+  "raytune": true,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

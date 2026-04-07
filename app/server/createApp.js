@@ -1,14 +1,20 @@
 import express from 'express';
 import multer from 'multer';
+import fs from 'fs/promises';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { FoodDetectionBotProvider } from './providers/foodDetectionBotProvider.js';
 import { DEFAULT_THRESHOLD, normalizeAndFilterFoodItems } from './foodLabelUtils.js';
-import { createScannerRuntimeError, getScannerRuntimeConfig } from './scannerRuntimeConfig.js';
 
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 const MAX_INFERENCE_TIME_MS = 15_000;
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47];
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const DATA_DIR = path.join(__dirname, 'data');
+const SCAN_RANKING_RULES_PATH = path.join(DATA_DIR, 'scan-ranking-rules.json');
 
 function createRequestId() {
   return `scan-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
@@ -69,23 +75,48 @@ function sendError(res, status, scanRequestId, error, message, extra = {}) {
   });
 }
 
-function providerDebugMeta(provider, extra = {}) {
-  const runtimeConfig = getScannerRuntimeConfig();
-  return {
-    providerId: provider?.modelId ?? 'unknown',
-    botBaseUrl: typeof provider?.baseUrl === 'string' ? provider.baseUrl : null,
-    botDetectPath: typeof provider?.detectPath === 'string' ? provider.detectPath : null,
-    botHealthPath: typeof provider?.healthPath === 'string' ? provider.healthPath : null,
-    botTimeoutMs: typeof provider?.timeoutMs === 'number' ? provider.timeoutMs : null,
-    scannerRuntime: {
-      source: runtimeConfig.source,
-      isProduction: runtimeConfig.isProduction,
-      isVercel: runtimeConfig.isVercel,
-      localhostUrl: runtimeConfig.localhostUrl,
-      issues: runtimeConfig.issues,
-    },
-    ...extra,
-  };
+async function loadJsonFile(filePath) {
+  const raw = await fs.readFile(filePath, 'utf8');
+  return JSON.parse(raw);
+}
+
+async function defaultLoadAdaptiveRankingRules() {
+  try {
+    const payload = await loadJsonFile(SCAN_RANKING_RULES_PATH);
+    const rules = payload && typeof payload === 'object' ? payload : {};
+    return {
+      rules: {
+        maxPenaltyPerBrand: typeof rules.maxPenaltyPerBrand === 'number' ? rules.maxPenaltyPerBrand : 0.35,
+        maxBoostPerBrand: typeof rules.maxBoostPerBrand === 'number' ? rules.maxBoostPerBrand : 0.25,
+        doNotPrefer: Array.isArray(rules.doNotPrefer) ? rules.doNotPrefer : [],
+        boosts: Array.isArray(rules.boosts) ? rules.boosts : [],
+      },
+      meta: {
+        rulesEnabled: true,
+        killSwitch: rules.killSwitchDefault === true,
+        generatedAt: typeof rules.generatedAt === 'string' ? rules.generatedAt : null,
+        windowDays: typeof rules.windowDays === 'number' ? rules.windowDays : null,
+        source: typeof rules.source === 'string' ? rules.source : 'scan-ranking-rules',
+        stats: rules.stats && typeof rules.stats === 'object' ? rules.stats : {},
+      },
+    };
+  } catch {
+    return {
+      rules: {
+        maxPenaltyPerBrand: 0.35,
+        maxBoostPerBrand: 0.25,
+        doNotPrefer: [],
+        boosts: [],
+      },
+      meta: {
+        rulesEnabled: false,
+        killSwitch: false,
+        generatedAt: null,
+        source: 'scan-ranking-rules',
+        stats: {},
+      },
+    };
+  }
 }
 
 async function withTimeout(task, timeoutMs, signalController) {
@@ -215,39 +246,35 @@ export function createApp(options = {}) {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
   const provider = options.provider ?? new FoodDetectionBotProvider(options.foodDetectionBot ?? {});
+  const resolveProvider = (req) => (
+    typeof provider?.withRequestContext === 'function' ? provider.withRequestContext(req) : provider
+  );
   const threshold = typeof options.threshold === 'number' ? options.threshold : DEFAULT_THRESHOLD;
-  const ensureScannerRuntimeConfigured = () => {
-    const runtimeConfig = getScannerRuntimeConfig();
-    if (!runtimeConfig.isValid) {
-      throw createScannerRuntimeError();
-    }
-    return runtimeConfig;
-  };
+  const loadAdaptiveRankingRules =
+    typeof options.loadAdaptiveRankingRules === 'function' ? options.loadAdaptiveRankingRules : defaultLoadAdaptiveRankingRules;
 
   const upload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_FILE_SIZE_BYTES },
   });
 
-  app.get('/api/health', async (_req, res) => {
-    const providerHealth = typeof provider.health === 'function' ? await provider.health() : null;
-    const runtimeConfig = getScannerRuntimeConfig();
+  app.get('/api/health', async (req, res) => {
+    const activeProvider = resolveProvider(req);
+    const providerHealth = typeof activeProvider.health === 'function' ? await activeProvider.health(req) : null;
     res.json({
       ok: true,
       provider: 'food_detection_bot',
       bot: providerHealth,
-      config: {
-        baseUrl: runtimeConfig.baseUrl,
-        source: runtimeConfig.source,
-        isProduction: runtimeConfig.isProduction,
-        localhostUrl: runtimeConfig.localhostUrl,
-        isValid: runtimeConfig.isValid,
-        issues: runtimeConfig.issues,
-      },
     });
   });
 
+  app.get('/api/scan-ranking-rules', async (_req, res) => {
+    const payload = await loadAdaptiveRankingRules();
+    return res.json(payload);
+  });
+
   app.post('/api/detect-food', upload.single('image'), async (req, res) => {
+    const activeProvider = resolveProvider(req);
     const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
     const deviceInfo = req.get('x-device-info') || req.body?.deviceInfo || null;
     const scanMode = req.get('x-scan-mode') || req.body?.scanMode || 'photo';
@@ -263,7 +290,6 @@ export function createApp(options = {}) {
     });
 
     try {
-      ensureScannerRuntimeConfigured();
       logStage('REQUEST_RECEIVED');
       const file = req.file;
       if (!file) {
@@ -304,8 +330,9 @@ export function createApp(options = {}) {
       logStage('INFERENCE_START');
       const inferenceAbort = new AbortController();
       const rawItems = await withTimeout(
-        provider.detectFood(file.buffer, {
+        activeProvider.detectFood(file.buffer, {
           signal: inferenceAbort.signal,
+          request: req,
           scanRequestId,
           mimeType: detectedMimeType,
           filename: file.originalname,
@@ -354,7 +381,7 @@ export function createApp(options = {}) {
         debug: detectionPayload.debug,
         meta: {
           scanRequestId,
-          modelVersion: detectionPayload.model ?? provider.modelId ?? null,
+          modelVersion: detectionPayload.model ?? activeProvider.modelId ?? null,
           provider: 'food_detection_bot',
           scanLogId: detectionPayload.scan_log_id,
         },
@@ -367,15 +394,15 @@ export function createApp(options = {}) {
       return res.json(payload);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'SCANNER_RUNTIME_MISCONFIGURED') {
-        logStage('CONFIG_ERROR', { message });
+      const configMatch = message.match(/^FOOD_DETECTION_BOT_CONFIGURATION_ERROR:\s*(.*)$/s);
+      if (configMatch) {
+        logStage('UPSTREAM_CONFIGURATION_ERROR', { message: configMatch[1] });
         return sendError(
           res,
-          503,
+          502,
           scanRequestId,
-          'SCANNER_RUNTIME_MISCONFIGURED',
-          message,
-          providerDebugMeta(provider)
+          'FOOD_DETECTION_BOT_CONFIGURATION_ERROR',
+          configMatch[1]
         );
       }
       if (message === 'INFERENCE_TIMEOUT' || message === 'FOOD_DETECTION_BOT_TIMEOUT') {
@@ -385,8 +412,7 @@ export function createApp(options = {}) {
           504,
           scanRequestId,
           'INFERENCE_TIMEOUT',
-          'Model inference exceeded the time limit.',
-          providerDebugMeta(provider)
+          'Model inference exceeded the time limit.'
         );
       }
       const botMatch = message.match(/Food detection bot request failed \((\d+)\):\s*(.*)/s);
@@ -405,7 +431,7 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_AUTH_FAILED',
             'Food detection bot authentication failed.',
-            providerDebugMeta(provider, { upstreamStatus })
+            { upstreamStatus }
           );
         }
         if (upstreamStatus === 404) {
@@ -415,7 +441,7 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_NOT_FOUND',
             'Food detection bot endpoint not found. Verify FOOD_DETECTION_BOT_URL and route configuration.',
-            providerDebugMeta(provider, { upstreamStatus })
+            { upstreamStatus }
           );
         }
         if (upstreamStatus === 429) {
@@ -425,7 +451,7 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_RATE_LIMITED',
             'Food detection bot rate limit reached. Retry in a moment.',
-            providerDebugMeta(provider, { upstreamStatus })
+            { upstreamStatus }
           );
         }
         if (upstreamStatus >= 500) {
@@ -435,23 +461,34 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_UPSTREAM_ERROR',
             'Food detection bot service is temporarily unavailable.',
-            providerDebugMeta(provider, { upstreamStatus })
+            { upstreamStatus }
           );
         }
       }
       if (message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('network')) {
-        logStage('UPSTREAM_NETWORK_ERROR', { message });
-        const errCode =
-          typeof err === 'object' && err !== null && 'code' in err
-            ? String(err.code)
-            : null;
+        const attemptedMatch = message.match(/Attempted:\s*(.*?)(?:\s+Last error:|$)/s);
+        const lastErrorMatch = message.match(/Last error:\s*(.*)$/s);
+        const attemptedUrls = attemptedMatch?.[1]
+          ? attemptedMatch[1].split(',').map((entry) => entry.trim()).filter(Boolean)
+          : [];
+        const upstreamReason = lastErrorMatch?.[1]?.trim() || message;
+        logStage('UPSTREAM_NETWORK_ERROR', {
+          message,
+          attemptedUrls,
+          upstreamReason,
+        });
         return sendError(
           res,
           502,
           scanRequestId,
           'FOOD_DETECTION_BOT_NETWORK_ERROR',
-          'Could not reach the food detection bot. Check bot process, URL, and network settings.',
-          providerDebugMeta(provider, { networkErrorCode: errCode, networkErrorMessage: message.slice(0, 240) })
+          attemptedUrls.length
+            ? `Could not reach the food detection bot. Attempted: ${attemptedUrls.join(', ')}. Last error: ${upstreamReason}`
+            : `Could not reach the food detection bot. Last error: ${upstreamReason}`,
+          {
+            attemptedUrls,
+            upstreamReason,
+          }
         );
       }
 
@@ -462,13 +499,106 @@ export function createApp(options = {}) {
         502,
         scanRequestId,
         'DETECTION_SERVICE_UNAVAILABLE',
-        `Food detection service unavailable: ${message.slice(0, 240)}`,
-        providerDebugMeta(provider)
+        `Food detection service unavailable: ${message.slice(0, 240)}`
+      );
+    }
+  });
+
+  app.post('/api/predict-dish', upload.single('image'), async (req, res) => {
+    const activeProvider = resolveProvider(req);
+    const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
+
+    try {
+      const file = req.file;
+      if (!file) {
+        return sendError(res, 400, scanRequestId, 'MISSING_IMAGE', 'Missing image upload (field name: image)');
+      }
+      if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
+        return sendError(res, 400, scanRequestId, 'INVALID_FILE_TYPE', 'Invalid file type. Use jpg/png/webp.');
+      }
+      const detectedMimeType = detectImageType(file.buffer);
+      if (!detectedMimeType) {
+        return sendError(res, 400, scanRequestId, 'IMAGE_DECODE_FAILED', 'Could not decode image.');
+      }
+
+      const predictionAbort = new AbortController();
+      const topk = Number.parseInt(req.body?.topk, 10);
+      const upstream = await withTimeout(
+        activeProvider.predictDish(file.buffer, {
+          signal: predictionAbort.signal,
+          request: req,
+          scanRequestId,
+          mimeType: detectedMimeType,
+          filename: file.originalname,
+          topk: Number.isFinite(topk) ? topk : 5,
+          context: {
+            scanRequestId,
+          },
+        }),
+        MAX_INFERENCE_TIME_MS,
+        predictionAbort
+      );
+
+      const results = Array.isArray(upstream?.results)
+        ? upstream.results
+            .filter((row) => row && typeof row.label === 'string')
+            .map((row) => ({
+              label: row.label,
+              confidence: typeof row.confidence === 'number' ? row.confidence : 0,
+              ...(typeof row.source === 'string' ? { source: row.source } : {}),
+            }))
+        : [];
+
+      return res.json({
+        ok: upstream?.ok !== false,
+        model: typeof upstream?.model === 'string' ? upstream.model : null,
+        results,
+        meta: {
+          scanRequestId,
+          provider: 'food_detection_bot',
+          circuitOpen: upstream?.meta?.circuitOpen === true,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const configMatch = message.match(/^FOOD_DETECTION_BOT_CONFIGURATION_ERROR:\s*(.*)$/s);
+      if (configMatch) {
+        return sendError(
+          res,
+          502,
+          scanRequestId,
+          'FOOD_DETECTION_BOT_CONFIGURATION_ERROR',
+          configMatch[1]
+        );
+      }
+      if (message === 'INFERENCE_TIMEOUT' || message === 'FOOD_DETECTION_BOT_TIMEOUT') {
+        return sendError(res, 504, scanRequestId, 'INFERENCE_TIMEOUT', 'Model inference exceeded the time limit.');
+      }
+      const botMatch = message.match(/Food detection bot request failed \((\d+)\):\s*(.*)/s);
+      if (botMatch) {
+        const upstreamStatus = Number(botMatch[1]);
+        if (upstreamStatus === 404) {
+          return sendError(
+            res,
+            502,
+            scanRequestId,
+            'FOOD_DETECTION_BOT_NOT_FOUND',
+            'Food detection bot endpoint not found. Verify FOOD_DETECTION_BOT_URL and route configuration.'
+          );
+        }
+      }
+      return sendError(
+        res,
+        502,
+        scanRequestId,
+        'DISH_PREDICTION_UNAVAILABLE',
+        `Dish prediction unavailable: ${message.slice(0, 240)}`
       );
     }
   });
 
   app.post('/api/scan-feedback', async (req, res) => {
+    const activeProvider = resolveProvider(req);
     const scanRequestId = req.get('x-scan-request-id') || req.body?.scanRequestId || createRequestId();
     const scanLogId = typeof req.body?.scanLogId === 'string' ? req.body.scanLogId.trim() : '';
     if (!scanLogId) {
@@ -476,7 +606,6 @@ export function createApp(options = {}) {
     }
 
     try {
-      ensureScannerRuntimeConfigured();
       const payload = {
         scan_log_id: scanLogId,
         ...(typeof req.body?.userConfirmed === 'boolean' ? { user_confirmed: req.body.userConfirmed } : {}),
@@ -484,8 +613,24 @@ export function createApp(options = {}) {
         ...(typeof req.body?.notFood === 'boolean' ? { not_food: req.body.notFood } : {}),
         ...(typeof req.body?.badPhoto === 'boolean' ? { bad_photo: req.body.badPhoto } : {}),
         ...(typeof req.body?.feedbackNotes === 'string' ? { feedback_notes: req.body.feedbackNotes } : {}),
+        ...(req.body?.correctedDetection &&
+        typeof req.body.correctedDetection === 'object' &&
+        (
+          typeof req.body.correctedDetection.label === 'string' ||
+          (Array.isArray(req.body.correctedDetection.bbox) && req.body.correctedDetection.bbox.length === 4)
+        )
+          ? {
+              corrected_detection: {
+                ...(typeof req.body.correctedDetection.label === 'string'
+                  ? { label: req.body.correctedDetection.label }
+                  : {}),
+                ...(Array.isArray(req.body.correctedDetection.bbox) ? { bbox: req.body.correctedDetection.bbox } : {}),
+              },
+            }
+          : {}),
+        ...(req.body?.feedbackContext && typeof req.body.feedbackContext === 'object' ? { feedback_context: req.body.feedbackContext } : {}),
       };
-      const upstream = await provider.submitFeedback(payload, { scanRequestId });
+      const upstream = await activeProvider.submitFeedback(payload, { scanRequestId, request: req });
       return res.json({
         ok: true,
         ...upstream,
@@ -496,9 +641,6 @@ export function createApp(options = {}) {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'SCANNER_RUNTIME_MISCONFIGURED') {
-        return sendError(res, 503, scanRequestId, 'SCANNER_RUNTIME_MISCONFIGURED', message, providerDebugMeta(provider));
-      }
       const botMatch = message.match(/Food detection bot request failed \((\d+)\):\s*(.*)/s);
       if (botMatch) {
         const upstreamStatus = Number(botMatch[1]);

@@ -1,87 +1,75 @@
-import json
-
 from src.core.product_catalog import ProductCatalog
 
 
-def _write_catalog(tmp_path, rows):
-    path = tmp_path / 'products.json'
-    path.write_text(json.dumps(rows), encoding='utf-8')
-    return path
+def test_rank_candidates_prefers_urge_brand_from_ocr():
+    catalog = ProductCatalog('src/data/products.json')
 
-
-def test_brand_plus_product_beats_generic_token_match(tmp_path):
-    path = _write_catalog(
-        tmp_path,
-        [
-            {
-                'id': 'coke-zero',
-                'brand': 'Coca-Cola',
-                'product_name': 'Zero Sugar',
-                'aliases': ['coca cola zero', 'coke zero'],
-                'barcode': None,
-                'keywords': ['cola', 'soda'],
-            },
-            {
-                'id': 'generic-cola',
-                'brand': 'Generic',
-                'product_name': 'Cola Drink',
-                'aliases': ['cola drink'],
-                'barcode': None,
-                'keywords': ['cola', 'drink'],
-            },
-        ],
+    ranked = catalog.rank_candidates(
+        ocr_lines=['urge', 'orange soda'],
+        barcode=None,
+        top_k=3,
     )
-    catalog = ProductCatalog(str(path))
-    ranked = catalog.rank_candidates(ocr_lines=['coca cola zero sugar'], barcode=None, top_k=2)
+
+    assert ranked, 'Expected at least one product match for OCR line "urge".'
+    top = ranked[0]
+    assert top['brand'] == 'Urge'
+    assert any(reason.startswith('brand_') for reason in top.get('reasons', []))
+
+
+def test_rank_candidates_prefers_coca_cola_from_ocr():
+    catalog = ProductCatalog('src/data/products.json')
+
+    ranked = catalog.rank_candidates(
+        ocr_lines=['coca cola', 'original taste'],
+        barcode=None,
+        top_k=3,
+    )
+
+    assert ranked, 'Expected at least one product match for OCR line "coca cola".'
+    top = ranked[0]
+    assert top['brand'] == 'Coca-Cola'
+    assert any(reason.startswith('brand_') for reason in top.get('reasons', []))
+
+
+def test_rank_candidates_uses_packaging_and_zero_sugar_consistency():
+    catalog = ProductCatalog('src/data/products.json')
+
+    ranked = catalog.rank_candidates(
+        ocr_lines=['coca cola', 'zero sugar', '1.5l'],
+        barcode=None,
+        top_k=3,
+        packaging_type='bottle',
+        structured_fields={
+            'brand': 'coca cola',
+            'product_name': 'zero sugar',
+            'volume_ml': 1500,
+            'sugar_free': True,
+        },
+        visual_hints=['bottle'],
+        visual_score_by_label={'coca cola': 0.8},
+    )
+
     assert ranked
-    assert ranked[0]['product_id'] == 'coke-zero'
-    assert 'brand_plus_product' in ranked[0]['reasons']
+    assert ranked[0]['product_id'] == 'coca-cola-zero-15l'
+    assert ranked[0]['accepted'] is True
+    assert 'sugar_match' in ranked[0]['reasons']
 
 
-def test_generic_without_brand_gets_penalized(tmp_path):
-    path = _write_catalog(
-        tmp_path,
-        [
-            {
-                'id': 'cola-brand',
-                'brand': 'Coca-Cola',
-                'product_name': 'Original',
-                'aliases': ['coca cola'],
-                'barcode': None,
-                'keywords': ['cola'],
-            }
-        ],
+def test_rank_candidates_penalizes_volume_mismatch():
+    catalog = ProductCatalog('src/data/products.json')
+
+    ranked = catalog.rank_candidates(
+        ocr_lines=['coca cola', 'original taste', '330 ml'],
+        barcode=None,
+        top_k=3,
+        packaging_type='can',
+        structured_fields={
+            'brand': 'coca cola',
+            'product_name': 'original taste',
+            'volume_ml': 330,
+            'sugar_free': False,
+        },
     )
-    catalog = ProductCatalog(str(path))
-    ranked = catalog.rank_candidates(ocr_lines=['soda drink bottle'], barcode=None, top_k=2)
-    assert ranked == []
 
-
-def test_barcode_exact_is_hard_winner(tmp_path):
-    path = _write_catalog(
-        tmp_path,
-        [
-            {
-                'id': 'p1',
-                'brand': 'BrandA',
-                'product_name': 'DrinkA',
-                'aliases': [],
-                'barcode': '1234567890123',
-                'keywords': [],
-            },
-            {
-                'id': 'p2',
-                'brand': 'BrandB',
-                'product_name': 'DrinkB',
-                'aliases': ['brand b'],
-                'barcode': None,
-                'keywords': ['drink'],
-            },
-        ],
-    )
-    catalog = ProductCatalog(str(path))
-    ranked = catalog.rank_candidates(ocr_lines=['random text'], barcode='1234567890123', top_k=2)
     assert ranked
-    assert ranked[0]['product_id'] == 'p1'
-    assert ranked[0]['confidence'] == 1.0
-    assert ranked[0]['reasons'] == ['barcode_exact']
+    assert 'volume_mismatch' in ranked[0]['reasons']

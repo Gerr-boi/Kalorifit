@@ -8,7 +8,16 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="KaloriFit" />
     <meta name="description" content="Norges smarteste kaloriapp. Logg maten, få kontroll, lev lettere." />
-    
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="KaloriFit - Logg maten. Få kontroll. Lev lettere." />
+    <meta property="og:description" content="Norges smarteste kaloriapp. Logg maten, få kontroll, lev lettere." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/icon-512x512.png" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="KaloriFit" />
+    <meta name="twitter:description" content="Norges smarteste kaloriapp. Logg maten, få kontroll, lev lettere." />
+
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json" />
     
@@ -17,8 +26,31 @@
     <link rel="icon" type="image/png" href="/icon-192x192.png" />
     
     <title>KaloriFit - Logg maten. Få kontroll. Lev lettere.</title>
-    
+
+    <!-- Dark mode: apply class before React mounts to prevent flash -->
+    <script>
+      (function () {
+        try {
+          var userId = localStorage.getItem('app.activeUserId.v1') || 'default';
+          var raw = localStorage.getItem('u:' + userId + ':darkMode');
+          // Fallback: try global key
+          if (raw === null) raw = localStorage.getItem('darkMode');
+          var isDark = raw !== null ? JSON.parse(raw) === true : false;
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.background = '#09090b';
+          }
+        } catch (e) {}
+      })();
+    </script>
+
     <style>
+      :root {
+        --splash-bg-start: #0f172a;
+        --splash-bg-mid: #1e293b;
+        --splash-accent: #f97316;
+      }
+
       body {
         margin: 0;
         padding: 0;
@@ -35,14 +67,75 @@
       html, body {
         overscroll-behavior-y: none;
       }
+
+      .boot-splash {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 20% 20%, #334155 0%, var(--splash-bg-mid) 40%, var(--splash-bg-start) 100%);
+        color: #fff;
+        pointer-events: none;
+      }
+
+      .boot-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        text-align: center;
+      }
+
+      .boot-logo {
+        width: 74px;
+        height: 74px;
+        border-radius: 22px;
+        background: linear-gradient(140deg, #fb923c 0%, var(--splash-accent) 100%);
+        box-shadow: 0 14px 34px rgba(249, 115, 22, 0.32);
+        display: grid;
+        place-items: center;
+        font-size: 30px;
+        font-weight: 800;
+      }
+
+      .boot-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+      }
+
+      .boot-subtitle {
+        margin: 0;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.78);
+      }
+
+      .boot-loader {
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        border: 3px solid rgba(255, 255, 255, 0.25);
+        border-top-color: #fff;
+        animation: boot-spin 0.9s linear infinite;
+      }
+
+      @keyframes boot-spin {
+        to { transform: rotate(360deg); }
+      }
     </style>
-    <script type="module" crossorigin src="/assets/index-Djmu861E.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-C5ajeNO8.css">
+    <script type="module" crossorigin src="/assets/index-d0LMMzvY.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CQf7Wcx_.css">
   </head>
   <body>
     <div id="root">
-      <div id="boot-status" style="padding:16px;font-family:system-ui,sans-serif;color:#111827;">
-        Starting app...
+      <div id="boot-status" class="boot-splash">
+        <div class="boot-card">
+          <div class="boot-logo" aria-hidden="true">K</div>
+          <p class="boot-title">KaloriFit</p>
+          <p class="boot-subtitle">Laster opplevelsen...</p>
+          <div class="boot-loader" aria-hidden="true"></div>
+        </div>
       </div>
     </div>
     <script>
@@ -60,7 +153,7 @@
           boot.innerHTML = '<strong>App did not mount.</strong><br/>Check browser console and dev server terminal.';
         }
       }, 3000);
-    </script>
+    </script>
     
     <!-- Service Worker Registration -->
     <script>
@@ -77,8 +170,16 @@
             return;
           }
 
+          let hasReloadedForController = false;
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (hasReloadedForController) return;
+            hasReloadedForController = true;
+            window.location.reload();
+          });
+
           navigator.serviceWorker.register('/sw.js')
             .then((registration) => {
+              registration.update().catch(() => undefined);
               console.log('SW registered:', registration);
             })
             .catch((error) => {

@@ -1,0 +1,12 @@
+[
+  {
+    "id": "urge-can-front",
+    "imagePath": "../food_detection_bot/dataset/images/2026-02-24/78ad5598-ad2e-4e90-9a38-3196e810646f.jpg",
+    "expected": ["urge", "urge original"]
+  },
+  {
+    "id": "cola-can-example",
+    "imagePath": "../food_detection_bot/dataset/images/2026-02-24/68660c3d-a599-4398-b346-ce24c1446e47.jpg",
+    "expected": ["coca cola", "cola", "pepsi"]
+  }
+]

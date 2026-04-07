@@ -40,14 +40,14 @@ export function useCurrentUser() {
     const nextDefault = createDefaultUser();
     setUsers([nextDefault]);
     setActiveUserIdRaw(nextDefault.id);
-    emitUserScopeChanged();
+    emitUserScopeChanged(nextDefault.id);
   }, [setActiveUserIdRaw, setUsers, users.length]);
 
   useEffect(() => {
     if (!users.length) return;
     if (users.some((user) => user.id === activeUserId)) return;
     setActiveUserIdRaw(users[0].id);
-    emitUserScopeChanged();
+    emitUserScopeChanged(users[0].id);
   }, [activeUserId, setActiveUserIdRaw, users]);
 
   const currentUser = useMemo(() => {
@@ -58,7 +58,7 @@ export function useCurrentUser() {
   function setActiveUserId(nextUserId: string) {
     if (!nextUserId) return;
     setActiveUserIdRaw(nextUserId);
-    emitUserScopeChanged();
+    emitUserScopeChanged(nextUserId);
   }
 
   function createUser(name: string) {
@@ -71,7 +71,7 @@ export function useCurrentUser() {
     };
     setUsers((prev) => [...prev, nextUser]);
     setActiveUserIdRaw(nextUser.id);
-    emitUserScopeChanged();
+    emitUserScopeChanged(nextUser.id);
     return nextUser;
   }
 

@@ -7,7 +7,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
     provider: str = 'dummy'
+    ensemble_providers: str = 'yolo,max_remote'
+    ensemble_dedup_iou: float = 0.55
     model_id: str = 'yolo11n.pt'
+    max_remote_base_url: str = 'http://127.0.0.1:5000'
+    max_remote_predict_path: str = '/model/predict'
+    max_remote_timeout_ms: int = 12000
+    max_remote_threshold: float | None = None
     conf_threshold: float = 0.35
     top_k: int = 5
     text_detection_enabled: bool = True
@@ -17,12 +23,6 @@ class Settings(BaseSettings):
     fallback_crop_max_area_ratio: float = 0.9
     fallback_crop_min_confidence: float = 0.15
     fallback_crop_preferred_labels: str = ''
-    max_ocr_crops: int = 4
-    ocr_min_unique_tokens_for_resolve: int = 2
-    ocr_avg_confidence_min: float = 0.34
-    catalog_confidence_min_for_autoresolve: float = 0.44
-    enable_off_text_search_fallback: bool = True
-    off_text_search_top_k: int = 5
     dish_classifier_enabled: bool = True
     dish_classifier_top_k: int = 5
     dish_classifier_model_path: str = 'src/models/food101_efficientnet.pt'

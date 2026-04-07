@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Home, Users, Camera, UtensilsCrossed, User } from 'lucide-react';
 import HomeScreen from './components/screens/HomeScreen';
 import CommunityScreen from './components/screens/CommunityScreen';
 import ScanScreen from './components/screens/ScanScreen';
 import MealsScreen from './components/screens/MealsScreen';
 import ProfileScreen from './components/screens/ProfileScreen';
-import XPFloatLayer from './components/ui/XPFloatLayer';
-import LevelUpOverlay from './components/ui/LevelUpOverlay';
-import AchievementUnlockPanel from './components/ui/AchievementUnlockPanel';
+import OnboardingScreen from './components/screens/OnboardingScreen';
+import AuthScreen from './components/screens/AuthScreen';
 import { useCurrentUser } from './hooks/useCurrentUser';
 import { useLocalStorageState } from './hooks/useLocalStorageState';
+import { useSupabaseAuth } from './hooks/useSupabaseAuth';
+import { useSupabaseSync } from './hooks/useSupabaseSync';
+import { isSupabaseConfigured } from './lib/supabase';
+import { DatabaseProvider } from './components/DatabaseProvider';
+import { I18nProvider, useT, type Language } from './lib/i18n';
 import {
   ensureWeeklyReportForSunday,
   type DayLog,
@@ -17,52 +21,82 @@ import {
 } from './lib/disciplineEngine';
 import {
   ensureMonthlyIdentityReport,
-  generateMonthlyIdentityReport,
   type IdentityReportsByMonth,
 } from './lib/identityEngine';
-import {
-  checkNewBadges,
-  type EarnedBadge,
-} from './lib/achievementsEngine';
+import { scheduleMealReminders } from './lib/notificationService';
 import './App.css';
 
 type Tab = 'home' | 'community' | 'scan' | 'meals' | 'profile';
-const TABS: Tab[] = ['home', 'community', 'scan', 'meals', 'profile'];
-
-type LevelUpInfo = { level: number; label: string };
-
-function getLevelLabel(level: number): string {
-  if (level >= 20) return 'Elite';
-  if (level >= 10) return 'Disciplined';
-  if (level >= 5) return 'Consistent';
-  return 'Starter';
-}
+const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
+const EMPTY_WEEKLY_REPORTS: Record<string, WeeklyPerformanceReport> = {};
+const EMPTY_IDENTITY_REPORTS: IdentityReportsByMonth = {};
+const EMPTY_PROFILE: Record<string, unknown> = {};
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
-  const [screenKey, setScreenKey] = useState(0); // forces re-mount → screen-enter animation
-  const swipeTouchRef = useRef<{ x: number; y: number } | null>(null);
+  const [transitioning, setTransitioning] = useState(false);
+  const [displayedTab, setDisplayedTab] = useState<Tab>('home');
+  const pendingTab = useRef<Tab | null>(null);
+  const [skippedAuth, setSkippedAuth] = useState(() => {
+    try { return window.localStorage.getItem('kalorifit:skippedAuth') === 'true'; } catch { return false; }
+  });
   useCurrentUser();
 
-  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
+  // Supabase auth + sync
+  const { user, loading: authLoading, isAuthenticated, signUp, signIn } = useSupabaseAuth();
+  useSupabaseSync(user);
+
+  const handleAuth = useCallback(async (email: string, password: string, mode: 'login' | 'signup') => {
+    if (mode === 'signup') {
+      const result = await signUp(email, password);
+      if (result.error) {
+        const msg = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || 'Noe gikk galt';
+        return { error: msg };
+      }
+      return {};
+    } else {
+      const result = await signIn(email, password);
+      if (result.error) {
+        const msg = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || 'Feil e-post eller passord';
+        return { error: msg };
+      }
+      return {};
+    }
+  }, [signIn, signUp]);
+
+  const handleSkipAuth = useCallback(() => {
+    setSkippedAuth(true);
+    try { window.localStorage.setItem('kalorifit:skippedAuth', 'true'); } catch {}
+  }, []);
+  const [profileRaw] = useLocalStorageState<Record<string, unknown>>('profile', EMPTY_PROFILE);
+  const onboardingCompleted = Boolean((profileRaw as { onboardingCompleted?: boolean }).onboardingCompleted);
+  const language = ((profileRaw as { language?: string }).language === 'English' ? 'English' : 'Norsk') as Language;
+  const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
   const [, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>(
-    'home.weeklyReports.v1', {},
+    'home.weeklyReports.v1',
+    EMPTY_WEEKLY_REPORTS,
   );
   const [, setIdentityReports] = useLocalStorageState<IdentityReportsByMonth>(
-    'home.identityReports.v1', {},
+    'home.identityReports.v1',
+    EMPTY_IDENTITY_REPORTS,
   );
 
-  // ── Badge storage ────────────────────────────────────────────────────
-  const [earnedBadges, setEarnedBadges] = useLocalStorageState<EarnedBadge[]>(
-    'app.earnedBadges.v1', [],
-  );
-  const [badgeQueue, setBadgeQueue] = useState<EarnedBadge[]>([]);
+  // Schedule meal reminder notifications based on saved profile prefs
+  useEffect(() => {
+    const p = profileRaw as {
+      notificationsEnabled?: boolean;
+      mealReminders?: {
+        breakfast?: boolean; breakfastTime?: string;
+        lunch?: boolean; lunchTime?: string;
+        dinner?: boolean; dinnerTime?: string;
+      };
+    };
+    if (p.notificationsEnabled && p.mealReminders) {
+      scheduleMealReminders(p.mealReminders, language);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileRaw]);
 
-  // ── Level tracking for level-up detection ───────────────────────────
-  const [levelUpInfo, setLevelUpInfo] = useState<LevelUpInfo | null>(null);
-  const prevLevelRef = useRef<number | null>(null);
-
-  // ── Discipline / identity reports ───────────────────────────────────
   useEffect(() => {
     setWeeklyReports((prev) => ensureWeeklyReportForSunday(new Date(), logsByDate, prev));
   }, [logsByDate, setWeeklyReports]);
@@ -71,135 +105,162 @@ function App() {
     setIdentityReports((prev) => ensureMonthlyIdentityReport(new Date(), logsByDate, prev));
   }, [logsByDate, setIdentityReports]);
 
-  // ── Achievement + level-up checking ─────────────────────────────────
-  useEffect(() => {
-    if (Object.keys(logsByDate).length === 0) return;
-
-    // Check for new badges
-    const newBadges = checkNewBadges(logsByDate, earnedBadges);
-    if (newBadges.length > 0) {
-      setEarnedBadges((prev) => [...prev, ...newBadges]);
-      setBadgeQueue((prev) => [...prev, ...newBadges]);
-    }
-
-    // Check for level up
-    const report = generateMonthlyIdentityReport(logsByDate, new Date());
-    const currentLevel = report.level.value;
-    if (prevLevelRef.current !== null && currentLevel > prevLevelRef.current) {
-      setLevelUpInfo({ level: currentLevel, label: getLevelLabel(currentLevel) });
-    }
-    prevLevelRef.current = currentLevel;
-  }, [logsByDate, earnedBadges]);
-
-  const handleTabChange = useCallback((tab: Tab) => {
+  const navigateTo = (tab: Tab) => {
     if (tab === activeTab) return;
+    pendingTab.current = tab;
     setActiveTab(tab);
-    setScreenKey((k) => k + 1);
+    setTransitioning(true);
+    // Brief fade-out, then swap content and fade in
+    setTimeout(() => {
+      setDisplayedTab(pendingTab.current!);
+      setTransitioning(false);
+    }, 120);
+  };
+
+  useEffect(() => {
+    const onNavigate = (event: Event) => {
+      const customEvent = event as CustomEvent<{ tab?: Tab }>;
+      const nextTab = customEvent.detail?.tab;
+      if (nextTab) navigateTo(nextTab);
+    };
+    window.addEventListener('kalorifit:navigate', onNavigate as EventListener);
+    return () => window.removeEventListener('kalorifit:navigate', onNavigate as EventListener);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
-  const onSwipeTouchStart = (e: React.TouchEvent) => {
-    swipeTouchRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-  };
+  useEffect(() => {
+    const bootStatus = document.getElementById('boot-status');
+    if (!bootStatus) return;
 
-  const onSwipeTouchEnd = (e: React.TouchEvent) => {
-    const start = swipeTouchRef.current;
-    swipeTouchRef.current = null;
-    if (!start) return;
-    const dx = e.changedTouches[0].clientX - start.x;
-    const dy = e.changedTouches[0].clientY - start.y;
-    // Require a meaningful horizontal swipe that isn't mostly vertical
-    if (Math.abs(dx) < 55 || Math.abs(dy) > Math.abs(dx) * 0.75) return;
-    const currentIdx = TABS.indexOf(activeTab);
-    if (dx < 0 && currentIdx < TABS.length - 1) handleTabChange(TABS[currentIdx + 1]);
-    else if (dx > 0 && currentIdx > 0) handleTabChange(TABS[currentIdx - 1]);
-  };
+    const cleanup = window.requestAnimationFrame(() => {
+      bootStatus.remove();
+    });
+
+    return () => window.cancelAnimationFrame(cleanup);
+  }, []);
 
   const renderScreen = () => {
-    switch (activeTab) {
-      case 'home':      return <HomeScreen />;
-      case 'community': return <CommunityScreen />;
-      case 'scan':      return <ScanScreen />;
-      case 'meals':     return <MealsScreen />;
-      case 'profile':   return <ProfileScreen />;
-      default:          return <HomeScreen />;
+    switch (displayedTab) {
+      case 'home':
+        return <HomeScreen />;
+      case 'community':
+        return <CommunityScreen />;
+      case 'scan':
+        return <ScanScreen />;
+      case 'meals':
+        return <MealsScreen />;
+      case 'profile':
+        return <ProfileScreen />;
+      default:
+        return <HomeScreen />;
     }
   };
 
+  // Show auth screen if Supabase is configured and user hasn't logged in or skipped
+  if (isSupabaseConfigured() && !isAuthenticated && !skippedAuth && !authLoading) {
+    return (
+      <AuthScreen
+        onAuth={handleAuth}
+        onSkip={handleSkipAuth}
+      />
+    );
+  }
+
+  // Show loading spinner during auth check
+  if (isSupabaseConfigured() && authLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!onboardingCompleted) {
+    return (
+      <DatabaseProvider>
+        <I18nProvider language={language}>
+          <OnboardingScreen />
+        </I18nProvider>
+      </DatabaseProvider>
+    );
+  }
+
+  return (
+    <DatabaseProvider>
+      <I18nProvider language={language}>
+        <AppShell
+          activeTab={activeTab}
+          transitioning={transitioning}
+          navigateTo={navigateTo}
+          renderScreen={renderScreen}
+        />
+      </I18nProvider>
+    </DatabaseProvider>
+  );
+}
+
+function AppShell({
+  activeTab,
+  transitioning,
+  navigateTo,
+  renderScreen,
+}: {
+  activeTab: Tab;
+  transitioning: boolean;
+  navigateTo: (tab: Tab) => void;
+  renderScreen: () => React.ReactNode;
+}) {
+  const t = useT();
   return (
     <div className="app-container">
-      {/* Main Content — key forces re-mount for enter animation */}
-      <main
-        className="main-content"
-        onTouchStart={onSwipeTouchStart}
-        onTouchEnd={onSwipeTouchEnd}
-      >
-        <div key={screenKey} className="screen-enter">
-          {renderScreen()}
-        </div>
+      <main className={`main-content${transitioning ? ' screen-exit' : ' screen-enter'}`}>
+        {renderScreen()}
       </main>
 
-      {/* Bottom Navigation */}
       <nav className="bottom-nav">
-        <button
-          onClick={() => handleTabChange('home')}
-          className={`nav-item ${activeTab === 'home' ? 'active' : ''}`}
-        >
-          <Home className="nav-icon" />
-          <span className="nav-label">Hjem</span>
-        </button>
+        <div className="nav-pill-track">
+          <button
+            onClick={() => navigateTo('home')}
+            className={`nav-item ${activeTab === 'home' ? 'active' : ''}`}
+          >
+            <Home className="nav-icon" />
+            <span className="nav-label">{t('nav.home')}</span>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('community')}
-          className={`nav-item ${activeTab === 'community' ? 'active' : ''}`}
-        >
-          <Users className="nav-icon" />
-          <span className="nav-label">Community</span>
-        </button>
+          <button
+            onClick={() => navigateTo('community')}
+            className={`nav-item ${activeTab === 'community' ? 'active' : ''}`}
+          >
+            <Users className="nav-icon" />
+            <span className="nav-label">{t('nav.community')}</span>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('scan')}
-          className={`nav-item nav-item-center ${activeTab === 'scan' ? 'active' : ''}`}
-        >
-          <div className="scan-button">
-            <Camera className="nav-icon" />
-          </div>
-          <span className="nav-label">Skann</span>
-        </button>
+          <button
+            onClick={() => navigateTo('scan')}
+            className={`nav-item nav-item-center ${activeTab === 'scan' ? 'active' : ''}`}
+          >
+            <div className="scan-button">
+              <Camera className="nav-icon-scan" />
+            </div>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('meals')}
-          className={`nav-item ${activeTab === 'meals' ? 'active' : ''}`}
-        >
-          <UtensilsCrossed className="nav-icon" />
-          <span className="nav-label">Måltider</span>
-        </button>
+          <button
+            onClick={() => navigateTo('meals')}
+            className={`nav-item ${activeTab === 'meals' ? 'active' : ''}`}
+          >
+            <UtensilsCrossed className="nav-icon" />
+            <span className="nav-label">{t('nav.meals')}</span>
+          </button>
 
-        <button
-          onClick={() => handleTabChange('profile')}
-          className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`}
-        >
-          <User className="nav-icon" />
-          <span className="nav-label">Profil</span>
-        </button>
+          <button
+            onClick={() => navigateTo('profile')}
+            className={`nav-item ${activeTab === 'profile' ? 'active' : ''}`}
+          >
+            <User className="nav-icon" />
+            <span className="nav-label">{t('nav.profile')}</span>
+          </button>
+        </div>
       </nav>
-
-      {/* ── Gamification Overlays ── */}
-      <XPFloatLayer />
-
-      {levelUpInfo && (
-        <LevelUpOverlay
-          level={levelUpInfo.level}
-          label={levelUpInfo.label}
-          onDismiss={() => setLevelUpInfo(null)}
-        />
-      )}
-
-      {badgeQueue.length > 0 && (
-        <AchievementUnlockPanel
-          queue={badgeQueue}
-          onShift={() => setBadgeQueue((prev) => prev.slice(1))}
-        />
-      )}
     </div>
   );
 }

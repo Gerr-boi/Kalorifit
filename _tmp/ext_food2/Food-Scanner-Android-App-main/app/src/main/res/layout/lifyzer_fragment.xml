@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/rl_parent">
+
+    <android.support.v7.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/colorPrimary"/>
+
+    <FrameLayout
+        android:id="@+id/frame_fragment"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/toolbar"/>
+    <!--android:background="@color/colorPrimary"-->
+
+    <LinearLayout
+        android:layout_width="@dimen/dp200"
+        android:layout_height="@dimen/dp40"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="@dimen/dp20"
+        android:background="@drawable/rounded_green_border"
+        android:orientation="horizontal"
+        android:weightSum="1"
+        android:layout_below="@id/toolbar">
+        <!--app:cardBackgroundColor="@android:color/transparent"-->
+        <!--app:cardCornerRadius="@dimen/dp5"-->
+        <!--app:cardPreventCornerOverlap="true"-->
+
+        <com.foodscan.CustomViews.TextViewCustom
+            android:id="@+id/txt_product"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5"
+            android:gravity="center"
+            android:text="@string/Product"
+            android:textColor="@color/white"
+            android:textSize="@dimen/sp14" />
+
+        <View
+            android:layout_width="@dimen/dp0_5"
+            android:layout_height="match_parent"
+            android:background="@color/colorPrimary" />
+
+        <com.foodscan.CustomViews.TextViewCustom
+            android:id="@+id/txt_barcode"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="0.5"
+            android:gravity="center"
+            android:text="@string/Barcode"
+            android:textColor="@color/white"
+            android:textSize="@dimen/sp14" />
+
+
+    </LinearLayout>
+
+</RelativeLayout>

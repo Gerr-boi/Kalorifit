@@ -98,6 +98,11 @@ function extractPer100g(nutr: Record<string, any> | undefined): MacroNutrients |
   const protein = numOrUndef(nutr["proteins_100g"]);
   const carbs = numOrUndef(nutr["carbohydrates_100g"]);
   const fat = numOrUndef(nutr["fat_100g"]);
+  const fiber = numOrUndef(nutr["fiber_100g"]);
+  const sugars = numOrUndef(nutr["sugars_100g"]);
+  const saturatedFat = numOrUndef(nutr["saturated-fat_100g"]);
+  const salt = numOrUndef(nutr["salt_100g"]);
+  const sodium = numOrUndef(nutr["sodium_100g"]);
 
   const kj = numOrUndef(nutr["energy_100g"]);
   const kcalFromKj = kj ? kj / 4.184 : undefined;
@@ -110,6 +115,11 @@ function extractPer100g(nutr: Record<string, any> | undefined): MacroNutrients |
     protein_g: protein,
     carbs_g: carbs,
     fat_g: fat,
+    fiber_g: fiber,
+    sugars_g: sugars,
+    saturated_fat_g: saturatedFat,
+    salt_g: salt,
+    sodium_mg: typeof sodium === 'number' ? Math.round(sodium * 1000) : undefined,
   };
 }
 

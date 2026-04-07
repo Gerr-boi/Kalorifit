@@ -21,21 +21,49 @@ function resolveBotPython() {
 
   const existing = candidates.find((candidate) => fs.existsSync(candidate));
   if (existing) {
-    return { command: existing, args: ['-m', 'uvicorn', 'src.main:app', '--host', '127.0.0.1', '--port', '8001', '--reload'] };
+    return {
+      command: existing,
+      args: ['-m', 'uvicorn', 'src.main:app', '--host', '127.0.0.1', '--port', '8001', '--reload'],
+    };
   }
 
   if (process.platform === 'win32') {
     return { command: 'py', args: ['-m', 'uvicorn', 'src.main:app', '--host', '127.0.0.1', '--port', '8001', '--reload'] };
   }
+
   return { command: 'python3', args: ['-m', 'uvicorn', 'src.main:app', '--host', '127.0.0.1', '--port', '8001', '--reload'] };
 }
 
 function spawnTaggedProcess(tag, command, args, cwd) {
-  const child = spawn(command, args, {
+  const isWindows = process.platform === 'win32';
+  const shellCommand = process.env.ComSpec ?? 'cmd.exe';
+  const powershellCommand = process.env.SystemRoot
+    ? path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    : 'powershell.exe';
+  const shouldUseCmdWrapper = isWindows && /\.(cmd|bat)$/i.test(command);
+  const shouldUsePowerShellWrapper = isWindows && tag === 'bot' && /\.exe$/i.test(command);
+  const quoteForCmd = (value) => {
+    const text = String(value);
+    if (!/[ \t"]/u.test(text)) return text;
+    return `"${text.replace(/"/g, '\\"')}"`;
+  };
+  const resolvedCommand = shouldUsePowerShellWrapper
+    ? powershellCommand
+    : shouldUseCmdWrapper
+      ? shellCommand
+      : command;
+  const resolvedArgs = shouldUsePowerShellWrapper
+    ? ['-NoProfile', '-Command', `& '${String(command).replace(/'/g, "''")}' ${args.map((arg) => `'${String(arg).replace(/'/g, "''")}'`).join(' ')}`]
+    : shouldUseCmdWrapper
+    ? ['/d', '/s', '/c', `${quoteForCmd(command)} ${args.map((arg) => quoteForCmd(arg)).join(' ')}`]
+    : args;
+
+  const child = spawn(resolvedCommand, resolvedArgs, {
     cwd,
     env: process.env,
     stdio: ['inherit', 'pipe', 'pipe'],
     shell: false,
+    windowsHide: false,
   });
 
   const prefix = `[${tag}] `;
