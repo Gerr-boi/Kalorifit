@@ -25,6 +25,12 @@ copy .env.example .env
 uvicorn src.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
+Shortcut from `app/`:
+```bash
+npm run dev:stack
+```
+This starts the scanner bot on `127.0.0.1:8001`, the local API on `127.0.0.1:8787`, and Vite together.
+
 3. Create `.env` in `app/`:
 ```env
 FOOD_DETECTION_BOT_URL=http://127.0.0.1:8001
@@ -34,6 +40,29 @@ FOOD_DETECTION_BOT_URL=http://127.0.0.1:8001
 # FOOD_DETECTION_BOT_TIMEOUT_MS=12000
 # PORT=8787
 ```
+
+## Production / Vercel
+
+Do not point `FOOD_DETECTION_BOT_URL` to `127.0.0.1` or `localhost` in production. On Vercel, `localhost` means the Vercel runtime itself, not your laptop.
+
+Use this deployment shape:
+
+1. Deploy `food_detection_bot` separately on a public HTTPS host such as Railway, Render, Fly.io, or a VPS.
+2. Set `FOOD_DETECTION_BOT_URL=https://your-scanner-host.example.com` in the Vercel project environment.
+3. Keep the web app on Vercel. The `/api/*` routes proxy to the hosted scanner service.
+
+The server now rejects production misconfiguration with a clear `SCANNER_RUNTIME_MISCONFIGURED` error instead of silently trying `localhost`.
+
+## Persistence and safe storage
+
+`food_detection_bot` currently stores scan logs and feedback as JSON/image files under `food_detection_bot/dataset/`. That is acceptable for local development and for a private server with a mounted persistent volume.
+
+It is not durable on ephemeral platforms. For hosted production you should choose one of these:
+
+- Mount a persistent disk/volume to the bot container and keep `dataset/` there.
+- Set `ENABLE_SCAN_LOGGING=false` until you move scan history into managed storage.
+
+Avoid downloading random binaries or OCR/model packages from unknown sources. The current repo uses pinned Python requirements and local model files already in the project.
 
 4. Start frontend + backend:
 ```bash

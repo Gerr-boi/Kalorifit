@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { FoodDetectionBotProvider } from './providers/foodDetectionBotProvider.js';
 import { DEFAULT_THRESHOLD, normalizeAndFilterFoodItems } from './foodLabelUtils.js';
+import { createScannerRuntimeError, getScannerRuntimeConfig } from './scannerRuntimeConfig.js';
 
 const MAX_FILE_SIZE_BYTES = 8 * 1024 * 1024;
 const MAX_INFERENCE_TIME_MS = 15_000;
@@ -66,6 +67,25 @@ function sendError(res, status, scanRequestId, error, message, extra = {}) {
       ...extra,
     },
   });
+}
+
+function providerDebugMeta(provider, extra = {}) {
+  const runtimeConfig = getScannerRuntimeConfig();
+  return {
+    providerId: provider?.modelId ?? 'unknown',
+    botBaseUrl: typeof provider?.baseUrl === 'string' ? provider.baseUrl : null,
+    botDetectPath: typeof provider?.detectPath === 'string' ? provider.detectPath : null,
+    botHealthPath: typeof provider?.healthPath === 'string' ? provider.healthPath : null,
+    botTimeoutMs: typeof provider?.timeoutMs === 'number' ? provider.timeoutMs : null,
+    scannerRuntime: {
+      source: runtimeConfig.source,
+      isProduction: runtimeConfig.isProduction,
+      isVercel: runtimeConfig.isVercel,
+      localhostUrl: runtimeConfig.localhostUrl,
+      issues: runtimeConfig.issues,
+    },
+    ...extra,
+  };
 }
 
 async function withTimeout(task, timeoutMs, signalController) {
@@ -135,6 +155,7 @@ function normalizeDetectionPayload(rawPayload, threshold) {
     scan_log_id: typeof payload.scan_log_id === 'string' ? payload.scan_log_id : null,
     barcode_result: typeof payload.barcode_result === 'string' ? payload.barcode_result : null,
     predicted_product: typeof payload.predicted_product === 'string' ? payload.predicted_product : null,
+    packaging_type: typeof payload.packaging_type === 'string' ? payload.packaging_type : null,
     package_detection:
       payload.package_detection &&
       typeof payload.package_detection === 'object' &&
@@ -146,6 +167,37 @@ function normalizeDetectionPayload(rawPayload, threshold) {
             ...(Array.isArray(payload.package_detection.bbox) ? { bbox: payload.package_detection.bbox } : {}),
           }
         : null,
+    top_match:
+      payload.top_match &&
+      typeof payload.top_match === 'object' &&
+      typeof payload.top_match.name === 'string'
+        ? {
+            name: payload.top_match.name,
+            ...(typeof payload.top_match.product_id === 'string' ? { product_id: payload.top_match.product_id } : {}),
+            ...(typeof payload.top_match.brand === 'string' ? { brand: payload.top_match.brand } : {}),
+            ...(typeof payload.top_match.product_name === 'string'
+              ? { product_name: payload.top_match.product_name }
+              : {}),
+            ...(typeof payload.top_match.confidence === 'number' ? { confidence: payload.top_match.confidence } : {}),
+            ...(Array.isArray(payload.top_match.reasons) ? { reasons: payload.top_match.reasons } : {}),
+            ...(payload.top_match.evidence && typeof payload.top_match.evidence === 'object'
+              ? { evidence: payload.top_match.evidence }
+              : {}),
+          }
+        : null,
+    alternatives: Array.isArray(payload.alternatives)
+      ? payload.alternatives
+          .filter((item) => item && typeof item.name === 'string')
+          .map((item) => ({
+            name: item.name,
+            ...(typeof item.product_id === 'string' ? { product_id: item.product_id } : {}),
+            ...(typeof item.brand === 'string' ? { brand: item.brand } : {}),
+            ...(typeof item.product_name === 'string' ? { product_name: item.product_name } : {}),
+            ...(typeof item.confidence === 'number' ? { confidence: item.confidence } : {}),
+            ...(Array.isArray(item.reasons) ? { reasons: item.reasons } : {}),
+            ...(item.evidence && typeof item.evidence === 'object' ? { evidence: item.evidence } : {}),
+          }))
+      : [],
     items,
     detections,
     text_detections: incomingTextDetections
@@ -164,6 +216,13 @@ export function createApp(options = {}) {
   app.use(express.json({ limit: '256kb' }));
   const provider = options.provider ?? new FoodDetectionBotProvider(options.foodDetectionBot ?? {});
   const threshold = typeof options.threshold === 'number' ? options.threshold : DEFAULT_THRESHOLD;
+  const ensureScannerRuntimeConfigured = () => {
+    const runtimeConfig = getScannerRuntimeConfig();
+    if (!runtimeConfig.isValid) {
+      throw createScannerRuntimeError();
+    }
+    return runtimeConfig;
+  };
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -172,10 +231,19 @@ export function createApp(options = {}) {
 
   app.get('/api/health', async (_req, res) => {
     const providerHealth = typeof provider.health === 'function' ? await provider.health() : null;
+    const runtimeConfig = getScannerRuntimeConfig();
     res.json({
       ok: true,
       provider: 'food_detection_bot',
       bot: providerHealth,
+      config: {
+        baseUrl: runtimeConfig.baseUrl,
+        source: runtimeConfig.source,
+        isProduction: runtimeConfig.isProduction,
+        localhostUrl: runtimeConfig.localhostUrl,
+        isValid: runtimeConfig.isValid,
+        issues: runtimeConfig.issues,
+      },
     });
   });
 
@@ -195,6 +263,7 @@ export function createApp(options = {}) {
     });
 
     try {
+      ensureScannerRuntimeConfigured();
       logStage('REQUEST_RECEIVED');
       const file = req.file;
       if (!file) {
@@ -270,7 +339,10 @@ export function createApp(options = {}) {
         scan_log_id: detectionPayload.scan_log_id,
         barcode_result: detectionPayload.barcode_result,
         predicted_product: detectionPayload.predicted_product,
+        packaging_type: detectionPayload.packaging_type,
         package_detection: detectionPayload.package_detection,
+        top_match: detectionPayload.top_match,
+        alternatives: detectionPayload.alternatives,
         label: best?.name ?? null,
         confidence: best?.confidence ?? null,
         boxes: detectionPayload.detections
@@ -295,6 +367,17 @@ export function createApp(options = {}) {
       return res.json(payload);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'SCANNER_RUNTIME_MISCONFIGURED') {
+        logStage('CONFIG_ERROR', { message });
+        return sendError(
+          res,
+          503,
+          scanRequestId,
+          'SCANNER_RUNTIME_MISCONFIGURED',
+          message,
+          providerDebugMeta(provider)
+        );
+      }
       if (message === 'INFERENCE_TIMEOUT' || message === 'FOOD_DETECTION_BOT_TIMEOUT') {
         logStage('INFERENCE_TIMEOUT');
         return sendError(
@@ -302,7 +385,8 @@ export function createApp(options = {}) {
           504,
           scanRequestId,
           'INFERENCE_TIMEOUT',
-          'Model inference exceeded the time limit.'
+          'Model inference exceeded the time limit.',
+          providerDebugMeta(provider)
         );
       }
       const botMatch = message.match(/Food detection bot request failed \((\d+)\):\s*(.*)/s);
@@ -321,7 +405,7 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_AUTH_FAILED',
             'Food detection bot authentication failed.',
-            { upstreamStatus }
+            providerDebugMeta(provider, { upstreamStatus })
           );
         }
         if (upstreamStatus === 404) {
@@ -331,7 +415,7 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_NOT_FOUND',
             'Food detection bot endpoint not found. Verify FOOD_DETECTION_BOT_URL and route configuration.',
-            { upstreamStatus }
+            providerDebugMeta(provider, { upstreamStatus })
           );
         }
         if (upstreamStatus === 429) {
@@ -341,7 +425,7 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_RATE_LIMITED',
             'Food detection bot rate limit reached. Retry in a moment.',
-            { upstreamStatus }
+            providerDebugMeta(provider, { upstreamStatus })
           );
         }
         if (upstreamStatus >= 500) {
@@ -351,18 +435,23 @@ export function createApp(options = {}) {
             scanRequestId,
             'FOOD_DETECTION_BOT_UPSTREAM_ERROR',
             'Food detection bot service is temporarily unavailable.',
-            { upstreamStatus }
+            providerDebugMeta(provider, { upstreamStatus })
           );
         }
       }
       if (message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('network')) {
         logStage('UPSTREAM_NETWORK_ERROR', { message });
+        const errCode =
+          typeof err === 'object' && err !== null && 'code' in err
+            ? String(err.code)
+            : null;
         return sendError(
           res,
           502,
           scanRequestId,
           'FOOD_DETECTION_BOT_NETWORK_ERROR',
-          'Could not reach the food detection bot. Check bot process, URL, and network settings.'
+          'Could not reach the food detection bot. Check bot process, URL, and network settings.',
+          providerDebugMeta(provider, { networkErrorCode: errCode, networkErrorMessage: message.slice(0, 240) })
         );
       }
 
@@ -373,7 +462,8 @@ export function createApp(options = {}) {
         502,
         scanRequestId,
         'DETECTION_SERVICE_UNAVAILABLE',
-        `Food detection service unavailable: ${message.slice(0, 240)}`
+        `Food detection service unavailable: ${message.slice(0, 240)}`,
+        providerDebugMeta(provider)
       );
     }
   });
@@ -386,6 +476,7 @@ export function createApp(options = {}) {
     }
 
     try {
+      ensureScannerRuntimeConfigured();
       const payload = {
         scan_log_id: scanLogId,
         ...(typeof req.body?.userConfirmed === 'boolean' ? { user_confirmed: req.body.userConfirmed } : {}),
@@ -405,6 +496,9 @@ export function createApp(options = {}) {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'SCANNER_RUNTIME_MISCONFIGURED') {
+        return sendError(res, 503, scanRequestId, 'SCANNER_RUNTIME_MISCONFIGURED', message, providerDebugMeta(provider));
+      }
       const botMatch = message.match(/Food detection bot request failed \((\d+)\):\s*(.*)/s);
       if (botMatch) {
         const upstreamStatus = Number(botMatch[1]);

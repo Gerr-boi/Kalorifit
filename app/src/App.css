@@ -1,12 +1,20 @@
+html,
+body,
+#root {
+  height: 100%;
+}
+
 /* App Container */
 .app-container {
   min-height: 100vh;
+  height: 100dvh;
   background: #f8fafc;
   display: flex;
   flex-direction: column;
   max-width: 430px;
   margin: 0 auto;
   position: relative;
+  overflow: hidden;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.1);
 }
 
@@ -18,9 +26,12 @@
 .main-content {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: 90px;
+  padding-bottom: calc(90px + env(safe-area-inset-bottom));
   scrollbar-width: none;
   -ms-overflow-style: none;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable both-edges;
 }
 
 .main-content::-webkit-scrollbar {
@@ -40,7 +51,7 @@
   display: flex;
   justify-content: space-around;
   align-items: center;
-  padding: 8px 0 20px;
+  padding: 8px 0 calc(20px + env(safe-area-inset-bottom));
   z-index: 1000;
 }
 
@@ -68,6 +79,13 @@
 
 .nav-item.active {
   color: #f97316;
+  animation: nav-item-activate 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes nav-item-activate {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.12) translateY(-2px); }
+  100% { transform: scale(1) translateY(0); }
 }
 
 .nav-icon {
@@ -112,6 +130,8 @@
   color: white;
   padding: 20px;
   border-radius: 0 0 24px 24px;
+  position: relative;
+  overflow: hidden;
 }
 
 /* Cards */
@@ -793,3 +813,718 @@
     background: #e2e8f0;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   XP FLOAT — numbers that pop up and float away after logging
+   ═══════════════════════════════════════════════════════════════ */
+
+.xp-float {
+  position: absolute;
+  bottom: 0;
+  font-size: 15px;
+  font-weight: 900;
+  color: #f97316;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  animation: xp-rise 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes xp-rise {
+  0%   { opacity: 0; transform: translateY(0) scale(0.7); }
+  15%  { opacity: 1; transform: translateY(-8px) scale(1.15); }
+  60%  { opacity: 1; transform: translateY(-60px) scale(1); }
+  100% { opacity: 0; transform: translateY(-90px) scale(0.85); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LEVEL UP OVERLAY
+   ═══════════════════════════════════════════════════════════════ */
+
+.levelup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0);
+  transition: background 0.4s ease;
+  cursor: pointer;
+  max-width: 430px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.levelup-overlay--visible {
+  background: rgba(0,0,0,0.8);
+}
+
+/* Radial glow pulse behind card */
+.levelup-overlay--visible::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 40% at 50% 50%, rgba(249,115,22,0.12) 0%, transparent 70%);
+  animation: levelup-radial-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes levelup-radial-pulse {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%       { opacity: 1; transform: scale(1.15); }
+}
+
+.levelup-confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.levelup-confetti-piece {
+  position: absolute;
+  top: -20px;
+  opacity: 0;
+  animation: confetti-fall linear forwards;
+}
+
+.levelup-confetti-piece--rect { border-radius: 2px; }
+.levelup-confetti-piece--circle { border-radius: 50%; }
+
+@keyframes confetti-fall {
+  0%   { opacity: 1; transform: translateY(0) rotate(0deg) scale(1); }
+  80%  { opacity: 0.8; }
+  100% { opacity: 0; transform: translateY(115vh) rotate(900deg) scale(0.5); }
+}
+
+.levelup-card {
+  position: relative;
+  background: linear-gradient(160deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+  border: 1px solid rgba(249,115,22,0.5);
+  border-radius: 28px;
+  padding: 40px 32px 32px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 0 80px rgba(249,115,22,0.3), 0 32px 64px rgba(0,0,0,0.6);
+  opacity: 0;
+  min-width: 280px;
+}
+
+.levelup-overlay--visible .levelup-card {
+  animation: levelup-card-enter 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both;
+}
+
+@keyframes levelup-card-enter {
+  0%   { opacity: 0; transform: scale(0.5) translateY(50px); }
+  55%  { opacity: 1; transform: scale(1.07) translateY(-6px); }
+  75%  { transform: scale(0.97) translateY(3px); }
+  90%  { transform: scale(1.02) translateY(-1px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.levelup-badge-ring {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f97316 0%, #fbbf24 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  position: relative;
+}
+
+.levelup-overlay--visible .levelup-badge-ring {
+  animation: badge-burst-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.3s both,
+             badge-pulse 2s ease-in-out 0.9s infinite;
+}
+
+@keyframes badge-burst-enter {
+  0%   { transform: scale(0); opacity: 0; }
+  50%  { transform: scale(1.35); opacity: 1; }
+  70%  { transform: scale(0.88); }
+  85%  { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes badge-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 6px rgba(249,115,22,0.25), 0 0 0 12px rgba(249,115,22,0.1), 0 0 32px rgba(249,115,22,0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(249,115,22,0.35), 0 0 0 24px rgba(249,115,22,0.15), 0 0 56px rgba(249,115,22,0.45);
+  }
+}
+
+/* Expanding ring ripples behind badge */
+.levelup-badge-ring::before,
+.levelup-badge-ring::after {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  border: 2px solid rgba(249,115,22,0.5);
+  opacity: 0;
+}
+
+.levelup-overlay--visible .levelup-badge-ring::before {
+  animation: ring-expand 1.6s ease-out 0.6s infinite;
+}
+
+.levelup-overlay--visible .levelup-badge-ring::after {
+  border-color: rgba(251,191,36,0.4);
+  animation: ring-expand 1.6s ease-out 1.1s infinite;
+}
+
+@keyframes ring-expand {
+  0%   { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(2); opacity: 0; }
+}
+
+.levelup-badge-emoji { font-size: 42px; }
+
+.levelup-sub {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: #f97316;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  opacity: 0;
+}
+
+.levelup-overlay--visible .levelup-sub {
+  animation: levelup-text-drop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.45s both;
+}
+
+.levelup-number {
+  font-size: 48px;
+  font-weight: 900;
+  line-height: 1;
+  background: linear-gradient(135deg, #f97316 0%, #fbbf24 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px;
+  opacity: 0;
+}
+
+.levelup-overlay--visible .levelup-number {
+  animation: levelup-number-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) 0.55s both;
+}
+
+@keyframes levelup-number-pop {
+  0%   { opacity: 0; transform: scale(0.4); }
+  60%  { opacity: 1; transform: scale(1.2); }
+  80%  { transform: scale(0.94); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.levelup-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.8);
+  margin-bottom: 24px;
+  opacity: 0;
+}
+
+.levelup-overlay--visible .levelup-label {
+  animation: levelup-text-rise 0.38s ease 0.72s both;
+}
+
+.levelup-hint {
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+  letter-spacing: 0.05em;
+  opacity: 0;
+}
+
+.levelup-overlay--visible .levelup-hint {
+  animation: levelup-text-rise 0.35s ease 0.9s both;
+}
+
+@keyframes levelup-text-drop {
+  from { opacity: 0; transform: translateY(-16px) scale(0.9); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes levelup-text-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ACHIEVEMENT UNLOCK PANEL
+   ═══════════════════════════════════════════════════════════════ */
+
+.achievement-panel {
+  position: fixed;
+  bottom: 108px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  width: calc(min(430px, 100vw) - 32px);
+  z-index: 1800;
+  pointer-events: none;
+  opacity: 0;
+  filter: blur(6px);
+  transition: opacity 0.35s ease, transform 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275), filter 0.3s ease;
+}
+
+.achievement-panel--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  filter: blur(0px);
+  pointer-events: auto;
+}
+
+.achievement-panel-inner {
+  border-radius: 20px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.12s ease;
+}
+
+.achievement-panel-inner:active {
+  transform: scale(0.96);
+}
+
+/* Shine sweep on entry */
+.achievement-panel-inner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,0.28) 50%, transparent 70%);
+  transform: translateX(-120%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.achievement-panel--visible .achievement-panel-inner::before {
+  animation: achievement-shine 0.65s ease 0.25s forwards;
+}
+
+@keyframes achievement-shine {
+  from { transform: translateX(-120%); }
+  to   { transform: translateX(220%); }
+}
+
+/* Time-remaining progress bar */
+.achievement-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  border-radius: 0 0 20px 20px;
+  background: rgba(255,255,255,0.45);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.achievement-panel--visible .achievement-progress {
+  animation: achievement-progress-deplete 3.5s linear 0.3s forwards;
+}
+
+@keyframes achievement-progress-deplete {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+.achievement-rarity-label {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.65);
+  color: white;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  padding: 3px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.achievement-icon-wrap {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.achievement-panel--visible .achievement-icon-wrap {
+  animation: achievement-icon-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both;
+}
+
+@keyframes achievement-icon-pop {
+  0%   { transform: scale(0) rotate(-35deg); opacity: 0; }
+  55%  { transform: scale(1.3) rotate(8deg); opacity: 1; }
+  75%  { transform: scale(0.88) rotate(-4deg); }
+  90%  { transform: scale(1.06) rotate(2deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+.achievement-icon { font-size: 30px; line-height: 1; }
+
+.achievement-text { flex: 1; min-width: 0; }
+
+.achievement-header {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: rgba(255,255,255,0.75);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.achievement-panel--visible .achievement-header {
+  animation: achievement-text-in 0.3s ease 0.2s both;
+}
+
+.achievement-name {
+  font-size: 16px;
+  font-weight: 800;
+  color: white;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.achievement-panel--visible .achievement-name {
+  animation: achievement-text-in 0.3s ease 0.27s both;
+}
+
+.achievement-desc {
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.achievement-panel--visible .achievement-desc {
+  animation: achievement-text-in 0.3s ease 0.34s both;
+}
+
+@keyframes achievement-text-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.achievement-queue-badge {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: rgba(0,0,0,0.45);
+  color: white;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STREAK FLAME ANIMATION
+   ═══════════════════════════════════════════════════════════════ */
+
+.streak-flame {
+  display: inline-block;
+  animation: flame-dance 1.2s ease-in-out infinite;
+  transform-origin: bottom center;
+}
+
+@keyframes flame-dance {
+  0%, 100% { transform: scaleY(1) rotate(-2deg); }
+  25%       { transform: scaleY(1.08) rotate(2deg); }
+  50%       { transform: scaleY(0.94) rotate(-1deg); }
+  75%       { transform: scaleY(1.05) rotate(1deg); }
+}
+
+/* Milestone shake — added to streak number on milestone */
+.streak-milestone {
+  animation: streak-milestone-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes streak-milestone-pop {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.4) rotate(-5deg); }
+  60%  { transform: scale(1.2) rotate(4deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATED PROGRESS BARS — for macro + discipline bars
+   ═══════════════════════════════════════════════════════════════ */
+
+.progress-bar-animated {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Shimmer sweep on fill */
+.progress-bar-animated::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+  animation: shimmer-sweep 2.2s ease-in-out infinite;
+}
+
+@keyframes shimmer-sweep {
+  0%   { left: -60%; }
+  100% { left: 110%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCREEN ENTER ANIMATION (tab switches)
+   ═══════════════════════════════════════════════════════════════ */
+
+.screen-enter {
+  animation: screen-slide-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes screen-slide-in {
+  0%   { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NAV TAB ACTIVE INDICATOR — animated underline dot
+   ═══════════════════════════════════════════════════════════════ */
+
+.nav-item.active::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #f97316;
+  margin: 0 auto;
+  animation: nav-dot-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes nav-dot-pop {
+  0%   { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCAN BUTTON PULSE — subtle idle animation
+   ═══════════════════════════════════════════════════════════════ */
+
+.scan-button {
+  animation: scan-idle-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes scan-idle-pulse {
+  0%, 100% { box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4); }
+  50%       { box-shadow: 0 4px 22px rgba(249, 115, 22, 0.65); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD TAP FEEDBACK
+   ═══════════════════════════════════════════════════════════════ */
+
+.tap-scale:active {
+  transform: scale(0.97);
+  transition: transform 0.1s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CALORIE GOAL RING — pulse on completion
+   ═══════════════════════════════════════════════════════════════ */
+
+.ring-complete .progress-circle-fill {
+  animation: ring-complete-pulse 0.8s ease-in-out 3;
+  filter: drop-shadow(0 0 6px rgba(34,197,94,0.7));
+}
+
+@keyframes ring-complete-pulse {
+  0%, 100% { stroke-width: 12; filter: drop-shadow(0 0 6px rgba(34,197,94,0.7)); }
+  50%       { stroke-width: 14; filter: drop-shadow(0 0 12px rgba(34,197,94,1)); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STREAK RISK WARNING — pulsing red border
+   ═══════════════════════════════════════════════════════════════ */
+
+.streak-at-risk {
+  animation: risk-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes risk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+  50%       { box-shadow: 0 0 0 4px rgba(239,68,68,0.35); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   QUICK ADD MENU — slide-up entrance
+   ═══════════════════════════════════════════════════════════════ */
+
+.quick-menu-enter {
+  animation: quick-menu-slide-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes quick-menu-slide-in {
+  0%   { opacity: 0; transform: translateY(10px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MEAL EXPAND — slide-fade-in for expanded content
+   ═══════════════════════════════════════════════════════════════ */
+
+.slide-fade-in {
+  animation: slide-fade-in 0.22s ease-out both;
+}
+
+@keyframes slide-fade-in {
+  0%   { opacity: 0; transform: translateY(-6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOOD ADD POP — bounce when tapping meal add buttons
+   ═══════════════════════════════════════════════════════════════ */
+
+.food-pop {
+  animation: food-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes food-pop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHALLENGE FLASH — when challenge turns complete
+   ═══════════════════════════════════════════════════════════════ */
+
+.challenge-flash {
+  animation: challenge-flash 0.5s ease-out both;
+}
+
+@keyframes challenge-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+  30%  { box-shadow: 0 0 0 6px rgba(34,197,94,0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FAB PULSE — floating action button idle glow
+   ═══════════════════════════════════════════════════════════════ */
+
+.fab-pulse {
+  animation: fab-glow 2.8s ease-in-out infinite;
+}
+
+@keyframes fab-glow {
+  0%, 100% { box-shadow: 0 4px 20px rgba(249,115,22,0.4); }
+  50%       { box-shadow: 0 4px 32px rgba(249,115,22,0.7), 0 0 0 6px rgba(249,115,22,0.1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MEAL TOTAL TICK — bounces when kcal total changes
+   ═══════════════════════════════════════════════════════════════ */
+
+.meal-kcal-tick {
+  display: inline-block;
+  animation: meal-kcal-tick 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes meal-kcal-tick {
+  0%   { transform: scale(1); }
+  50%  { transform: scale(1.25); color: #f97316; }
+  100% { transform: scale(1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COUNT BOUNCE — for numbers that update
+   ═══════════════════════════════════════════════════════════════ */
+
+.count-bounce {
+  display: inline-block;
+  animation: count-bounce 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes count-bounce {
+  0%   { transform: scale(1) translateY(0); }
+  40%  { transform: scale(1.18) translateY(-3px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DYNAMIC HEADER — waves, sparks, ring pump, chip entrance
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Scrolling wave layers */
+.header-wave-1 {
+  animation: wave-scroll 5s linear infinite;
+}
+.header-wave-2 {
+  animation: wave-scroll-reverse 7s linear infinite;
+}
+
+@keyframes wave-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes wave-scroll-reverse {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+
+/* Workout energy sparks */
+.workout-spark {
+  position: absolute;
+  top: 100%;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(to top, #fbbf24, #f97316, transparent);
+  animation: spark-rise 0.85s ease-out both;
+}
+@keyframes spark-rise {
+  0%   { top: 100%; opacity: 1; transform: scaleY(1); }
+  60%  { opacity: 0.9; transform: scaleY(1.3); }
+  100% { top: 20%; opacity: 0; transform: scaleY(0.4); }
+}
+
+/* Status chip entrance */
+.header-chip-enter {
+  animation: chip-slide-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes chip-slide-in {
+  0%   { opacity: 0; transform: translateY(-6px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Ring pump on workout log */
+.ring-pumping {
+  animation: ring-pump 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes ring-pump {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.1); }
+  60%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+

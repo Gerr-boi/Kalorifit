@@ -10,10 +10,13 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from src.config import get_settings
+from src.core.dish_classifier import create_dish_classifier
 from src.core.detector import create_detector
 from src.core.errors import BotError
-from src.core.image_region import crop_to_bbox, pick_detection_for_crop
+from src.core.image_region import build_ocr_crop_candidates, crop_to_bbox, pick_detection_for_crop
+from src.core.off_text_search import search_open_food_facts_by_text
 from src.core.product_catalog import ProductCatalog
+from src.core.types import TextDetection
 from src.data_logger import DatasetLogger
 from src.providers.text_provider import create_text_provider
 from src.logging_setup import setup_logging
@@ -52,12 +55,16 @@ def _to_jpeg_bytes(image) -> bytes:
 def startup_event() -> None:
     detector = create_detector(settings)
     text_provider = create_text_provider(settings.text_provider)
+    dish_classifier = create_dish_classifier(settings.dish_classifier_enabled, settings.dish_classifier_model_path)
     product_catalog = ProductCatalog(settings.product_catalog_path)
     text_status = text_provider.status()
+    dish_status = dish_classifier.status()
     app.state.detector = detector
     app.state.text_provider = text_provider
+    app.state.dish_classifier = dish_classifier
     app.state.product_catalog = product_catalog
     app.state.text_provider_status = text_status
+    app.state.dish_classifier_status = dish_status
     app.state.model_loaded = True
     app.state.dataset_logger = DatasetLogger(settings.dataset_dir)
     model_loaded_at = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -74,6 +81,13 @@ def startup_event() -> None:
         settings.text_detection_enabled,
         text_status.get('available'),
         text_status.get('message'),
+    )
+    logger.info(
+        'Dish classifier initialized enabled=%s available=%s model=%s message=%s',
+        settings.dish_classifier_enabled,
+        dish_status.get('available'),
+        dish_classifier.model_id,
+        dish_status.get('message'),
     )
     logger.info(
         'Model fingerprint model_id=%s model_weights_path=%s model_weights_sha256=%s model_loaded_at=%s',
@@ -157,27 +171,105 @@ async def detect(
         preferred_labels=_parse_label_set(settings.fallback_crop_preferred_labels),
     )
     crop_image = crop_to_bbox(img, package_detection.bbox if package_detection else None)
-    ocr_source = crop_image or img
     package_crop_bytes = _to_jpeg_bytes(crop_image) if crop_image else None
 
-    text_detections = []
+    text_detections: list[TextDetection] = []
+    ocr_rows: list[dict] = []
+    ocr_tokens: list[str] = []
+    ocr_crop_strategies: list[str] = []
+    dish_predictions: list[dict] = []
     text_status = getattr(app.state, 'text_provider_status', {'available': False, 'message': 'uninitialized'})
+    dish_status = getattr(app.state, 'dish_classifier_status', {'available': False, 'message': 'uninitialized'})
     if settings.text_detection_enabled:
         text_provider = app.state.text_provider
-        text_detections = text_provider.detect_text(ocr_source)
+        ocr_crops = build_ocr_crop_candidates(
+            img,
+            filtered_detections,
+            class_name=settings.package_class_name,
+            max_area_ratio=settings.fallback_crop_max_area_ratio,
+            min_confidence=settings.fallback_crop_min_confidence,
+            preferred_labels=_parse_label_set(settings.fallback_crop_preferred_labels),
+        )[: max(1, settings.max_ocr_crops)]
+        ocr_crop_strategies = [name for name, _ in ocr_crops]
+        merged_by_text: dict[str, dict] = {}
+        for strategy_name, ocr_source in ocr_crops:
+            for detection in text_provider.detect_text(ocr_source):
+                text_value = str(detection.text or '').strip()
+                if not text_value or detection.confidence < settings.text_conf_threshold:
+                    continue
+                normalized_text = _clean_ocr_text(text_value)
+                if not normalized_text:
+                    continue
+                current = {
+                    'text': text_value,
+                    'confidence': detection.confidence,
+                    'bbox': detection.bbox,
+                    'source': strategy_name,
+                    'normalized': normalized_text,
+                }
+                prev = merged_by_text.get(normalized_text)
+                if not prev or current['confidence'] > prev['confidence']:
+                    merged_by_text[normalized_text] = current
 
-    ocr_rows = [
-        {
-            'text': t.text,
-            'confidence': t.confidence,
-            'bbox': t.bbox,
-        }
-        for t in text_detections
-        if t.text and t.confidence >= settings.text_conf_threshold
-    ]
-    ocr_tokens = [_clean_ocr_text(row['text']) for row in ocr_rows if _clean_ocr_text(row['text'])]
+        ocr_rows = list(merged_by_text.values())
+        text_detections = [TextDetection(text=row['text'], confidence=row['confidence'], bbox=row.get('bbox')) for row in ocr_rows]
+        ocr_tokens = [row['normalized'] for row in ocr_rows]
+
     ranked_candidates = product_catalog.rank_candidates(ocr_lines=ocr_tokens, barcode=barcode, top_k=settings.top_k)
-    predicted_product = ranked_candidates[0]['name'] if ranked_candidates else None
+    top_candidate = ranked_candidates[0] if ranked_candidates else None
+    top_candidate_conf = float(top_candidate.get('confidence', 0.0)) if top_candidate else 0.0
+    top_candidate_reasons = top_candidate.get('reasons', []) if top_candidate else []
+    has_barcode_exact = bool(top_candidate and 'barcode_exact' in top_candidate_reasons)
+    avg_ocr_confidence = (
+        sum(float(row.get('confidence', 0.0)) for row in ocr_rows) / max(1, len(ocr_rows))
+        if ocr_rows
+        else 0.0
+    )
+    unique_ocr_tokens = len(set(ocr_tokens))
+    retry_reasons: list[str] = []
+    if not has_barcode_exact:
+        if unique_ocr_tokens < settings.ocr_min_unique_tokens_for_resolve:
+            retry_reasons.append('low_ocr_token_coverage')
+        if avg_ocr_confidence < settings.ocr_avg_confidence_min:
+            retry_reasons.append('low_ocr_confidence')
+        if top_candidate_conf < settings.catalog_confidence_min_for_autoresolve:
+            retry_reasons.append('low_catalog_confidence')
+
+    needs_recapture = len(retry_reasons) > 0
+    retry_guidance = None
+    if needs_recapture:
+        if 'low_ocr_confidence' in retry_reasons:
+            retry_guidance = 'Move closer, reduce glare, and capture the front label.'
+        elif 'low_ocr_token_coverage' in retry_reasons:
+            retry_guidance = 'Center the package label and keep text fully visible.'
+        else:
+            retry_guidance = 'Retake the photo with better lighting and focus.'
+
+    visible_candidates = ranked_candidates if not needs_recapture else []
+    if not visible_candidates and settings.enable_off_text_search_fallback and ocr_tokens:
+        off_query = ' '.join(dict.fromkeys(ocr_tokens))[:180]
+        off_candidates = await search_open_food_facts_by_text(off_query, top_k=settings.off_text_search_top_k)
+        visible_candidates = [
+            {
+                'product_id': candidate.get('code') or f"off:{candidate.get('name')}",
+                'name': candidate.get('name'),
+                'brand': candidate.get('brand'),
+                'product_name': candidate.get('name'),
+                'confidence': candidate.get('confidence', 0.0),
+                'reasons': ['ocr_off_text_search'],
+                'barcode': candidate.get('code'),
+            }
+            for candidate in off_candidates
+            if candidate.get('name')
+        ]
+        if visible_candidates:
+            needs_recapture = False
+            retry_reasons = []
+            retry_guidance = None
+    predicted_product = visible_candidates[0]['name'] if visible_candidates else None
+    if settings.dish_classifier_enabled:
+        dish_classifier = app.state.dish_classifier
+        dish_predictions = dish_classifier.predict(img, top_k=settings.dish_classifier_top_k)
     items = [
         {
             'name': candidate['name'],
@@ -188,7 +280,7 @@ async def detect(
             'product_id': candidate.get('product_id'),
             'reasons': candidate.get('reasons', []),
         }
-        for candidate in ranked_candidates
+        for candidate in visible_candidates
     ]
     scan_log_id: str | None = None
 
@@ -211,7 +303,7 @@ async def detect(
                 ocr_entries=ocr_rows,
                 barcode=barcode,
                 predicted_product=predicted_product,
-                predicted_candidates=ranked_candidates,
+                predicted_candidates=visible_candidates,
                 context={
                     'scan_mode': scan_mode,
                     'device_info': device_info,
@@ -261,18 +353,32 @@ async def detect(
         debug={
             'api_keys_logged': ['items', 'detections', 'text_detections', 'model', 'latency_ms'],
             'ocr_token_count': len(ocr_tokens),
+            'ocr_unique_token_count': unique_ocr_tokens,
+            'ocr_average_confidence': round(avg_ocr_confidence, 4),
+            'ocr_crop_strategies': ocr_crop_strategies,
+            'dish_predictions': dish_predictions,
+            'dish_classifier_available': dish_status.get('available'),
+            'dish_classifier_message': dish_status.get('message'),
+            'top_catalog_confidence': round(top_candidate_conf, 4),
+            'top_catalog_reasons': top_candidate_reasons,
+            'label_resolution_state': 'needs_recapture' if needs_recapture else 'ready',
+            'retry_reasons': retry_reasons,
+            'retry_guidance': retry_guidance,
             'text_provider_available': text_status.get('available'),
             'text_provider_message': text_status.get('message'),
             'catalog_size': product_catalog.size,
             'package_detected': package_detection is not None,
             'package_detection_strategy': package_detection_strategy,
-            'used_crop_for_ocr': crop_image is not None,
+            'used_crop_for_ocr': len(ocr_crop_strategies) > 1,
             'crop_pick_label': package_detection.label if package_detection else None,
             'crop_pick_confidence': package_detection.confidence if package_detection else None,
             'crop_pick_bbox': package_detection.bbox if package_detection else None,
             'fallback_crop_max_area_ratio': settings.fallback_crop_max_area_ratio,
             'fallback_crop_min_confidence': settings.fallback_crop_min_confidence,
             'fallback_crop_preferred_labels': settings.fallback_crop_preferred_labels,
+            'ocr_min_unique_tokens_for_resolve': settings.ocr_min_unique_tokens_for_resolve,
+            'ocr_avg_confidence_min': settings.ocr_avg_confidence_min,
+            'catalog_confidence_min_for_autoresolve': settings.catalog_confidence_min_for_autoresolve,
             'model_weights_path': getattr(app.state, 'model_weights_path', None),
             'model_weights_sha256': getattr(app.state, 'model_weights_sha256', None),
             'model_loaded_at': getattr(app.state, 'model_loaded_at', None),

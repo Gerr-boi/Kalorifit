@@ -1,6 +1,6 @@
 import { FoodDetectorProvider } from './foodDetectorProvider.js';
+import { getScannerRuntimeConfig } from '../scannerRuntimeConfig.js';
 
-const DEFAULT_BASE_URL = 'http://127.0.0.1:8001';
 const DEFAULT_DETECT_PATH = '/detect';
 const DEFAULT_HEALTH_PATH = '/health';
 const DEFAULT_FEEDBACK_PATH = '/feedback';
@@ -23,7 +23,8 @@ function toErrorBodySnippet(text, max = 600) {
 export class FoodDetectionBotProvider extends FoodDetectorProvider {
   constructor(opts = {}) {
     super();
-    this.baseUrl = opts.baseUrl ?? process.env.FOOD_DETECTION_BOT_URL ?? DEFAULT_BASE_URL;
+    const runtimeConfig = getScannerRuntimeConfig();
+    this.baseUrl = opts.baseUrl ?? runtimeConfig.baseUrl;
     this.detectPath = opts.detectPath ?? process.env.FOOD_DETECTION_BOT_DETECT_PATH ?? DEFAULT_DETECT_PATH;
     this.healthPath = opts.healthPath ?? process.env.FOOD_DETECTION_BOT_HEALTH_PATH ?? DEFAULT_HEALTH_PATH;
     this.feedbackPath = opts.feedbackPath ?? process.env.FOOD_DETECTION_BOT_FEEDBACK_PATH ?? DEFAULT_FEEDBACK_PATH;

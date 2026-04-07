@@ -1,26 +1,162 @@
 [
   {
-    "id": "fjordland-byggrt",
+    "id": "fjordland-byggrot",
     "brand": "Fjordland",
-    "product_name": "Byggr\u00f8t",
-    "aliases": ["byggr\u00f8t", "fjordland byggr\u00f8t", "bygggr\u00f8t", "byggr ot"],
+    "product_name": "Byggrot",
+    "aliases": ["byggrot", "fjordland byggrot", "byggrt", "byggr ot"],
     "barcode": null,
-    "keywords": ["gr\u00f8t", "havre", "bygg"]
+    "keywords": ["grot", "oat", "porridge"]
   },
   {
     "id": "tine-lettmelk-1l",
     "brand": "Tine",
     "product_name": "Lettmelk 1L",
-    "aliases": ["lettmelk", "tine lettmelk", "lett melk"],
+    "aliases": ["lettmelk", "tine lettmelk", "lett melk", "milk"],
     "barcode": null,
-    "keywords": ["melk", "milk"]
+    "keywords": ["milk", "dairy"]
   },
   {
-    "id": "q-meieriene-sjokolademelk",
+    "id": "q-sjokolademelk",
     "brand": "Q",
     "product_name": "Sjokolademelk",
-    "aliases": ["q sjokolademelk", "sjokomelk", "chocolate milk"],
+    "aliases": ["q sjokolademelk", "sjokomelk", "chocolate milk", "choco milk", "sjoko melk"],
     "barcode": null,
-    "keywords": ["kakao", "sjoko", "melk"]
+    "keywords": ["kakao", "milk", "chocolate"]
+  },
+  {
+    "id": "cocacola-original-05l",
+    "brand": "Coca-Cola",
+    "product_name": "Original Taste 0.5L",
+    "aliases": ["coca cola", "cocacola", "coke", "coca-cola", "coca cola original", "coke original"],
+    "barcode": "5449000000996",
+    "keywords": ["cola", "soda", "soft drink"]
+  },
+  {
+    "id": "cocacola-zero-05l",
+    "brand": "Coca-Cola",
+    "product_name": "Zero Sugar 0.5L",
+    "aliases": ["coca cola zero", "cocacola zero", "coke zero", "coca-cola zero", "zero sugar coke"],
+    "barcode": "5449000131836",
+    "keywords": ["cola", "zero", "soda"]
+  },
+  {
+    "id": "pepsi-max-05l",
+    "brand": "Pepsi",
+    "product_name": "Max 0.5L",
+    "aliases": ["pepsi max", "pepsimax", "max pepsi", "pepsi zero", "pepsi max bottle"],
+    "barcode": null,
+    "keywords": ["cola", "zero", "soda"]
+  },
+  {
+    "id": "pepsi-original-05l",
+    "brand": "Pepsi",
+    "product_name": "Original 0.5L",
+    "aliases": ["pepsi", "pepsi cola", "pepsi original", "pepsi bottle"],
+    "barcode": null,
+    "keywords": ["cola", "soda", "soft drink"]
+  },
+  {
+    "id": "urge-original-05l",
+    "brand": "Urge",
+    "product_name": "Original 0.5L",
+    "aliases": ["urge", "urge bottle", "urge citrus"],
+    "barcode": null,
+    "keywords": ["citrus", "soda", "soft drink"]
+  },
+  {
+    "id": "fanta-orange-05l",
+    "brand": "Fanta",
+    "product_name": "Orange 0.5L",
+    "aliases": ["fanta", "fanta orange", "orange fanta", "fanta bottle"],
+    "barcode": null,
+    "keywords": ["orange", "soda", "soft drink"]
+  },
+  {
+    "id": "sprite-original-05l",
+    "brand": "Sprite",
+    "product_name": "Lemon Lime 0.5L",
+    "aliases": ["sprite", "sprite lemon", "sprite lime", "sprite bottle"],
+    "barcode": null,
+    "keywords": ["lemon", "lime", "soda"]
+  },
+  {
+    "id": "redbull-energy-250ml",
+    "brand": "Red Bull",
+    "product_name": "Energy Drink 250ml",
+    "aliases": ["red bull", "redbull", "rb energy", "red bull energy", "red bull can"],
+    "barcode": "9002490100070",
+    "keywords": ["energy", "drink", "can"]
+  },
+  {
+    "id": "monster-original-500ml",
+    "brand": "Monster",
+    "product_name": "Energy Original 500ml",
+    "aliases": ["monster", "monster energy", "monster original", "monster can"],
+    "barcode": null,
+    "keywords": ["energy", "drink", "can"]
+  },
+  {
+    "id": "burn-energy-500ml",
+    "brand": "Burn",
+    "product_name": "Original Energy 500ml",
+    "aliases": ["burn", "burn energy", "burn original", "burn can"],
+    "barcode": null,
+    "keywords": ["energy", "drink", "can"]
+  },
+  {
+    "id": "solo-super-05l",
+    "brand": "Solo",
+    "product_name": "Super 0.5L",
+    "aliases": ["solo", "solo super", "solo bottle", "solo soda"],
+    "barcode": null,
+    "keywords": ["orange", "soda", "soft drink"]
+  },
+  {
+    "id": "imsdal-vann-05l",
+    "brand": "Imsdal",
+    "product_name": "Natural Water 0.5L",
+    "aliases": ["imsdal", "imsdal vann", "imsdal water", "water bottle"],
+    "barcode": null,
+    "keywords": ["water", "vann", "bottle"]
+  },
+  {
+    "id": "farris-lime-05l",
+    "brand": "Farris",
+    "product_name": "Lime 0.5L",
+    "aliases": ["farris", "farris lime", "sparkling water farris", "farris bottle"],
+    "barcode": null,
+    "keywords": ["sparkling", "water", "lime"]
+  },
+  {
+    "id": "biola-naturell",
+    "brand": "Biola",
+    "product_name": "Naturell",
+    "aliases": ["biola", "biola naturell", "biola natural"],
+    "barcode": null,
+    "keywords": ["dairy", "milk", "culture"]
+  },
+  {
+    "id": "litago-sjokomelk",
+    "brand": "Litago",
+    "product_name": "Sjokomelk",
+    "aliases": ["litago", "litago sjokomelk", "litago choco milk", "litago milk"],
+    "barcode": null,
+    "keywords": ["kakao", "milk", "chocolate"]
+  },
+  {
+    "id": "banana-generic",
+    "brand": "Generic",
+    "product_name": "Banana",
+    "aliases": ["banana", "banan", "bananna", "banan a"],
+    "barcode": null,
+    "keywords": ["fruit", "banana"]
+  },
+  {
+    "id": "apple-generic",
+    "brand": "Generic",
+    "product_name": "Apple",
+    "aliases": ["apple", "eple", "red apple", "green apple"],
+    "barcode": null,
+    "keywords": ["fruit", "apple"]
   }
 ]

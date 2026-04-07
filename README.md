@@ -1,50 +1,30 @@
-# Welcome to your Expo app 👋
+# KaloriFit Workspace
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This folder contains two different app trees.
 
-## Get started
+- `app/`: the web scanner app with the actual scanner and meal UI
+- top-level Expo app: currently still the starter shell
 
-1. Install dependencies
+## Run the scanner app
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+From this folder:
 
 ```bash
-npm run reset-project
+npm run scanner:stack
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+That starts:
 
-## Learn more
+- `food_detection_bot` on `127.0.0.1:8001`
+- the local API on `127.0.0.1:8787`
+- the Vite web app
 
-To learn more about developing your project with Expo, look at the following resources:
+If you only want the web app/API without auto-starting the bot:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npm run scanner:web
+```
 
-## Join the community
+## Important
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+`npm start` and `expo start` launch the Expo starter shell, not the scanner UI you have been editing in the nested web app.

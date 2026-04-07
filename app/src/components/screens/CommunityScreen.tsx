@@ -115,9 +115,14 @@ function scoreForLeaderboard(streak: number, postCount: number, totalCalories: n
   return streak * 100 + postCount * 25 + Math.round(totalCalories / 25);
 }
 
+function normalizeToken(value: string | null | undefined) {
+  return (value ?? '').trim().toLowerCase();
+}
+
 export default function CommunityScreen() {
-  const { activeUserId } = useCurrentUser();
-  const [activeTab, setActiveTab] = useState<'feed' | 'friends'>('feed');
+  const { users, currentUser, activeUserId, setActiveUserId, createUser } = useCurrentUser();
+  const [activeTab, setActiveTab] = useState<'feed' | 'friends' | 'pods'>('feed');
+  const [newUserName, setNewUserName] = useState('');
   const [showAddPost, setShowAddPost] = useState(false);
   const [postMode, setPostMode] = useState<'photo' | 'text'>('photo');
   const [caption, setCaption] = useState('');
@@ -203,10 +208,46 @@ export default function CommunityScreen() {
       .slice(0, 8);
   }, [activeUserId, currentStreak, displayName, posts]);
 
+  const podMemberIds = useMemo(() => {
+    const targetPodSize = 6;
+    const minRelevantMembers = 3;
+    const desiredGoal = normalizeToken(profile.goalStrategy ? profile.goalStrategy.split('_').join(' ') : '');
+    const desiredTraining = normalizeToken(profile.trainingType ? profile.trainingType.split('_').join(' ') : '');
+
+    const recentOthers = posts
+      .filter((post) => post.authorId !== activeUserId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    const relevant = recentOthers.filter((post) => {
+      const goalMatch = Boolean(desiredGoal) && normalizeToken(post.goal) === desiredGoal;
+      const trainingMatch = Boolean(desiredTraining) && normalizeToken(post.trainingStyle) === desiredTraining;
+      return goalMatch || trainingMatch;
+    });
+
+    const picked = new Set<string>();
+
+    for (const post of relevant) {
+      picked.add(post.authorId);
+      if (picked.size >= targetPodSize) break;
+    }
+
+    if (picked.size < minRelevantMembers) {
+      for (const post of recentOthers) {
+        picked.add(post.authorId);
+        if (picked.size >= targetPodSize) break;
+      }
+    }
+
+    return picked;
+  }, [activeUserId, posts, profile.goalStrategy, profile.trainingType]);
+
   const visiblePosts = useMemo(() => {
+    if (activeTab === 'pods') {
+      return posts.filter((post) => post.authorId === activeUserId || podMemberIds.has(post.authorId));
+    }
     if (activeTab === 'friends') return posts.filter((post) => post.authorId !== activeUserId);
     return posts;
-  }, [activeTab, activeUserId, posts]);
+  }, [activeTab, activeUserId, podMemberIds, posts]);
 
   function openAddPostModal() {
     setShowAddPost(true);
@@ -295,6 +336,13 @@ export default function CommunityScreen() {
     }));
   }
 
+  function handleAddFriend() {
+    const nextName = newUserName.trim();
+    if (!nextName) return;
+    createUser(nextName);
+    setNewUserName('');
+  }
+
   return (
     <div className="screen">
       <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4">
@@ -321,6 +369,14 @@ export default function CommunityScreen() {
             >
               Friends
             </button>
+            <button
+              onClick={() => setActiveTab('pods')}
+              className={`pb-2 border-b-2 font-medium ${
+                activeTab === 'pods' ? 'border-white text-white' : 'border-transparent text-white/60'
+              }`}
+            >
+              Pods
+            </button>
           </div>
           <button
             type="button"
@@ -332,10 +388,46 @@ export default function CommunityScreen() {
         </div>
       </div>
 
-      <div className="social-section bg-white border-b">
+      <div className="social-section bg-white dark:bg-gray-800 border-b dark:border-gray-700">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Friends</p>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">You: {currentUser.name}</p>
+          </div>
+          <select
+            value={currentUser.id}
+            onChange={(e) => setActiveUserId(e.target.value)}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-2 py-1.5 text-sm text-gray-700 dark:text-gray-200"
+          >
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={newUserName}
+            onChange={(e) => setNewUserName(e.target.value)}
+            placeholder="New friend name"
+            className="flex-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-100"
+          />
+          <button
+            type="button"
+            onClick={handleAddFriend}
+            className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-medium text-white"
+          >
+            Add friend
+          </button>
+        </div>
+      </div>
+
+      <div className="social-section bg-white dark:bg-gray-800 border-b dark:border-gray-700">
         <div className="flex items-center gap-2 mb-3">
           <Trophy className="w-5 h-5 text-yellow-500" />
-          <h2 className="font-semibold text-gray-800">Weekly leaderboard</h2>
+          <h2 className="font-semibold text-gray-800 dark:text-gray-100">Weekly leaderboard</h2>
         </div>
         <div className="space-y-2">
           {leaderboard.map((entry, index) => (
@@ -355,9 +447,13 @@ export default function CommunityScreen() {
         </div>
       </div>
 
-      <div className="social-section bg-slate-50 border-b">
+      <div className="social-section bg-slate-50 dark:bg-gray-800/60 border-b dark:border-gray-700">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-          {activeTab === 'feed' ? 'All recent posts' : 'Friend posts only'}
+          {activeTab === 'feed'
+            ? 'All recent posts'
+            : activeTab === 'friends'
+              ? 'Friend posts only'
+              : `Pod posts only (${podMemberIds.size + 1} members incl. you)`}
         </p>
       </div>
 
@@ -452,10 +548,10 @@ export default function CommunityScreen() {
 
       {showAddPost ? (
         <div className="fixed inset-0 z-[1400] bg-black/40 flex items-end justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl mb-16 sm:mb-0">
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-2xl mb-16 sm:mb-0">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-800">Add post</h3>
-              <button type="button" onClick={closeAddPostModal} className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Add post</h3>
+              <button type="button" onClick={closeAddPostModal} className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 flex items-center justify-center">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -464,14 +560,14 @@ export default function CommunityScreen() {
               <button
                 type="button"
                 onClick={() => setPostMode('photo')}
-                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'photo' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-700'}`}
+                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'photo' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200'}`}
               >
                 Photo mode
               </button>
               <button
                 type="button"
                 onClick={() => setPostMode('text')}
-                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'text' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-700'}`}
+                className={`px-3 py-1.5 text-xs rounded-full border ${postMode === 'text' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200'}`}
               >
                 Text mode
               </button>
@@ -493,7 +589,7 @@ export default function CommunityScreen() {
               onChange={(e) => setCaption(e.target.value)}
               placeholder="Write a short update"
               rows={3}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm mb-3"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm mb-3"
             />
 
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -502,14 +598,14 @@ export default function CommunityScreen() {
                 value={durationMinutes}
                 onChange={(e) => setDurationMinutes(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="Duration (min)"
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm"
               />
               <input
                 inputMode="numeric"
                 value={calories}
                 onChange={(e) => setCalories(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="Calories"
-                className="rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                className="rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm"
               />
             </div>
 
@@ -517,11 +613,11 @@ export default function CommunityScreen() {
               value={prHighlight}
               onChange={(e) => setPrHighlight(e.target.value)}
               placeholder="PR highlight"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm mb-4"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm mb-4"
             />
 
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={closeAddPostModal} className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700">
+              <button type="button" onClick={closeAddPostModal} className="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200">
                 Cancel
               </button>
               <button type="button" onClick={createPost} className="px-4 py-2 rounded-lg bg-orange-500 text-white">

@@ -85,7 +85,7 @@ export default function ScanScreen() {
   const visualAnchorStorageKey = getScopedStorageKey(VISUAL_ANCHOR_STORAGE_KEY, 'user', activeUserId);
   const dailyLogsStorageKey = getScopedStorageKey('home.dailyLogs.v2', 'user', activeUserId);
   const lastLoggedFoodStorageKey = getScopedStorageKey('home.lastLoggedFood.v1', 'user', activeUserId);
-  const [mode, setMode] = useState<ScanMode>('photo');
+  const [mode, setMode] = useState<ScanMode>('barcode');
   const [isScanning, setIsScanning] = useState(false);
   const [scanStatus, setScanStatus] = useState('');
   const [scannedFood, setScannedFood] = useState<ScannedFood | null>(null);
@@ -156,15 +156,17 @@ export default function ScanScreen() {
       const elapsedMs = Math.round(now - startedAt);
       lastAt = now;
 
-      console.info('[SCAN_TRACE]', {
-        scanRequestId,
-        stage,
-        deltaMs,
-        elapsedMs,
-        deviceInfo,
-        ...input,
-        ...data,
-      });
+      if (import.meta.env.DEV) {
+        console.info('[SCAN_TRACE]', {
+          scanRequestId,
+          stage,
+          deltaMs,
+          elapsedMs,
+          deviceInfo,
+          ...input,
+          ...data,
+        });
+      }
     };
 
     return { scanRequestId, deviceInfo, mark };
@@ -299,7 +301,8 @@ export default function ScanScreen() {
 
   const handleScan = async () => {
      if (mode === 'photo') {
-       await capturePhotoAndAnalyze();
+       // AI image detection is coming soon — do nothing
+       return;
      }
      if (mode === 'barcode') {
        setManualBarcode('');
@@ -1260,8 +1263,6 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
       const nextScanLogId = typeof rawResultObject?.scanLogId === 'string' ? rawResultObject.scanLogId : null;
       setScanLogId(nextScanLogId);
 
-      console.log('AI raw response:', rawAIResult);
-
       const predictions = extractPredictionsFromAI(rawAIResult, 3);
       setPredictionOptions(predictions.slice(0, 5));
       trace.mark('RESULT_PARSED', { predictionCount: predictions.length });
@@ -1425,7 +1426,7 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
       if (dummyMode) {
         setScanState('needs_manual_label');
         setManualLabel('');
-        showFeedback('Bildegjenkjenning kjører i dummy-modus. Sett PROVIDER=yolo i food_detection_bot/.env for ekte deteksjon.', 'info');
+        showFeedback('Bildegjenkjenning er ikke tilgjengelig akkurat nå. Skriv inn maten manuelt.', 'info');
       } else if (timedOut) {
         showFeedback('Scan timed out. Please retry.', 'error');
       } else {
@@ -1742,6 +1743,33 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
     await startLiveBarcodeScan(next.deviceId);
   };
 
+  const switchPhotoCamera = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      showFeedback('Kan ikke bytte kamera i denne nettleseren.', 'error');
+      return;
+    }
+
+    let devices = liveDevicesRef.current;
+    if (devices.length < 2) {
+      const listed = await navigator.mediaDevices.enumerateDevices();
+      devices = listed.filter((d) => d.kind === 'videoinput');
+      liveDevicesRef.current = devices;
+    }
+
+    if (devices.length < 2) {
+      showFeedback('Fant bare ett kamera.', 'info');
+      return;
+    }
+
+    const activeId = activeCameraIdRef.current;
+    const currentIndex = devices.findIndex((d) => d.deviceId === activeId);
+    const next = devices[(currentIndex + 1 + devices.length) % devices.length];
+
+    stopPhotoCamera();
+    setMode('photo');
+    await startPhotoCamera(next.deviceId);
+  };
+
   function calcServing(per100g: MacroNutrients | null | undefined, amount: number) {
     const f = amount / 100;
     return {
@@ -1821,14 +1849,11 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
               </div>
             )}
             {mode === 'photo' && (
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-2 rounded-full">
-                {isScanning
-                  ? (scanStatus || 'Analyserer bilde...')
-                  : photoCamError
-                  ? photoCamError
-                  : photoCamActive
-                    ? (photoCamReady ? 'Trykk knappen for å ta bilde' : 'Starter kamera...')
-                    : 'Trykk shutter for å starte kamera'}
+              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 z-20">
+                <Camera className="w-12 h-12 text-orange-400 mb-3 opacity-60" />
+                <p className="text-white font-semibold text-lg">AI-bildegjenkjenning</p>
+                <p className="text-white/60 text-sm mt-1">Kommer snart</p>
+                <p className="text-white/40 text-xs mt-3 text-center px-6">Bruk strekkodeskanneren for å logge mat.</p>
               </div>
             )}
 
@@ -1863,10 +1888,12 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
                   setLiveScanError(null);
                   setMode('photo');
                 }}
-                className={`camera-mode ${mode === 'photo' ? 'active' : ''}`}
+                className={`camera-mode relative opacity-60 cursor-not-allowed`}
+                title="Kommer snart"
               >
                 <Camera className="w-4 h-4 inline mr-1" />
                 FOTO
+                <span className="absolute -top-2 -right-0.5 bg-orange-500 text-white text-[7px] font-bold px-1 py-0.5 rounded-full leading-none">SNART</span>
               </button>
               <button
                 onClick={async () => {
@@ -1880,6 +1907,11 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
                 STREKKODE
               </button>
             </div>
+
+            {/* Data attribution */}
+            <p className="text-white/30 text-[10px] text-center -mt-1">
+              Matdata: Matvaretabellen.no
+            </p>
 
             {/* Search Input (when in search mode) */}
             {mode === 'search' && (
@@ -1912,10 +1944,7 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
             {/* Kamerarull (camera roll) button - opens file picker */}
             <button
               onClick={() => {
-                if (mode === 'photo') {
-                  void capturePhotoAndAnalyze();
-                  return;
-                }
+                if (mode === 'photo') return; // AI image detection coming soon
                 openCameraRoll();
               }}
               className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center text-white font-medium text-xs"
@@ -1924,18 +1953,30 @@ async function tryDecodeBarcodeFromBlob(blob: Blob): Promise<string | null> {
               Kamerarull
             </button>
 
-            {mode === 'barcode' && (
+            {(mode === 'barcode' || mode === 'photo') && (
               <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setManualBarcode('');
-                    setManualBarcodeError(null);
-                    setShowBarcodeEntry(true);
-                  }}
-                  className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
-                >
-                  Manuell kode
-                </button>
+                {mode === 'barcode' && (
+                  <button
+                    onClick={() => {
+                      setManualBarcode('');
+                      setManualBarcodeError(null);
+                      setShowBarcodeEntry(true);
+                    }}
+                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
+                  >
+                    Manuell kode
+                  </button>
+                )}
+                {mode === 'photo' && photoCamActive && (
+                  <button
+                    onClick={() => {
+                      void switchPhotoCamera();
+                    }}
+                    className="px-3 py-2 rounded-md bg-white/15 text-white text-xs"
+                  >
+                    Bytt kamera
+                  </button>
+                )}
                 {liveScanActive && (
                   <button
                     onClick={() => {

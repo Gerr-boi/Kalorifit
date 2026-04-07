@@ -3,6 +3,18 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+_GENERIC_PRODUCT_TOKENS = {
+    'bottle',
+    'drink',
+    'soda',
+    'cola',
+    'can',
+    'energy',
+    'water',
+    'juice',
+    'milk',
+}
+
 
 def _normalize_text(value: str) -> str:
     lowered = value.strip().lower()
@@ -13,6 +25,10 @@ def _normalize_text(value: str) -> str:
 def _tokenize(value: str) -> list[str]:
     normalized = _normalize_text(value)
     return [token for token in normalized.split(' ') if len(token) > 1]
+
+
+def _normalize_barcode(value: str | None) -> str:
+    return re.sub(r'[\s\-]', '', str(value or '').strip())
 
 
 @dataclass
@@ -90,16 +106,28 @@ class ProductCatalog:
         clean_ocr_lines = [line for line in (_normalize_text(line) for line in ocr_lines) if line]
         ocr_blob = ' '.join(clean_ocr_lines)
         ocr_tokens = set(_tokenize(ocr_blob))
-        barcode_norm = ''.join((barcode or '').split())
+        barcode_norm = _normalize_barcode(barcode)
 
         ranked: list[dict] = []
         for item in self._items:
             score = 0.0
             reasons: list[str] = []
 
-            if barcode_norm and item.barcode and barcode_norm == item.barcode:
+            if barcode_norm and item.barcode and barcode_norm == _normalize_barcode(item.barcode):
                 score = 1.0
                 reasons.append('barcode_exact')
+                ranked.append(
+                    {
+                        'product_id': item.product_id,
+                        'name': item.display_name,
+                        'brand': item.brand,
+                        'product_name': item.product_name,
+                        'confidence': 1.0,
+                        'reasons': reasons,
+                        'barcode': item.barcode,
+                    }
+                )
+                continue
 
             brand_norm = _normalize_text(item.brand)
             name_norm = _normalize_text(item.product_name)
@@ -111,25 +139,26 @@ class ProductCatalog:
             alias_hits = [alias for alias in alias_norms if alias and alias in ocr_blob]
             brand_overlap = len(brand_tokens & ocr_tokens)
             name_overlap = len(name_tokens & ocr_tokens)
+            generic_name_overlap = len((name_tokens & _GENERIC_PRODUCT_TOKENS) & ocr_tokens)
 
             if brand_norm and brand_norm in ocr_blob:
-                score += 0.35
+                score += 0.46
                 reasons.append('brand_exact')
             elif brand_overlap > 0:
-                score += min(0.25, 0.10 * brand_overlap)
+                score += min(0.32, 0.12 * brand_overlap)
                 reasons.append('brand_partial')
 
             if name_norm and name_norm in ocr_blob:
-                score += 0.45
+                score += 0.40
                 reasons.append('product_exact')
             elif name_tokens:
                 coverage = name_overlap / max(1, len(name_tokens))
                 if coverage > 0:
-                    score += min(0.40, 0.40 * coverage)
+                    score += min(0.35, 0.35 * coverage)
                     reasons.append('product_partial')
 
             if alias_hits:
-                score += min(0.25, 0.10 * len(alias_hits))
+                score += min(0.30, 0.12 * len(alias_hits))
                 reasons.append('alias_match')
 
             keyword_hits = [kw for kw in keyword_norms if kw and kw in ocr_blob]
@@ -138,8 +167,12 @@ class ProductCatalog:
                 reasons.append('keyword_match')
 
             if brand_overlap > 0 and name_overlap > 0:
-                score += 0.2
+                score += 0.30
                 reasons.append('brand_plus_product')
+
+            if brand_overlap == 0 and generic_name_overlap > 0:
+                score -= min(0.24, 0.09 * generic_name_overlap)
+                reasons.append('generic_without_brand_penalty')
 
             if score <= 0:
                 continue

@@ -8,6 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "scanner:web": "npm --prefix app run dev",
+    "scanner:stack": "npm --prefix app run dev:stack",
     "lint": "expo lint"
   },
   "dependencies": {
