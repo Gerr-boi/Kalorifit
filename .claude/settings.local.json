@@ -20,7 +20,27 @@
       "Bash(grep -E \"\\\\.tsx$\")",
       "Bash(wc -l /c/Users/hrger/Kalorifit/app/src/locales/*.ts)",
       "Bash(find c:/Users/hrger/Kalorifit -type f -name .env*)",
-      "Bash(grep -n \"Bearer\\\\|Authorization\\\\|api-key\\\\|apiKey\" c:/Users/hrger/Kalorifit/app/src/**/*.ts c:/Users/hrger/Kalorifit/app/src/**/*.tsx)"
+      "Bash(grep -n \"Bearer\\\\|Authorization\\\\|api-key\\\\|apiKey\" c:/Users/hrger/Kalorifit/app/src/**/*.ts c:/Users/hrger/Kalorifit/app/src/**/*.tsx)",
+      "Bash(grep -E '\\\\.\\(ts|js|tsx|jsx\\)$')",
+      "Bash(cat /c/Users/hrger/Kalorifit/app/kalorifit/app/api/[...route].js)",
+      "Bash(find c:/Users/hrger/AppData/Local/claude-cli-nodejs -name *.png)",
+      "Bash(find c:/Users/hrger/AppData/Local/Temp -name *.png)",
+      "Bash(find c:/Users/hrger/AppData -name *.png -newer c:/Users/hrger/AppData/Roaming/Code/User/globalStorage/storage.json)",
+      "Bash(find \"c:/Users/hrger/Desktop\" \"c:/Users/hrger/Downloads\" \"c:/Users/hrger/Pictures\" -name \"*.png\" -newer \"c:/Users/hrger/Downloads/GetImage \\(2\\).png\")",
+      "Bash(powershell -Command \"Get-ChildItem -Path ''C:\\\\Users\\\\hrger'' -Recurse -Filter ''*.png'' -ErrorAction SilentlyContinue | Where-Object { $_.LastWriteTime -gt \\(Get-Date\\).AddMinutes\\(-10\\) } | Select-Object FullName, LastWriteTime | Sort-Object LastWriteTime -Descending | Select-Object -First 10\")",
+      "Bash(magick --version)",
+      "Bash(convert --version)",
+      "Bash(node -e \"require\\(''sharp''\\)\")",
+      "Bash(python -c \"from PIL import Image; print\\(''pillow available''\\)\")",
+      "Bash(ls -la c:/Users/hrger/Kalorifit/food_detection_bot/*.env*)",
+      "Bash(ls c:/Users/hrger/Kalorifit/food_detection_bot/.*)",
+      "Bash(grep -v \"^c:/Users/hrger/Kalorifit/food_detection_bot/$\")",
+      "Bash(find /c/Users/hrger/Kalorifit/app/src -name *Menu* -o -name *Popup* -o -name *meal*entry*)",
+      "Bash(xargs grep:*)",
+      "Bash(awk 'NR>=3990 && NR<=4010' app/src/components/screens/HomeScreen.tsx)",
+      "Bash(awk 'NR>=3820 && NR<=3840' app/src/components/screens/HomeScreen.tsx)",
+      "Bash(find src:*)",
+      "Bash(grep -rl \"dark\\\\|theme\\\\|colorScheme\\\\|darkMode\\\\|useTheme\\\\|setTheme\" c:/Users/hrger/Kalorifit/app/src --include=*.ts --include=*.tsx)"
     ]
   }
 }

@@ -125,10 +125,6 @@ type FloatingFabBounds = {
 
 // reactionConfig is defined inside the component so labels can be translated
 
-export const emptyReactions: Record<ReactionKey, number> = {
-  fire: 0, strong: 0, beast: 0, insane: 0, watching: 0,
-};
-
 // CHALLENGE_DEFS is defined inside the component so titles can be translated
 
 const POD_WEEKLY_CHALLENGES = [
@@ -162,10 +158,6 @@ const FAB_DRAG_THRESHOLD_PX = 6;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-export function createId(prefix: string) {
-  if (window.crypto?.randomUUID) return `${prefix}-${window.crypto.randomUUID()}`;
-  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-}
 
 function initialsFromName(name: string) {
   const initials = name.trim().split(/\s+/).filter(Boolean).slice(0, 2)

@@ -12,6 +12,8 @@ export type Micros = {
   vitaminD_ug?: number;
 };
 
+export type BeverageType = 'water' | 'milk' | 'juice' | 'soda' | 'coffee' | 'tea' | 'smoothie' | 'other';
+
 export type FoodEntry = {
   id: string;
   name: string;
@@ -20,6 +22,17 @@ export type FoodEntry = {
   carbs: number;
   fat: number;
   micros?: Micros;
+  // Flat macro fields from scan (mirrors Micros for direct access)
+  fiber_g?: number;
+  sugars_g?: number;
+  saturated_fat_g?: number;
+  sodium_mg?: number;
+  // Extended scan fields
+  salt_g?: number;
+  drinkMl?: number;
+  // Beverage hydration
+  beverageType?: BeverageType;
+  hydrationFactor?: number;
 };
 
 export type DayLog = {
@@ -105,6 +118,36 @@ export function startOfWeekMonday(date: Date): Date {
 
 export function toDateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+export function getHydrationFactor(type: BeverageType): number {
+  const factors: Record<BeverageType, number> = {
+    water: 1.0, milk: 0.9, juice: 0.85, smoothie: 0.85,
+    tea: 0.9, coffee: 0.8, soda: 0.7, other: 0.85,
+  };
+  return factors[type] ?? 0.85;
+}
+
+export function classifyBeverageType(name: string): BeverageType | null {
+  const n = name.toLowerCase();
+  if (n.includes('vann') || n.includes('water')) return 'water';
+  if (n.includes('melk') || n.includes('milk')) return 'milk';
+  if (n.includes('juice') || n.includes('saft')) return 'juice';
+  if (n.includes('smoothie')) return 'smoothie';
+  if (n.includes('te') || n.includes('tea')) return 'tea';
+  if (n.includes('kaffe') || n.includes('coffee')) return 'coffee';
+  if (n.includes('brus') || n.includes('soda') || n.includes('cola')) return 'soda';
+  return null;
+}
+
+export function getFoodEntryHydrationMl(entry: FoodEntry): number {
+  if (entry.hydrationFactor !== undefined && entry.kcal > 0) return 0;
+  if (entry.hydrationFactor !== undefined) return 0;
+  return 0;
+}
+
+export function getTotalHydrationMl(log: DayLog): number {
+  return log.waterMl ?? 0;
 }
 
 function clamp(value: number, min: number, max: number): number {

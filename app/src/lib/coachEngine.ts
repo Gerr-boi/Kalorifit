@@ -243,7 +243,7 @@ export function generateCoachMessage(
   // 8. Score excellent — affirm
   if (score.score >= 80) {
     return {
-      headline: score.grade === 'Utmerket' ? 'Eksellent dag 🔥' : 'Sterk dag',
+      headline: score.grade === 'Excellent' ? 'Eksellent dag 🔥' : 'Sterk dag',
       action: 'Hold kursen — du er godt innenfor alle mål.',
       reason: `Discipline score: ${score.score}/100. ${score.accomplished.slice(0, 2).join('. ')}.`,
       priority: 'on_track',

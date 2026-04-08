@@ -1,27 +1,44 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { notifyXP } from '../../lib/xpNotifier';
+import { createPortal } from 'react-dom';
+import { useT } from '../../lib/i18n';
 import type { LucideIcon } from 'lucide-react';
 import {
+  Flame,
   Camera,
+  Calendar,
   ChevronLeft,
   ChevronRight,
-  Flame,
+  Menu,
+  Pencil,
   Plus,
+  Minus,
   ScanLine,
   Apple,
   Egg,
   Sandwich,
+  Trash2,
   UtensilsCrossed,
   Droplets,
   Dumbbell,
+  X,
+  BarChart2,
+  RefreshCw,
+  Settings,
+  BookOpen,
+  ChevronDown,
+  Scale,
+  TrendingUp,
+  Microscope,
 } from 'lucide-react';
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import {
-  CALORIE_GOAL,
+  PROTEIN_GOAL_G,
   WATER_GOAL_ML,
+  addDays,
   calculateDailyDisciplineScore,
   createEmptyDayLog,
-  addDays,
+  getTotalHydrationMl,
   startOfDay,
   startOfWeekMonday,
   toDateKey,
@@ -47,6 +64,9 @@ import {
   type TimelineType,
   type TrainingType,
 } from '../../lib/nutritionPlanner';
+import { generateCoachMessage, computeAdaptiveComplexity } from '../../lib/coachEngine';
+import CoachCard from '../coach/CoachCard';
+import TrajectoryChart from '../trajectory/TrajectoryChart';
 
 type MealTemplate = {
   id: MealId;
@@ -58,7 +78,7 @@ type MealTemplate = {
 
 type LogEvent = {
   id: string;
-  type: 'meal' | 'water' | 'workout' | 'macro' | 'repeat' | 'streak-protect';
+  type: 'meal' | 'water' | 'workout' | 'macro' | 'repeat';
   actionId: string;
   mealId?: MealId;
   kcal?: number;
@@ -83,6 +103,12 @@ type PendingTemplate = {
   signature: string;
   suggestedName: string;
   items: FoodEntry[];
+};
+
+type LoggedMealEntry = {
+  mealId: MealId;
+  index: number;
+  entry: FoodEntry;
 };
 
 type WorkoutSession = {
@@ -123,11 +149,46 @@ type HomeProfile = {
   psychologyType?: PsychologyType;
   specialPhase?: SpecialPhase;
   bmiHistory?: Array<{ date: string; weightKg: number }>;
+  allergies?: string[];
 };
+
+type DayMicroLog = {
+  fiberG?: number;
+  omega3G?: number;
+  ironMg?: number;
+  calciumMg?: number;
+  vitCMg?: number;
+  vitDUg?: number;
+  magMg?: number;
+  zincMg?: number;
+};
+
+const ALLERGY_KEYWORDS: Record<string, string[]> = {
+  gluten: ['gluten', 'hvete', 'bygg', 'rug', 'spelt', 'brød', 'pasta', 'mel', 'kake', 'kjeks', 'havre'],
+  milk: ['melk', 'milk', 'ost', 'cheese', 'yogurt', 'fløte', 'smør', 'butter', 'cream', 'dairy', 'kefir', 'skyr', 'rømme', 'kesam'],
+  egg: ['egg'],
+  nuts: ['nøtter', 'nuts', 'mandel', 'almond', 'cashew', 'valnøtt', 'walnut', 'hasselnøtt', 'hazelnut', 'pistachio', 'pistasjnøtt'],
+  fish: ['fisk', 'fish', 'laks', 'salmon', 'torsk', 'cod', 'sild', 'herring', 'makrell', 'mackerel', 'tuna', 'tunfisk', 'ørret', 'trout'],
+  shellfish: ['skalldyr', 'shellfish', 'reke', 'shrimp', 'krabbe', 'crab', 'hummer', 'lobster', 'musling', 'mussel', 'østers', 'oyster', 'blekksprut'],
+  soy: ['soya', 'soy', 'tofu', 'edamame', 'miso', 'tempeh'],
+  peanuts: ['peanøtt', 'peanut', 'jordnøtt', 'groundnut'],
+};
+const ALLERGY_LABELS: Record<string, string> = { gluten: 'Gluten', milk: 'Melk', egg: 'Egg', nuts: 'Nøtter', fish: 'Fisk', shellfish: 'Skalldyr', soy: 'Soya', peanuts: 'Peanøtter' };
 
 const RING_RADIUS = 90;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const SWIPE_THRESHOLD = 45;
+const WATER_CUP_SIZE_ML = 250;
+const MAX_WATER_CUPS = 8;
+const EMPTY_DAY_LOGS: Record<string, DayLog> = {};
+const EMPTY_HOME_PROFILE: HomeProfile = {};
+const EMPTY_LOG_EVENTS: LogEvent[] = [];
+const EMPTY_SAVED_MEAL_TEMPLATES: SavedMealTemplate[] = [];
+const EMPTY_MICRO_LOGS: Record<string, DayMicroLog> = {};
+const EMPTY_WORKOUT_SESSIONS: WorkoutSession[] = [];
+const EMPTY_DATE_FLAGS: Record<string, true> = {};
+const CONSISTENCY_DROP_INSIGHT = 'Consistency dropped this week. Use a simpler logging mode temporarily.';
+const SCAN_TARGET_DATE_KEY_STORAGE_KEY = 'kalorifit.scanTargetDateKey.v1';
 
 const mealTemplates: MealTemplate[] = [
   {
@@ -160,6 +221,27 @@ const mealTemplates: MealTemplate[] = [
   },
 ];
 
+const mealLabelById: Record<MealId, string> = {
+  breakfast: 'Frokost',
+  lunch: 'Lunsj',
+  dinner: 'Middag',
+  snacks: 'Snacks',
+};
+
+const mealIconToneById: Record<MealId, string> = {
+  breakfast: 'bg-amber-100 dark:bg-amber-500/14 border border-amber-200/80 dark:border-amber-400/25',
+  lunch: 'bg-emerald-100 dark:bg-emerald-500/14 border border-emerald-200/80 dark:border-emerald-400/25',
+  dinner: 'bg-sky-100 dark:bg-sky-500/14 border border-sky-200/80 dark:border-sky-400/25',
+  snacks: 'bg-fuchsia-100 dark:bg-fuchsia-500/14 border border-fuchsia-200/80 dark:border-fuchsia-400/25',
+};
+
+const mealIconGlyphToneById: Record<MealId, string> = {
+  breakfast: 'text-amber-700 dark:text-amber-300/80',
+  lunch: 'text-emerald-700 dark:text-emerald-300/80',
+  dinner: 'text-sky-700 dark:text-sky-300/80',
+  snacks: 'text-fuchsia-700 dark:text-fuchsia-300/80',
+};
+
 const collapsedMeals: Record<MealId, boolean> = {
   breakfast: false,
   lunch: false,
@@ -173,6 +255,16 @@ const fullDateFormat = new Intl.DateTimeFormat('nb-NO', {
   month: 'long',
   year: 'numeric',
 });
+const kcalNumberFormat = new Intl.NumberFormat('nb-NO');
+
+function formatDateKey(dateKey: string) {
+  if (typeof dateKey !== 'string') return fullDateFormat.format(new Date());
+  const [year, month, day] = dateKey.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return fullDateFormat.format(new Date());
+  }
+  return fullDateFormat.format(new Date(year, month - 1, day));
+}
 
 function createFoodId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -191,9 +283,10 @@ function sumMealTotals(items: FoodEntry[]) {
   );
 }
 
-function getRingColor(caloriesRemaining: number) {
+function getRingColor(caloriesRemaining: number, netGoal: number) {
   if (caloriesRemaining < 0) return '#ef4444';
-  if (caloriesRemaining <= 250) return '#f97316';
+  const threshold = Math.max(150, netGoal * 0.1);
+  if (caloriesRemaining <= threshold) return '#f97316';
   return '#22c55e';
 }
 
@@ -203,12 +296,14 @@ function getWeeklyBarColor(fillRatio: number) {
   return `hsl(${hue}, 78%, 46%)`;
 }
 
-function isWithinCalorieRange(log: DayLog) {
+function isWithinCalorieRange(log: DayLog, targetKcal: number) {
   const consumed = Object.values(log.meals)
     .flat()
     .reduce((sum, item) => sum + item.kcal, 0);
-  const remaining = CALORIE_GOAL + log.trainingKcal - consumed;
-  return consumed > 0 && remaining >= -250 && remaining <= 300;
+  const goal = targetKcal + log.trainingKcal;
+  const tolerance = Math.max(200, goal * 0.12);
+  const remaining = goal - consumed;
+  return consumed > 0 && remaining >= -tolerance && remaining <= tolerance * 1.5;
 }
 
 function roundToNearest(value: number, nearest: number) {
@@ -225,10 +320,10 @@ function getMealSignature(items: FoodEntry[]) {
 function cloneDayLog(log: DayLog): DayLog {
   return {
     meals: {
-      breakfast: [...log.meals.breakfast],
-      lunch: [...log.meals.lunch],
-      dinner: [...log.meals.dinner],
-      snacks: [...log.meals.snacks],
+      breakfast: log.meals.breakfast.map((item) => ({ ...item })),
+      lunch: log.meals.lunch.map((item) => ({ ...item })),
+      dinner: log.meals.dinner.map((item) => ({ ...item })),
+      snacks: log.meals.snacks.map((item) => ({ ...item })),
     },
     trainingKcal: log.trainingKcal,
     waterMl: log.waterMl,
@@ -260,46 +355,136 @@ function groupFoodsByName(items: FoodEntry[]) {
   return Array.from(grouped.values());
 }
 
+function localizeAdjustmentReason(reason: string, t: (key: string) => string) {
+  if (reason.startsWith('Weight is not dropping. Applying -')) return t('home.adjustments.weightNotMoving');
+  if (reason.startsWith('Weight is dropping too fast. Adding +')) return t('home.adjustments.losingFast');
+  if (reason === 'Weight trend is in healthy fat-loss range.') return t('home.adjustments.healthyFatLoss');
+  if (reason.startsWith('Weight gain is too slow. Applying +')) return t('home.adjustments.gainingTooSlow');
+  if (reason.startsWith('Weight gain is too fast. Applying -')) return t('home.adjustments.gainingTooFast');
+  if (reason === 'Weight trend is in healthy muscle-gain range.') return t('home.adjustments.healthyMuscle');
+  if (reason.startsWith('Drift detected. Adjusting by')) return t('home.adjustments.driftAdjusted');
+  if (reason === 'Trend is stable.') return t('home.adjustments.trendStable');
+  if (reason === 'Standard mode uses static target.') return t('home.adjustments.staticGoal');
+  return reason;
+}
+
+function localizeProjectionText(text: string) {
+  if (text.startsWith('Open projection: ~')) {
+    const value = text.replace('Open projection: ~', '').replace('kg/week', 'kg/uke');
+    return `Estimert utvikling: ${value}`;
+  }
+  return text;
+}
+
+function localizeBehaviorInsight(insight: string, t: (key: string) => string) {
+  if (insight === 'Weekend calorie intake is higher than weekdays. Consider a weekend buffer.') {
+    return t('home.insights.weekendHigher');
+  }
+  if (insight === 'You under-eat protein on Sundays compared with your target.') {
+    return t('home.insights.sundayProteinLow');
+  }
+  if (insight === 'Calories often spike after 8 PM. Plan a protein-forward evening meal.') {
+    return t('home.insights.eveningSpike');
+  }
+  if (insight === 'Consistency dropped this week. Use a simpler logging mode temporarily.') {
+    return t('home.insights.consistencyDrop');
+  }
+  return insight;
+}
+
 export default function HomeScreen() {
-  const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
-  const [profilePrefs] = useLocalStorageState<HomeProfile>('profile', {});
+  const t = useT();
+  const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
+  const [profilePrefs, setProfilePrefs] = useLocalStorageState<HomeProfile>('profile', EMPTY_HOME_PROFILE);
   const [lastLoggedFood, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
-  const [logEvents, setLogEvents] = useLocalStorageState<LogEvent[]>('home.logEvents.v1', []);
-  const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', []);
-  const [workoutSessions, setWorkoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', []);
-  const [lazyMode, setLazyMode] = useLocalStorageState<boolean>('home.lazyMode.v1', false);
+  const [logEvents, setLogEvents] = useLocalStorageState<LogEvent[]>('home.logEvents.v1', EMPTY_LOG_EVENTS);
+  const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', EMPTY_SAVED_MEAL_TEMPLATES);
+  const [workoutSessions, setWorkoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', EMPTY_WORKOUT_SESSIONS);
   const [goalPopupDismissedByDate, setGoalPopupDismissedByDate] = useLocalStorageState<Record<string, true>>(
     'home.goalPopupDismissedByDate.v1',
-    {},
+    EMPTY_DATE_FLAGS,
   );
   const [goalPopupShownByDate, setGoalPopupShownByDate] = useLocalStorageState<Record<string, true>>(
     'home.goalPopupShownByDate.v1',
-    {},
+    EMPTY_DATE_FLAGS,
   );
   const [today, setToday] = useState<Date>(() => startOfDay(new Date()));
   const [dayOffset, setDayOffset] = useState(0);
+  const [showActivityHistory, setShowActivityHistory] = useState(false);
+  const [historyViewDate, setHistoryViewDate] = useState(() => startOfDay(new Date()));
+  const [historySelectedKey, setHistorySelectedKey] = useState<string | null>(null);
   const [showPopup, setShowPopup] = useState(false);
   const [ringExpanded, setRingExpanded] = useState(false);
   const [expandedMeals, setExpandedMeals] = useState<Record<MealId, boolean>>(collapsedMeals);
   const [showQuickAddMenu, setShowQuickAddMenu] = useState(false);
+  const [showNutrientModal, setShowNutrientModal] = useState(false);
+  const [microLogsByDate, setMicroLogsByDate] = useLocalStorageState<Record<string, DayMicroLog>>('home.microLogs.v1', EMPTY_MICRO_LOGS);
+  const [microInputKey, setMicroInputKey] = useState<keyof DayMicroLog | null>(null);
+  const [microInputValue, setMicroInputValue] = useState('');
   const [scanHint, setScanHint] = useState<string | null>(null);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate | null>(null);
   const [smartPrompt, setSmartPrompt] = useState<string | null>(null);
+  const [heroMessageIndex, setHeroMessageIndex] = useState(0);
+  const [heroMessageVisible, setHeroMessageVisible] = useState(true);
   const [showWorkoutModal, setShowWorkoutModal] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarView, setSidebarView] = useState<'menu' | 'logg' | 'goals' | 'journey'>('menu');
   const [workoutStartedAt, setWorkoutStartedAt] = useState('');
   const [workoutDurationMin, setWorkoutDurationMin] = useState('30');
   const [workoutCalories, setWorkoutCalories] = useState('220');
   const [workoutType, setWorkoutType] = useState<WorkoutSession['workoutType']>('Run');
   const [workoutExerciseName, setWorkoutExerciseName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
-  const [waterMeterMl, setWaterMeterMl] = useState(250);
+  const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
+  const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
+  const [showWeightModal, setShowWeightModal] = useState(false);
+  const [weightInput, setWeightInput] = useState('');
+  const [showCustomWater, setShowCustomWater] = useState(false);
+  const [customWaterInput, setCustomWaterInput] = useState('');
+
+  const [animatedProgressRatio, setAnimatedProgressRatio] = useState(0);
+  const [animatedProgressValue, setAnimatedProgressValue] = useState(0);
+  const [ringAnimating, setRingAnimating] = useState(false);
   const [ringPumping, setRingPumping] = useState(false);
-  const [headerWave, setHeaderWave] = useState(false);
+  const ringPumpTimerRef = useRef<number | null>(null);
+  const [animatedConsumed, setAnimatedConsumed] = useState(0);
+  const [animatedGoal, setAnimatedGoal] = useState(0);
+  const [animatedTraining, setAnimatedTraining] = useState(0);
+  const [flashedStat, setFlashedStat] = useState<'consumed' | 'goal' | 'training' | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ mealId: MealId; entryId: string; name: string } | null>(null);
+  const [editingFood, setEditingFood] = useState<{
+    mealId: MealId;
+    entryId: string;
+    name: string;
+    kcal: string;
+    protein: string;
+    carbs: string;
+    fat: string;
+  } | null>(null);
+  const [manualAddMeal, setManualAddMeal] = useState<MealId | null>(null);
+  const [manualName, setManualName] = useState('');
+  const [manualKcal, setManualKcal] = useState('');
+  const [manualProtein, setManualProtein] = useState('');
+  const [manualCarbs, setManualCarbs] = useState('');
+  const [manualFat, setManualFat] = useState('');
+  const [headerMomentFlash, setHeaderMomentFlash] = useState(false);
+  const [waterPourActive, setWaterPourActive] = useState(false);
   const swipeStartXRef = useRef<number | null>(null);
-  const prevTrainingRef = useRef<number | null>(null);
-  const prevWaterRef = useRef<number | null>(null);
   const ringLastTapAtRef = useRef(0);
+  const trainingFlexTimeoutRef = useRef<number | null>(null);
+  const waterCupAnimationTimersRef = useRef<number[]>([]);
+  const progressAnimationFrameRef = useRef<number | null>(null);
+  const progressAnimationTimeoutRef = useRef<number | null>(null);
+  const animatedProgressRatioRef = useRef(0);
+  const animatedProgressValueRef = useRef(0);
+  const animatedConsumedRef = useRef(0);
+  const animatedGoalRef = useRef(0);
+  const animatedTrainingRef = useRef(0);
+  const statAnimationFrameRef = useRef<number | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const headerMomentTimerRef = useRef<number | null>(null);
+  const waterPourTimerRef = useRef<number | null>(null);
   const mealSwipeStartXRef = useRef<Record<MealId, number | null>>({
     breakfast: null,
     lunch: null,
@@ -347,10 +532,42 @@ export default function HomeScreen() {
     [mealTotals],
   );
 
+  // Extended macros — summed from scanned food labels (undefined = no data available)
+  const dayEntries = useMemo(() => Object.values(dayLog.meals).flat(), [dayLog.meals]);
+  const dayFiber = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.fiber_g != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.fiber_g ?? 0), 0) * 10) / 10;
+  }, [dayEntries]);
+  const daySugars = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.sugars_g != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.sugars_g ?? 0), 0) * 10) / 10;
+  }, [dayEntries]);
+  const daySatFat = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.saturated_fat_g != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.saturated_fat_g ?? 0), 0) * 10) / 10;
+  }, [dayEntries]);
+  const daySodium = useMemo(() => {
+    const entries = dayEntries.filter((e) => e.sodium_mg != null);
+    if (entries.length === 0) return null;
+    return Math.round(entries.reduce((s, e) => s + (e.sodium_mg ?? 0), 0));
+  }, [dayEntries]);
+
   const smartDietPlan = useMemo(() => {
+    // Use the most recent weight from BEFORE today so that logging weight
+    // today does not immediately shift the calorie target mid-day.
+    const historyBeforeToday = (profilePrefs.bmiHistory ?? [])
+      .filter((e) => e.date < todayKey && Number.isFinite(e.weightKg))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const stableWeightKg = historyBeforeToday.length > 0
+      ? historyBeforeToday[0].weightKg
+      : (profilePrefs.weightKg ?? 70);
+
     const normalizedProfile = normalizeNutritionProfile({
       age: profilePrefs.age,
-      weightKg: profilePrefs.weightKg,
+      weightKg: stableWeightKg,
       heightCm: profilePrefs.heightCm,
       sex: profilePrefs.sex,
       activityLevel: profilePrefs.activityLevel,
@@ -391,72 +608,75 @@ export default function HomeScreen() {
       date: selectedDate,
     });
   }, [logEvents, logsByDate, profilePrefs.activityLevel, profilePrefs.age, profilePrefs.bmiHistory, profilePrefs.dietMode, profilePrefs.goalMode, profilePrefs.heightCm, profilePrefs.sex, profilePrefs.weightKg, selectedDate, todayKey]);
+  // Note: weightKg still in deps so new users without bmiHistory get correct initial plan
 
   const optimizedTargetKcal = smartDietPlan.optimizedTargetKcal;
   const netGoal = optimizedTargetKcal + dayLog.trainingKcal;
   const caloriesRemaining = netGoal - consumed;
-  const waterProgress = Math.min(dayLog.waterMl / WATER_GOAL_ML, 1);
+  const hydrationMl = getTotalHydrationMl(dayLog);
+  const waterProgress = Math.min(hydrationMl / WATER_GOAL_ML, 1);
   const progressRatio = netGoal <= 0 ? 0 : Math.min(consumed / netGoal, 1);
-  const strokeDashoffset = RING_CIRCUMFERENCE - progressRatio * RING_CIRCUMFERENCE;
-  const ringColor = getRingColor(caloriesRemaining);
-  const discipline = useMemo(() => calculateDailyDisciplineScore(dayLog), [dayLog]);
+  const ringColor = getRingColor(caloriesRemaining, netGoal);
+  const discipline = useMemo(
+    () => calculateDailyDisciplineScore(dayLog, netGoal),
+    [dayLog, netGoal],
+  );
 
-  // ── Daily challenges (mirrors identityEngine challenge logic) ──────────
-  const proteinMetricPct = discipline.metrics.find((m) => m.key === 'protein')?.percent ?? 0;
-  const waterMetricPct   = discipline.metrics.find((m) => m.key === 'water')?.percent ?? 0;
-  const challenge1Done   = discipline.score >= 80;
-  const challenge2Done   = proteinMetricPct >= 85;
-  const challenge3Done   = waterMetricPct >= 85;
-  const challengesCompletedToday = [challenge1Done, challenge2Done, challenge3Done].filter(Boolean).length;
+  // Adaptive coach message — one concrete action for today
+  const coachMessage = useMemo(
+    () => generateCoachMessage(dayLog, profilePrefs),
+    [dayLog, profilePrefs],
+  );
 
-  // ── Fitness tips pool (static + dynamic from smartDietPlan) ───────────
-  const FITNESS_TIPS = [
-    '💡 Spis sakte — kroppen bruker 20 min på å registrere metthet.',
-    '💡 Protein metter mer per kcal enn karbohydrater. Øk proteinet, senk kaloriinntaket naturlig.',
-    '💡 To glass vann før hvert måltid kan redusere inntaket med opp til 13 %.',
-    '💡 Søvn under 7 timer øker sulthormonet ghrelin merkbart.',
-    '💡 Grønnsaker fyller halve tallerkenen? Du spiser automatisk færre kalorier.',
-    '💡 Styrketrening holder forbrenningen forhøyet i opptil 48 timer etter trening.',
-    '💡 Fullkornsproduktert gir lengre metthet enn hvitt brød og hvit ris.',
-    '💡 En proteinshake rett etter trening bremser muskelnedbrytning raskt.',
-    '💡 Kaffe 30 min før trening kan øke ytelsen med 10–15 %.',
-    '💡 Salt holder vann — ikke fett. Daglige vektsvingninger på 1–2 kg er normalt.',
-    '💡 Å logge mat — selv ufullstendig — gir bedre resultater enn å ikke logge.',
-    '💡 Muskel veier mer enn fett. Vekten lyver noen ganger — stoler på måleband.',
-    '💡 Planlegg neste dags mat kvelden før — det halverer impulsive valg.',
-    '💡 70–80 % av vektendring skjer gjennom kosthold, 20–30 % gjennom trening.',
-    '💡 Stress øker kortisol, som igjen øker appetitt og fettlagring.',
-    '💡 Du forbrenner ca. 1 kcal per kg kroppsvekt per km rask gange.',
-    '💡 Fett er ikke fienden — sunt fett fra nøtter, avokado og fisk hjelper fettforbrenningen.',
-    '💡 Intervallfasting hjelper noen, men konsistens over tid slår alle dietter.',
-    '💡 Drikk vann mellom alkoholenheter — du drikker halvparten og kjenner deg like bra.',
-    '💡 Fiber fra belgfrukter og havremel senker blodsukkerspikes kraftig.',
-    '💡 Tygge maten skikkelig (20+ tyggebevegelser) reduserer kaloriinntaket.',
-    '💡 Ikke hopp over frokost før styrketrening — glykogenlagre trengs til løft.',
-    '💡 Eggehvite er en av de mest mettende proteinkildene per kcal.',
-    '💡 Bruk mindre tallerkener — hjernen tolker en full liten tallerken som et fullt måltid.',
-    '💡 Gå en 10-minutters tur etter middag — det forbedrer insulinsensitivitet med 30 %.',
-  ];
+  // Adaptive complexity — simplify UI when user is struggling, unlock advanced when consistent
+  const adaptiveComplexity = useMemo(
+    () => computeAdaptiveComplexity(logsByDate),
+    [logsByDate],
+  );
+  const progressText = caloriesRemaining < 0 ? t('home.overGoal') : t('home.caloriesLeft');
+  const progressValue = caloriesRemaining < 0 ? Math.abs(caloriesRemaining) : caloriesRemaining;
+  const progressDetailText = caloriesRemaining < 0
+    ? `${kcalNumberFormat.format(consumed - netGoal)} kcal over dagens netto mal`
+    : `${kcalNumberFormat.format(netGoal)} kcal netto mal i dag`;
+  const animatedStrokeDashoffset = RING_CIRCUMFERENCE - animatedProgressRatio * RING_CIRCUMFERENCE;
+  const consistencyDropInsight = useMemo(
+    () => smartDietPlan.behaviorInsights.find((insight) => insight === CONSISTENCY_DROP_INSIGHT) ?? null,
+    [smartDietPlan.behaviorInsights],
+  );
+  const otherBehaviorInsights = useMemo(
+    () => smartDietPlan.behaviorInsights.filter((insight) => insight !== CONSISTENCY_DROP_INSIGHT),
+    [smartDietPlan.behaviorInsights],
+  );
+  const extraHeroTips = useMemo(() => {
+    const tips: string[] = [];
 
-  const allTips = useMemo(() => {
-    const dynamic = smartDietPlan.behaviorInsights.filter(Boolean);
-    return dynamic.length > 0 ? [...dynamic, ...FITNESS_TIPS] : FITNESS_TIPS;
-  }, [smartDietPlan.behaviorInsights]);
+    if (isTodaySelected && consumed === 0) {
+      tips.push(t('home.tips.startMeal'));
+    }
+    if (isTodaySelected && waterProgress < 0.45) {
+      tips.push(t('home.tips.drinkWater'));
+    }
+    if (consumed > 0 && protein < 60) {
+      tips.push(t('home.tips.addProtein'));
+    }
+    if (caloriesRemaining > 450 && consumed > 0) {
+      tips.push(t('home.tips.planAhead'));
+    }
 
-  const [tipIndex, setTipIndex] = useState(0);
-  const [tipVisible, setTipVisible] = useState(true);
+    return tips;
+  }, [caloriesRemaining, consumed, isTodaySelected, protein, t, waterProgress]);
+  const rotatingHeroMessages = useMemo(() => {
+    const messages = [
+      smartPrompt,
+      consistencyDropInsight ? localizeBehaviorInsight(consistencyDropInsight, t) : null,
+      ...otherBehaviorInsights.map((insight) => localizeBehaviorInsight(insight, t)),
+      ...extraHeroTips,
+    ].filter((message): message is string => Boolean(message?.trim()));
 
-  useEffect(() => {
-    if (allTips.length <= 1) return;
-    const interval = setInterval(() => {
-      setTipVisible(false);
-      setTimeout(() => {
-        setTipIndex((i) => (i + 1) % allTips.length);
-        setTipVisible(true);
-      }, 350);
-    }, 2500);
-    return () => clearInterval(interval);
-  }, [allTips.length]);
+    return messages.filter((message, index) => messages.indexOf(message) === index);
+  }, [consistencyDropInsight, extraHeroTips, otherBehaviorInsights, smartPrompt, t]);
+  const rotatingHeroMessageKey = useMemo(() => rotatingHeroMessages.join('||'), [rotatingHeroMessages]);
+  const activeHeroMessage = rotatingHeroMessages[heroMessageIndex] ?? null;
 
   const weeklyData = useMemo(() => {
     const weekStart = startOfWeekMonday(selectedDate);
@@ -483,26 +703,297 @@ export default function HomeScreen() {
     weeklyData.reduce((sum, day) => sum + day.consumed, 0) / Math.max(weeklyData.length, 1),
   );
 
+  // ─── Activity history modal data ─────────────────────────────────────────────
+  const historyMonthLabel = useMemo(() =>
+    new Intl.DateTimeFormat('nb-NO', { month: 'long', year: 'numeric' }).format(historyViewDate),
+  [historyViewDate]);
+
+  const historyMonthDays = useMemo(() => {
+    const year = historyViewDate.getFullYear();
+    const month = historyViewDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const weekStart = startOfWeekMonday(firstDay);
+    const days: Date[] = [];
+    let cur = new Date(weekStart);
+    while (days.length < 42) {
+      days.push(new Date(cur));
+      if (days.length >= 28 && cur > lastDay) break;
+      cur = addDays(cur, 1);
+    }
+    while (days.length % 7 !== 0) { days.push(new Date(cur)); cur = addDays(cur, 1); }
+    return days;
+  }, [historyViewDate]);
+
+  const historyMonthStats = useMemo(() => {
+    const month = historyViewDate.getMonth();
+    let totalScore = 0; let loggedDays = 0; let scoredDays = 0;
+    historyMonthDays.forEach((date) => {
+      if (date.getMonth() !== month || date > today) return;
+      const key = toDateKey(date);
+      const log = logsByDate[key];
+      if (!log) return;
+      const hasData = Object.values(log.meals).flat().length > 0 || getTotalHydrationMl(log) > 0 || log.trainingKcal > 0;
+      if (!hasData) return;
+      loggedDays++;
+      totalScore += calculateDailyDisciplineScore(log).score;
+      scoredDays++;
+    });
+    return { avgScore: scoredDays > 0 ? Math.round(totalScore / scoredDays) : 0, loggedDays };
+  }, [historyViewDate, historyMonthDays, logsByDate, today]);
+
+  const historySelectedLog = historySelectedKey ? (logsByDate[historySelectedKey] ?? null) : null;
+
+  const historicalMealLog = useMemo(() => {
+    return Object.entries(logsByDate)
+      .filter(([dateKey, dayLog]) => dateKey < todayKey && Object.values(dayLog.meals).flat().length > 0)
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .slice(0, 10)
+      .map(([dateKey, dayLog]) => {
+        const mealSections = (Object.entries(dayLog.meals) as Array<[keyof DayLog['meals'], DayLog['meals'][keyof DayLog['meals']]]>)
+          .filter(([, foods]) => foods.length > 0);
+        const foods = mealSections.flatMap(([, items]) => items);
+        return {
+          dateKey,
+          mealSections,
+          totalFoods: foods.length,
+          totalKcal: foods.reduce((sum, item) => sum + item.kcal, 0),
+          totalProtein: foods.reduce((sum, item) => sum + item.protein, 0),
+        };
+      });
+  }, [logsByDate, todayKey]);
+
+  const journeyWeightSeries = useMemo(() => {
+    const source = (profilePrefs.bmiHistory ?? [])
+      .filter((entry) => Number.isFinite(entry.weightKg))
+      .slice()
+      .sort((a, b) => (a.date < b.date ? -1 : 1))
+      .slice(-12)
+      .map((entry) => ({ date: entry.date, value: Number(entry.weightKg) }));
+    if (source.length > 0) return source;
+    const fallbackWeight = Number(profilePrefs.weightKg);
+    if (Number.isFinite(fallbackWeight)) {
+      return [{ date: todayKey, value: fallbackWeight }];
+    }
+    return [];
+  }, [profilePrefs.bmiHistory, profilePrefs.weightKg, todayKey]);
+
   const streak = useMemo(() => {
     let days = 0;
     for (let i = 0; i < 365; i += 1) {
       const key = toDateKey(addDays(today, -i));
       const log = logsByDate[key];
-      if (!log || !isWithinCalorieRange(log)) break;
+      if (!log || !isWithinCalorieRange(log, optimizedTargetKcal)) break;
       days += 1;
     }
     return days;
-  }, [logsByDate, today]);
+  }, [logsByDate, today, optimizedTargetKcal]);
 
   const weeklyConsistencyScore = useMemo(() => {
     const passes = weeklyData.filter((day) => {
       const log = logsByDate[day.key];
-      return log ? isWithinCalorieRange(log) : false;
+      return log ? isWithinCalorieRange(log, optimizedTargetKcal) : false;
     }).length;
     return Math.round((passes / weeklyData.length) * 100);
-  }, [logsByDate, weeklyData]);
+  }, [logsByDate, weeklyData, optimizedTargetKcal]);
+  const todaysLoggedItems = useMemo<LoggedMealEntry[]>(
+    () =>
+      mealTemplates.flatMap((meal) =>
+        dayLog.meals[meal.id].map((entry, index) => ({
+          mealId: meal.id,
+          index,
+          entry,
+        })),
+      ),
+    [dayLog.meals],
+  );
+  // ── Identity layer: slow-changing, reflects behavioral trend over days/weeks ──
+  const identityMode = useMemo(() => {
+    // Count consecutive days without any logged food (gap detection)
+    let daysSinceLastLog = 0;
+    for (let i = 1; i <= 14; i++) {
+      const key = toDateKey(addDays(today, -i));
+      const log = logsByDate[key];
+      if (log && Object.values(log.meals).some((items) => items.length > 0)) break;
+      daysSinceLastLog++;
+    }
+    // Returned today after a lapse → Rebuilding (warm comeback, never punishing)
+    if (consumed > 0 && daysSinceLastLog >= 2) return 'rebuilding' as const;
+    // Strong streak + solid weekly consistency → Locked In
+    if (streak >= 5 && weeklyConsistencyScore >= 71) return 'locked_in' as const;
+    // Regular logging pattern → Steady
+    if (weeklyConsistencyScore >= 43 || streak >= 3) return 'steady' as const;
+    return 'building' as const;
+  }, [consumed, logsByDate, streak, today, weeklyConsistencyScore]);
 
-  const dayHasAnyLog = consumed > 0 || dayLog.waterMl > 0 || dayLog.trainingKcal > 0;
+  const identityCaption = useMemo(() => {
+    const map = {
+      locked_in: t('home.identity.lockedIn'),
+      rebuilding: t('home.identity.rebuilding'),
+      steady: t('home.identity.steady'),
+      building: t('home.identity.building'),
+    } as const;
+    return map[identityMode];
+  }, [identityMode, t]);
+
+  // Bubble animation pacing varies by identity: Locked In = confident, Rebuilding = gentle
+  const identityBubbleDurationFactor = useMemo(() => {
+    if (identityMode === 'locked_in') return 0.82;
+    if (identityMode === 'rebuilding') return 1.12;
+    return 1.0;
+  }, [identityMode]);
+
+  // CSS modifier class for header gradient shift
+  const identityHeaderModifier = useMemo(() => {
+    if (identityMode === 'locked_in') return 'screen-header-locked-in';
+    if (identityMode === 'rebuilding') return 'screen-header-rebuilding';
+    if (identityMode === 'steady') return 'screen-header-steady';
+    return '';
+  }, [identityMode]);
+  const headerActivityScore = useMemo(() => {
+    const streakScore = Math.min(streak / 14, 1);
+    const consistencyScore = weeklyConsistencyScore / 100;
+    const trainingScore = Math.min(dayLog.trainingKcal / 400, 1);
+    return Math.max(
+      0.08,
+      Math.min(
+        progressRatio * 0.34
+          + (discipline.score / 100) * 0.26
+          + waterProgress * 0.14
+          + trainingScore * 0.12
+          + streakScore * 0.08
+          + consistencyScore * 0.06,
+        1,
+      ),
+    );
+  }, [dayLog.trainingKcal, discipline.score, progressRatio, streak, waterProgress, weeklyConsistencyScore]);
+  const headerBubbleSpecs = useMemo(
+    () => [
+      { Icon: Apple, left: '9%', delay: '0s', duration: '10.5s', size: 18, threshold: 0.1 },
+      { Icon: Droplets, left: '24%', delay: '1.1s', duration: '9.1s', size: 20, threshold: 0.18 },
+      { Icon: Flame, left: '39%', delay: '0.6s', duration: '8.7s', size: 19, threshold: 0.28 },
+      { Icon: Dumbbell, left: '58%', delay: '1.8s', duration: '9.8s', size: 18, threshold: 0.4 },
+      { Icon: Egg, left: '73%', delay: '0.2s', duration: '10.9s', size: 17, threshold: 0.52 },
+      { Icon: UtensilsCrossed, left: '86%', delay: '1.4s', duration: '8.9s', size: 20, threshold: 0.66 },
+    ],
+    [],
+  );
+
+  useEffect(() => {
+    animatedProgressRatioRef.current = animatedProgressRatio;
+  }, [animatedProgressRatio]);
+
+  useEffect(() => {
+    animatedProgressValueRef.current = animatedProgressValue;
+  }, [animatedProgressValue]);
+
+  useEffect(() => {
+    if (progressAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(progressAnimationFrameRef.current);
+    }
+    if (progressAnimationTimeoutRef.current !== null) {
+      window.clearTimeout(progressAnimationTimeoutRef.current);
+    }
+
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (reduceMotion) {
+      setAnimatedProgressRatio(progressRatio);
+      setAnimatedProgressValue(progressValue);
+      setRingAnimating(false);
+      return undefined;
+    }
+
+    const ratioStart = animatedProgressRatioRef.current;
+    const valueStart = animatedProgressValueRef.current;
+    const durationMs = 950;
+    const startedAt = performance.now();
+
+    setRingAnimating(true);
+
+    const tick = (now: number) => {
+      const elapsed = now - startedAt;
+      const t = Math.min(elapsed / durationMs, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+
+      setAnimatedProgressRatio(ratioStart + (progressRatio - ratioStart) * eased);
+      setAnimatedProgressValue(Math.round(valueStart + (progressValue - valueStart) * eased));
+
+      if (t < 1) {
+        progressAnimationFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      progressAnimationFrameRef.current = null;
+      progressAnimationTimeoutRef.current = window.setTimeout(() => setRingAnimating(false), 240);
+    };
+
+    progressAnimationFrameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      if (progressAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(progressAnimationFrameRef.current);
+        progressAnimationFrameRef.current = null;
+      }
+      if (progressAnimationTimeoutRef.current !== null) {
+        window.clearTimeout(progressAnimationTimeoutRef.current);
+        progressAnimationTimeoutRef.current = null;
+      }
+    };
+  }, [progressRatio, progressValue, selectedDateKey]);
+
+  // Sync animated refs for stat pills
+  useEffect(() => { animatedConsumedRef.current = animatedConsumed; }, [animatedConsumed]);
+  useEffect(() => { animatedGoalRef.current = animatedGoal; }, [animatedGoal]);
+  useEffect(() => { animatedTrainingRef.current = animatedTraining; }, [animatedTraining]);
+
+  // Count-up animation for stat pills (Mål / Spist / Trening)
+  useEffect(() => {
+    if (statAnimationFrameRef.current !== null) {
+      window.cancelAnimationFrame(statAnimationFrameRef.current);
+    }
+
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    if (reduceMotion) {
+      setAnimatedConsumed(consumed);
+      setAnimatedGoal(optimizedTargetKcal);
+      setAnimatedTraining(dayLog.trainingKcal);
+      return undefined;
+    }
+
+    const consumedStart = animatedConsumedRef.current;
+    const goalStart = animatedGoalRef.current;
+    const trainingStart = animatedTrainingRef.current;
+    const durationMs = 800;
+    const startedAt = performance.now();
+
+    if (flashTimerRef.current !== null) window.clearTimeout(flashTimerRef.current);
+    if (consumed !== consumedStart) setFlashedStat('consumed');
+    else if (optimizedTargetKcal !== goalStart) setFlashedStat('goal');
+    else if (dayLog.trainingKcal !== trainingStart) setFlashedStat('training');
+    flashTimerRef.current = window.setTimeout(() => setFlashedStat(null), 600);
+
+    const tick = (now: number) => {
+      const t = Math.min((now - startedAt) / durationMs, 1);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setAnimatedConsumed(Math.round(consumedStart + (consumed - consumedStart) * eased));
+      setAnimatedGoal(Math.round(goalStart + (optimizedTargetKcal - goalStart) * eased));
+      setAnimatedTraining(Math.round(trainingStart + (dayLog.trainingKcal - trainingStart) * eased));
+      if (t < 1) {
+        statAnimationFrameRef.current = window.requestAnimationFrame(tick);
+      } else {
+        statAnimationFrameRef.current = null;
+      }
+    };
+
+    statAnimationFrameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      if (statAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(statAnimationFrameRef.current);
+        statAnimationFrameRef.current = null;
+      }
+    };
+  }, [consumed, optimizedTargetKcal, dayLog.trainingKcal, selectedDateKey]);
 
   const historicalMealStats = useMemo(() => {
     const mealIds: MealId[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
@@ -633,9 +1124,39 @@ export default function HomeScreen() {
     () =>
       workoutSessions
         .filter((session) => session.dateKey === selectedDateKey)
-        .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)),
+        .sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1))
+        .slice(0, 3),
     [selectedDateKey, workoutSessions],
   );
+  const hasTrainingLogged = selectedDayWorkouts.length > 0 || dayLog.trainingKcal > 0;
+
+  const triggerTrainingFlex = () => {
+    if (trainingFlexTimeoutRef.current != null) {
+      window.clearTimeout(trainingFlexTimeoutRef.current);
+    }
+    setIsTrainingFlexing(true);
+    trainingFlexTimeoutRef.current = window.setTimeout(() => {
+      setIsTrainingFlexing(false);
+      trainingFlexTimeoutRef.current = null;
+    }, 1200);
+  };
+
+  const triggerWaterCupFillAnimation = (beforeMl: number, afterMl: number) => {
+    const beforeCups = Math.ceil(beforeMl / WATER_CUP_SIZE_ML);
+    const afterCups = Math.min(MAX_WATER_CUPS, Math.ceil(afterMl / WATER_CUP_SIZE_ML));
+    if (afterCups <= beforeCups) return;
+
+    for (let cupIndex = beforeCups + 1; cupIndex <= afterCups; cupIndex += 1) {
+      const appearTimer = window.setTimeout(() => {
+        setAnimatingWaterCups((prev) => (prev.includes(cupIndex) ? prev : [...prev, cupIndex]));
+        const disappearTimer = window.setTimeout(() => {
+          setAnimatingWaterCups((prev) => prev.filter((value) => value !== cupIndex));
+        }, 720);
+        waterCupAnimationTimersRef.current.push(disappearTimer);
+      }, (cupIndex - (beforeCups + 1)) * 110);
+      waterCupAnimationTimersRef.current.push(appearTimer);
+    }
+  };
 
   useEffect(() => {
     const now = new Date();
@@ -650,30 +1171,34 @@ export default function HomeScreen() {
     return () => window.clearTimeout(timer);
   }, [today]);
 
-  // Track which goals have already fired XP this day to avoid repeat notifications
-  const goalsXpFiredRef = useRef<Record<string, Set<string>>>({});
   useEffect(() => {
-    if (!isTodaySelected) return;
-    const fired = goalsXpFiredRef.current[selectedDateKey] ?? new Set<string>();
-    discipline.metrics.forEach((metric) => {
-      if (metric.percent >= 85 && !fired.has(metric.key)) {
-        fired.add(metric.key);
-        const labels: Record<string, string> = {
-          calorie: '🎯 +12 XP kalorimål!',
-          protein: '💪 +12 XP proteinmål!',
-          water: '💧 +12 XP vannmål!',
-          activity: '🏃 +12 XP treningsmål!',
-          logging: '📓 +12 XP loggmål!',
-        };
-        notifyXP(12, labels[metric.key] ?? '+12 XP');
+    return () => {
+      if (trainingFlexTimeoutRef.current != null) {
+        window.clearTimeout(trainingFlexTimeoutRef.current);
       }
-    });
-    if (discipline.score >= 80 && !fired.has('__challenge__')) {
-      fired.add('__challenge__');
-      notifyXP(20, '⚡ +20 XP dagsutfordring!');
-    }
-    goalsXpFiredRef.current[selectedDateKey] = fired;
-  }, [discipline, isTodaySelected, selectedDateKey]);
+      if (headerMomentTimerRef.current !== null) {
+        window.clearTimeout(headerMomentTimerRef.current);
+      }
+      if (waterPourTimerRef.current !== null) {
+        window.clearTimeout(waterPourTimerRef.current);
+      }
+      waterCupAnimationTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      waterCupAnimationTimersRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    const syncToday = () => setToday(startOfDay(new Date()));
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') syncToday();
+    };
+    window.addEventListener('focus', syncToday);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', syncToday);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     const dismissedForSelectedDay = Boolean(goalPopupDismissedByDate[selectedDateKey]);
@@ -712,12 +1237,15 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const selectedLog = logsByDate[selectedDateKey] ?? createEmptyDayLog();
-    const firstLoggedMeal = mealTemplates.find((meal) => selectedLog.meals[meal.id].length > 0)?.id;
-    if (!firstLoggedMeal) {
-      setExpandedMeals(collapsedMeals);
-      return;
+    const next: Record<MealId, boolean> = { breakfast: false, lunch: false, dinner: false, snacks: false };
+    let anyLogged = false;
+    for (const meal of mealTemplates) {
+      if (selectedLog.meals[meal.id].length > 0) {
+        next[meal.id] = true;
+        anyLogged = true;
+      }
     }
-    setExpandedMeals({ ...collapsedMeals, [firstLoggedMeal]: true });
+    setExpandedMeals(anyLogged ? next : collapsedMeals);
   }, [selectedDateKey]);
 
   useEffect(() => {
@@ -777,9 +1305,9 @@ export default function HomeScreen() {
     const dinnerPrompt = mealPrompt('dinner', 18 * 60);
 
     const near = (target: number) => Math.abs(totalMinutes - target) <= 15;
-    if (!hasBreakfast && near(breakfastPrompt)) setSmartPrompt('Log frokost? Ett trykk holder.');
-    else if (!hasLunch && near(lunchPrompt)) setSmartPrompt('Log lunsj? Du logger vanligvis rundt denne tiden.');
-    else if (!hasDinner && near(dinnerPrompt)) setSmartPrompt('Middag snart. Vil du forhåndsfylle?');
+    if (!hasBreakfast && near(breakfastPrompt)) setSmartPrompt(t('home.prompts.breakfast'));
+    else if (!hasLunch && near(lunchPrompt)) setSmartPrompt(t('home.prompts.lunch'));
+    else if (!hasDinner && near(dinnerPrompt)) setSmartPrompt(t('home.prompts.dinner'));
     else setSmartPrompt(null);
   }, [dayLog.meals.breakfast.length, dayLog.meals.dinner.length, dayLog.meals.lunch.length, isPastSelectedDay, isTodaySelected, logEvents]);
 
@@ -787,32 +1315,38 @@ export default function HomeScreen() {
     if (isPastSelectedDay) setShowQuickAddMenu(false);
   }, [isPastSelectedDay]);
 
-  // Ring pump on workout log
   useEffect(() => {
-    const prev = prevTrainingRef.current;
-    prevTrainingRef.current = dayLog.trainingKcal;
-    if (prev !== null && dayLog.trainingKcal > prev && isTodaySelected) {
-      setRingPumping(true);
-      const t = window.setTimeout(() => setRingPumping(false), 950);
-      return () => clearTimeout(t);
-    }
-  }, [dayLog.trainingKcal, isTodaySelected]);
+    setHeroMessageIndex(0);
+    setHeroMessageVisible(true);
+  }, [rotatingHeroMessageKey]);
 
-  // Water wave on water log
   useEffect(() => {
-    const prev = prevWaterRef.current;
-    prevWaterRef.current = dayLog.waterMl;
-    if (prev !== null && dayLog.waterMl > prev && isTodaySelected) {
-      setHeaderWave(true);
-      const t = window.setTimeout(() => setHeaderWave(false), 2000);
-      return () => clearTimeout(t);
+    if (rotatingHeroMessages.length <= 1) {
+      setHeroMessageVisible(true);
+      return;
     }
-  }, [dayLog.waterMl, isTodaySelected]);
+
+    let fadeTimer: number | null = null;
+    const cycle = () => {
+      setHeroMessageVisible(false);
+      fadeTimer = window.setTimeout(() => {
+        setHeroMessageIndex((prev) => (prev + 1) % rotatingHeroMessages.length);
+        setHeroMessageVisible(true);
+      }, 2000);
+    };
+
+    const cycleTimer = window.setInterval(cycle, 7000);
+
+    return () => {
+      window.clearInterval(cycleTimer);
+      if (fadeTimer !== null) window.clearTimeout(fadeTimer);
+    };
+  }, [rotatingHeroMessageKey, rotatingHeroMessages.length]);
 
   const updateDayLog = (key: string, updater: (current: DayLog) => DayLog) => {
     setLogsByDate((prev) => {
       if (key < todayKey) {
-        setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+        setScanHint(t('home.dayLocked'));
         return prev;
       }
       const current = prev[key] ?? createEmptyDayLog();
@@ -853,7 +1387,7 @@ export default function HomeScreen() {
       setPendingTemplate({
         mealId,
         signature,
-        suggestedName: `Standard ${mealId === 'breakfast' ? 'Frokost' : mealId === 'lunch' ? 'Lunsj' : mealId === 'dinner' ? 'Middag' : 'Snacks'}`,
+        suggestedName: `Standard ${mealId === 'breakfast' ? t('home.meals.breakfast') : mealId === 'lunch' ? t('home.meals.lunch') : mealId === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')}`,
         items: nextMealItems.map((item) => ({ ...item })),
       });
     }
@@ -861,6 +1395,7 @@ export default function HomeScreen() {
 
   const addFoodToMeal = (mealId: MealId, food: FoodEntry, actionId = `food:${mealId}`) => {
     const addedId = createFoodId();
+    const eventId = createFoodId();
     const previousDay = cloneDayLog(dayLog);
     const nextMealItems = [...dayLog.meals[mealId], { ...food, id: addedId }];
     updateDayLog(selectedDateKey, (current) => ({
@@ -874,20 +1409,126 @@ export default function HomeScreen() {
     setExpandedMeals({ ...collapsedMeals, [mealId]: true });
     setUndoAction({
       label: `${food.name} lagt til`,
-      undo: () => setDayLog(selectedDateKey, previousDay),
+      undo: () => {
+        setDayLog(selectedDateKey, previousDay);
+        setLogEvents((prev) => prev.filter((e) => e.id !== eventId));
+      },
     });
-    recordEvent({ type: 'meal', actionId, mealId, kcal: food.kcal });
+    setLogEvents((prev) =>
+      [...prev, { type: 'meal' as const, actionId, mealId, kcal: food.kcal, id: eventId, timestampIso: new Date().toISOString() }].slice(-1200),
+    );
     maybeSuggestTemplate(mealId, nextMealItems);
     reward();
-    notifyXP(5, '+5 XP');
-    // Early bird: breakfast before 08:00
-    if (mealId === 'breakfast' && new Date().getHours() < 8) {
-      notifyXP(0, '🌅 Tidligfugl!');
+    // Allergy check — warn but still log the food
+    const userAllergies = profilePrefs.allergies ?? [];
+    if (userAllergies.length > 0) {
+      const nameLower = food.name.toLowerCase();
+      const matched = userAllergies.find((allergy) => {
+        const keywords = ALLERGY_KEYWORDS[allergy.toLowerCase()] ?? [allergy.toLowerCase()];
+        return keywords.some((kw) => nameLower.includes(kw));
+      });
+      if (matched) {
+        setScanHint(`⚠️ Advarsel: kan inneholde ${ALLERGY_LABELS[matched.toLowerCase()] ?? matched}`);
+      }
     }
-    // Night owl: any meal after 22:00
-    if (new Date().getHours() >= 22) {
-      notifyXP(0, '🦉 Nattugle!');
+    // Moment layer: brief header flash after every successful food log
+    if (headerMomentTimerRef.current !== null) window.clearTimeout(headerMomentTimerRef.current);
+    setHeaderMomentFlash(true);
+    headerMomentTimerRef.current = window.setTimeout(() => setHeaderMomentFlash(false), 720);
+    // Ring pump
+    if (ringPumpTimerRef.current !== null) window.clearTimeout(ringPumpTimerRef.current);
+    setRingPumping(true);
+    ringPumpTimerRef.current = window.setTimeout(() => setRingPumping(false), 520);
+  };
+
+  const openScanTab = (mode: 'photo' | 'barcode') => {
+    window.sessionStorage.setItem(SCAN_TARGET_DATE_KEY_STORAGE_KEY, selectedDateKey);
+    window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
+    setScanHint(mode === 'photo' ? 'Aapner skann for bilde-logging.' : 'Aapner skann for strekkode.');
+  };
+
+  const removeFoodFromMeal = (mealId: MealId, entryId: string) => {
+    if (isPastSelectedDay) {
+      setScanHint(t('home.dayLocked'));
+      return;
     }
+    const previousDay = cloneDayLog(dayLog);
+    const removedEntry = dayLog.meals[mealId].find((item) => item.id === entryId);
+    updateDayLog(selectedDateKey, (current) => ({
+      ...current,
+      meals: {
+        ...current.meals,
+        [mealId]: current.meals[mealId].filter((item) => item.id !== entryId),
+      },
+    }));
+    if (removedEntry) {
+      setUndoAction({
+        label: `${removedEntry.name} fjernet`,
+        undo: () => setDayLog(selectedDateKey, previousDay),
+      });
+    }
+    reward();
+  };
+
+  const openFoodEdit = (mealId: MealId, entry: FoodEntry) => {
+    setEditingFood({
+      mealId,
+      entryId: entry.id,
+      name: entry.name,
+      kcal: String(entry.kcal),
+      protein: String(entry.protein),
+      carbs: String(entry.carbs),
+      fat: String(entry.fat),
+    });
+  };
+
+  const saveFoodEdit = () => {
+    if (!editingFood) return;
+    if (isPastSelectedDay) {
+      setScanHint(t('home.dayLocked'));
+      return;
+    }
+    const parsed = {
+      kcal: Number(editingFood.kcal.replace(',', '.')),
+      protein: Number(editingFood.protein.replace(',', '.')),
+      carbs: Number(editingFood.carbs.replace(',', '.')),
+      fat: Number(editingFood.fat.replace(',', '.')),
+    };
+    if (!editingFood.name.trim()) {
+      setScanHint('Navn mangler.');
+      return;
+    }
+    if ([parsed.kcal, parsed.protein, parsed.carbs, parsed.fat].some((value) => !Number.isFinite(value) || value < 0)) {
+      setScanHint('Bruk gyldige tall (0+).');
+      return;
+    }
+
+    const previousDay = cloneDayLog(dayLog);
+    updateDayLog(selectedDateKey, (current) => ({
+      ...current,
+      meals: {
+        ...current.meals,
+        [editingFood.mealId]: current.meals[editingFood.mealId].map((item) =>
+          item.id === editingFood.entryId
+            ? {
+                ...item,
+                name: editingFood.name.trim(),
+                kcal: Math.round(parsed.kcal),
+                protein: Math.round(parsed.protein),
+                carbs: Math.round(parsed.carbs),
+                fat: Math.round(parsed.fat),
+              }
+            : item,
+        ),
+      },
+    }));
+
+    setUndoAction({
+      label: 'Matpost oppdatert',
+      undo: () => setDayLog(selectedDateKey, previousDay),
+    });
+    setEditingFood(null);
+    reward();
   };
 
   const addTraining = (kcal: number, actionId = 'workout:quick') => {
@@ -901,18 +1542,55 @@ export default function HomeScreen() {
       undo: () => setDayLog(selectedDateKey, previousDay),
     });
     recordEvent({ type: 'workout', actionId, kcal });
+    triggerTrainingFlex();
     reward();
-    notifyXP(5, '+5 XP 🏋️');
   };
 
   const addWater = (ml: number, actionId = 'water:250') => {
+    const beforeMl = hydrationMl;
+    const afterMl = beforeMl + ml;
+    const previousDay = cloneDayLog(dayLog);
     updateDayLog(selectedDateKey, (current) => ({
       ...current,
       waterMl: current.waterMl + ml,
     }));
+    triggerWaterCupFillAnimation(beforeMl, afterMl);
+    setUndoAction({
+      label: `Vann +${ml} ml`,
+      undo: () => setDayLog(selectedDateKey, previousDay),
+    });
     recordEvent({ type: 'water', actionId });
     reward();
-    notifyXP(2, '+2 XP 💧');
+    // Trigger water pour animation in the header
+    if (waterPourTimerRef.current !== null) window.clearTimeout(waterPourTimerRef.current);
+    setWaterPourActive(true);
+    waterPourTimerRef.current = window.setTimeout(() => setWaterPourActive(false), 2200);
+  };
+
+  const removeWater = (ml: number) => {
+    const previousDay = cloneDayLog(dayLog);
+    updateDayLog(selectedDateKey, (current) => ({
+      ...current,
+      waterMl: Math.max(0, current.waterMl - ml),
+    }));
+    setUndoAction({
+      label: `Vann -${ml} ml`,
+      undo: () => setDayLog(selectedDateKey, previousDay),
+    });
+  };
+
+  const logWeight = (kg: number) => {
+    if (!Number.isFinite(kg) || kg <= 0) return;
+    const entry = { date: selectedDateKey, weightKg: kg };
+    setProfilePrefs((prev) => ({
+      ...prev,
+      weightKg: kg,
+      bmiHistory: [entry, ...(Array.isArray(prev.bmiHistory) ? prev.bmiHistory : [])].filter(
+        (e, i, arr) => arr.findIndex((x) => x.date === e.date) === i
+      ).slice(0, 20),
+    }));
+    setShowWeightModal(false);
+    setWeightInput('');
   };
 
   const repeatMealFromDate = (mealId: MealId, sourceKey: string | null, actionId: string) => {
@@ -954,21 +1632,23 @@ export default function HomeScreen() {
     reward();
   };
 
-  const getPreviousDateWithMeal = (mealId: MealId) =>
-    Object.keys(logsByDate)
+  const getPreviousDateWithMeal = (mealId: MealId) => {
+    const keys = Object.keys(logsByDate)
       .filter((key) => key < selectedDateKey && logsByDate[key].meals[mealId].length > 0)
-      .sort()
-      .at(-1) ?? null;
+      .sort();
+    return keys.length > 0 ? keys[keys.length - 1] : null;
+  };
 
-  const getLastMondayKey = () =>
-    Object.keys(logsByDate)
+  const getLastMondayKey = () => {
+    const keys = Object.keys(logsByDate)
       .filter((key) => {
         if (key >= selectedDateKey) return false;
         const date = new Date(`${key}T00:00:00`);
         return date.getDay() === 1;
       })
-      .sort()
-      .at(-1) ?? null;
+      .sort();
+    return keys.length > 0 ? keys[keys.length - 1] : null;
+  };
 
   const addMacroQuick = (kind: 'protein' | 'carbs' | 'fat', amountG: number) => {
     const kcal = kind === 'fat' ? amountG * 9 : amountG * 4;
@@ -989,28 +1669,10 @@ export default function HomeScreen() {
 
   const openWorkoutModal = () => {
     if (isPastSelectedDay) {
-      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      setScanHint(t('home.dayLocked'));
       return;
     }
     setShowWorkoutModal(true);
-  };
-
-  const removeWorkoutSession = (sessionId: string) => {
-    const session = workoutSessions.find((s) => s.id === sessionId);
-    if (!session) return;
-    const previousDay = cloneDayLog(dayLog);
-    setWorkoutSessions((prev) => prev.filter((s) => s.id !== sessionId));
-    updateDayLog(selectedDateKey, (current) => ({
-      ...current,
-      trainingKcal: Math.max(0, current.trainingKcal - session.caloriesBurned),
-    }));
-    setUndoAction({
-      label: `${session.exerciseName} fjernet`,
-      undo: () => {
-        setWorkoutSessions((prev) => [...prev, session]);
-        setDayLog(selectedDateKey, previousDay);
-      },
-    });
   };
 
   const saveWorkoutSession = () => {
@@ -1050,7 +1712,7 @@ export default function HomeScreen() {
 
   const handleQuickAdd = (action: string) => {
     if (isPastSelectedDay) {
-      setScanHint('Dagen er last etter midnatt. Score kan ikke endres.');
+      setScanHint(t('home.dayLocked'));
       setShowQuickAddMenu(false);
       return;
     }
@@ -1117,12 +1779,6 @@ export default function HomeScreen() {
     if (action === 'repeat-day-yesterday') repeatWholeDayFromDate(toDateKey(addDays(selectedDate, -1)), 'repeat:yesterday');
     if (action === 'repeat-last-monday') repeatWholeDayFromDate(getLastMondayKey(), 'repeat:last-monday');
     if (action === 'repeat-frequent') repeatWholeDayFromDate(mostFrequentDayKey, 'repeat:frequent-day');
-    if (action === 'streak-protect') {
-      const previousDay = cloneDayLog(dayLog);
-      addFoodToMeal('snacks', { id: 'streak-0', name: 'Streak protect check-in', kcal: 0, protein: 0, carbs: 0, fat: 0 }, 'quick:streak-protect');
-      setUndoAction({ label: 'Streak protect', undo: () => setDayLog(selectedDateKey, previousDay) });
-      recordEvent({ type: 'streak-protect', actionId: 'quick:streak-protect' });
-    }
     setShowQuickAddMenu(false);
   };
 
@@ -1172,7 +1828,7 @@ export default function HomeScreen() {
   };
 
   const toggleMealExpanded = (mealId: MealId) => {
-    setExpandedMeals((prev) => (prev[mealId] ? collapsedMeals : { ...collapsedMeals, [mealId]: true }));
+    setExpandedMeals((prev) => ({ ...prev, [mealId]: !prev[mealId] }));
   };
 
   const onMealTouchEnd = (mealId: MealId, x: number) => {
@@ -1185,40 +1841,20 @@ export default function HomeScreen() {
     }
   };
 
-  const progressText = caloriesRemaining < 0 ? 'OVER MAL' : 'KALORIER GJENSTAR';
-  const progressValue = caloriesRemaining < 0 ? Math.abs(caloriesRemaining) : caloriesRemaining;
   const dateLabel = isTodaySelected ? `I dag, ${fullDateFormat.format(selectedDate)}` : fullDateFormat.format(selectedDate);
-  const coachMessage =
+  const timeGreeting = useMemo(() => {
+    const h = new Date().getHours();
+    if (h >= 5 && h < 12) return 'God morgen';
+    if (h >= 12 && h < 18) return 'God ettermiddag';
+    return 'God kveld';
+  }, []);
+  const _coachMessage =
     consumed === 0
       ? 'Start dagen med et maltid for a bygge streak.'
       : caloriesRemaining > 0
       ? `Du er ${caloriesRemaining} kcal under malet i dag.`
       : `Du har overstiget malet med ${Math.abs(caloriesRemaining)} kcal.`;
-
-  // Dynamic header background reacts to actions
-  const headerBgStyle = useMemo<React.CSSProperties>(() => {
-    if (ringPumping) return { background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 20%, #ea580c 60%, #f97316 100%)', transition: 'background 0.3s ease' };
-    if (headerWave) return { background: 'linear-gradient(135deg, #0284c7 0%, #0891b2 30%, #0e7490 55%, #f97316 100%)', transition: 'background 0.4s ease' };
-    if (caloriesRemaining >= 0 && caloriesRemaining <= 80 && consumed > 0) return { background: 'linear-gradient(135deg, #166534 0%, #16a34a 55%, #22c55e 100%)', transition: 'background 0.8s ease' };
-    if (caloriesRemaining < -150) return { background: 'linear-gradient(135deg, #7f1d1d 0%, #991b1b 50%, #b91c1c 100%)', transition: 'background 0.6s ease' };
-    if (dayLog.trainingKcal > 0) return { background: 'linear-gradient(135deg, #c2410c 0%, #ea580c 55%, #f97316 100%)', transition: 'background 1.2s ease' };
-    return { background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)', transition: 'background 0.6s ease' };
-  }, [ringPumping, headerWave, caloriesRemaining, consumed, dayLog.trainingKcal]);
-
-  // Contextual label shown in header
-  const headerStatusChip = useMemo(() => {
-    if (ringPumping) return { text: `🏋️ Trening logget!`, cls: 'bg-red-500/30 border-red-200/30' };
-    if (headerWave) return { text: `💧 Vann logg!`, cls: 'bg-cyan-400/30 border-cyan-200/30' };
-    if (challengesCompletedToday === 3) return { text: '⚡ Alle utfordringer fullført!', cls: 'bg-amber-300/25 border-amber-200/30' };
-    if (caloriesRemaining >= 0 && caloriesRemaining <= 80 && consumed > 0) return { text: '🎯 Mål nådd i dag!', cls: 'bg-green-400/30 border-green-200/30' };
-    if (caloriesRemaining < -150) return { text: '⚠️ Over kalorimål', cls: 'bg-red-400/25 border-red-200/30' };
-    if (dayLog.trainingKcal > 0) return { text: `🔥 ${dayLog.trainingKcal} kcal trening`, cls: 'bg-orange-300/20 border-orange-200/25' };
-    return null;
-  }, [ringPumping, headerWave, challengesCompletedToday, caloriesRemaining, consumed, dayLog.trainingKcal]);
-
-  // Ring center emoji when actions fire
-  const ringCenterEmoji = ringPumping ? '🏋️' : headerWave ? '💧' : null;
-  const ringSubLabel = ringPumping ? 'TRENING' : headerWave ? 'VANN' : progressText;
+  void _coachMessage;
 
   const smartQuickActions = useMemo(() => {
     const base = [
@@ -1237,243 +1873,712 @@ export default function HomeScreen() {
   }, [actionUsage, adaptiveLunchKcal, frequentProteinShake]);
 
   return (
-    <div className="screen relative pb-32">
-      <div className="screen-header pb-5" style={headerBgStyle}>
+    <div className="screen relative pb-32 overflow-x-hidden">
+      {createPortal(
+        showSidebar ? (
+        <div className="fixed inset-0 z-[1200] flex items-end justify-center">
+          <button
+            type="button"
+            aria-label="Lukk meny"
+            className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+            onClick={() => setShowSidebar(false)}
+          />
+          <div className="relative w-full max-w-[430px] bg-zinc-950 rounded-t-3xl shadow-2xl border-t border-white/[0.07] max-h-[88dvh] flex flex-col overflow-hidden">
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-9 h-1 rounded-full bg-white/20" />
+            </div>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 shrink-0 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                {sidebarView !== 'menu' && (
+                  <button
+                    type="button"
+                    onClick={() => setSidebarView('menu')}
+                    className="w-8 h-8 rounded-full bg-white/[0.07] flex items-center justify-center mr-1"
+                  >
+                    <ChevronLeft className="w-4 h-4 text-white/70" />
+                  </button>
+                )}
+                <h3 className="text-base font-bold text-white/90">
+                  {sidebarView === 'menu' ? 'Meny' : sidebarView === 'logg' ? 'Matlogg' : sidebarView === 'goals' ? 'Mål og makro' : 'Din reise'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSidebar(false)}
+                className="w-8 h-8 rounded-full bg-white/[0.07] flex items-center justify-center"
+              >
+                <X className="w-4 h-4 text-white/70" />
+              </button>
+            </div>
+            {/* Scrollable content */}
+            <div className="overflow-y-auto flex-1 px-4 pt-4 pb-10 space-y-3">
+              {sidebarView === 'menu' && (
+                <>
+                  {/* Today at a glance */}
+                  <div className="rounded-2xl bg-orange-500/[0.12] border border-orange-500/20 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-orange-400 mb-3">I dag</p>
+                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                      <div>
+                        <p className="text-lg font-bold text-white/90">{consumed}</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">kcal spist</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold text-emerald-400">{Math.round(waterProgress * 100)}%</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">vann</p>
+                      </div>
+                      <div>
+                        <p className="text-lg font-bold text-orange-300">{discipline.score}</p>
+                        <p className="text-[10px] text-white/40 mt-0.5">disiplin</p>
+                      </div>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-500 transition-all duration-700"
+                        style={{ width: `${Math.min(100, Math.round(progressRatio * 100))}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-white/35 mt-1.5">
+                      {caloriesRemaining > 0 ? `${Math.round(caloriesRemaining)} kcal igjen` : `${Math.abs(Math.round(caloriesRemaining))} kcal over mål`}
+                    </p>
+                  </div>
 
-        {/* Water wave overlay — always present, opacity driven by waterProgress */}
-        <div className="absolute bottom-0 left-0 right-0 pointer-events-none" style={{ height: 64, overflow: 'hidden' }}>
-          <div
-            className="absolute bottom-0 left-0 header-wave-1"
-            style={{ width: '200%', height: '100%', opacity: Math.max(0.08, waterProgress * 0.45 + (headerWave ? 0.3 : 0)) }}
-          >
-            <svg viewBox="0 0 860 64" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-              <path fill="rgba(6,182,212,0.4)" d="M0,32 C80,8 160,56 240,32 C320,8 400,56 480,32 C560,8 640,56 720,32 C800,8 860,44 860,32 L860,64 L0,64 Z" />
-            </svg>
-          </div>
-          <div
-            className="absolute bottom-0 left-0 header-wave-2"
-            style={{ width: '200%', height: '75%', opacity: Math.max(0.05, waterProgress * 0.3 + (headerWave ? 0.2 : 0)) }}
-          >
-            <svg viewBox="0 0 860 48" preserveAspectRatio="none" style={{ width: '100%', height: '100%' }}>
-              <path fill="rgba(14,116,144,0.45)" d="M0,24 C60,4 140,44 220,24 C300,4 380,44 430,24 C510,4 590,44 650,24 C720,4 800,40 860,24 L860,48 L0,48 Z" />
-            </svg>
+                  {/* Quick actions */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { handleQuickAdd('repeat-day-yesterday'); setShowSidebar(false); }}
+                      disabled={isPastSelectedDay}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left disabled:opacity-40 active:bg-white/[0.09] transition-colors"
+                    >
+                      <RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">Gjenta i går</p>
+                        <p className="text-[10px] text-white/35">Kopier måltider</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } })); setShowSidebar(false); }}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
+                    >
+                      <Camera className="w-4 h-4 text-orange-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">AI Skann</p>
+                        <p className="text-[10px] text-white/35">Ta bilde av mat</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'meals' } })); setShowSidebar(false); }}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
+                    >
+                      <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">Oppskrifter</p>
+                        <p className="text-[10px] text-white/35">Finn måltider</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'profile' } })); setShowSidebar(false); }}
+                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
+                    >
+                      <Settings className="w-4 h-4 text-slate-400 shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-white/90">Innstillinger</p>
+                        <p className="text-[10px] text-white/35">Profil og mål</p>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Section navigators */}
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 px-1 mb-2">Oversikt</p>
+                    <div className="space-y-1.5">
+                      {([
+                        { view: 'logg' as const, icon: BookOpen, color: 'text-blue-400 bg-blue-500/15', label: 'Matlogg', sub: 'I går + tidligere dager' },
+                        { view: 'goals' as const, icon: BarChart2, color: 'text-orange-400 bg-orange-500/15', label: 'Mål og makro', sub: 'Energi, makro, progresjon' },
+                        { view: 'journey' as const, icon: Flame, color: 'text-emerald-400 bg-emerald-500/15', label: 'Din reise', sub: 'Vektgraf og fremgang' },
+                      ]).map(({ view, icon: Icon, color, label, sub }) => (
+                        <button
+                          key={view}
+                          type="button"
+                          onClick={() => setSidebarView(view)}
+                          className="w-full text-left flex items-center justify-between rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 active:bg-white/[0.09] transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${color}`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-white/90">{label}</p>
+                              <p className="text-[11px] text-white/35">{sub}</p>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-white/25 shrink-0" />
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => { setShowSidebar(false); setShowNutrientModal(true); }}
+                        className="w-full text-left flex items-center justify-between rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 active:bg-white/[0.09] transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-teal-400 bg-teal-500/15">
+                            <Microscope className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-white/90">Mikronæring</p>
+                            <p className="text-[11px] text-white/35">Omega-3, vitaminer, mineraler</p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-white/25 shrink-0" />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {sidebarView === 'logg' && (
+                <div className="space-y-3">
+                  {historicalMealLog.length === 0 ? (
+                    <p className="text-xs text-white/40 text-center py-4">Ingen historisk matlogg enda.</p>
+                  ) : (
+                    historicalMealLog.map((day) => (
+                      <div key={day.dateKey} className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3">
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <p className="text-sm font-semibold text-white/90">
+                            {formatDateKey(day.dateKey)}
+                          </p>
+                          <p className="text-[11px] text-white/35">
+                            {Math.round(day.totalKcal)} kcal · {Math.round(day.totalProtein)}g protein
+                          </p>
+                        </div>
+                        <div className="space-y-1.5">
+                          {day.mealSections.map(([mealId, foods]) => (
+                            <div key={`${day.dateKey}-${mealId}`} className="rounded-xl bg-white/[0.04] border border-white/[0.05] p-2">
+                              <p className="text-[10px] font-semibold text-white/40 uppercase tracking-wide mb-1">{mealLabelById[mealId as MealId] ?? mealId}</p>
+                              <div className="space-y-0.5">
+                                {foods.map((food) => (
+                                  <p key={food.id} className="text-xs text-white/70">{food.name} <span className="text-white/35">· {Math.round(food.kcal)} kcal</span></p>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+
+              {sidebarView === 'goals' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: 'BMR', value: `${smartDietPlan.bmr} kcal` },
+                      { label: 'TDEE', value: `${smartDietPlan.tdee} kcal` },
+                      { label: 'Dagsmal', value: `${smartDietPlan.optimizedTargetKcal} kcal` },
+                      { label: 'Justering', value: `${smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}${smartDietPlan.weeklyAdjustmentKcal} kcal` },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3 text-center">
+                        <p className="text-base font-bold text-orange-300">{value}</p>
+                        <p className="text-[11px] text-white/40 mt-0.5">{label}</p>
+                      </div>
+                    ))}
+                    {dayLog.trainingKcal > 0 && (
+                      <div className="col-span-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
+                        <p className="text-base font-bold text-emerald-400">+{dayLog.trainingKcal} kcal → {netGoal} kcal</p>
+                        <p className="text-[11px] text-white/40 mt-0.5">Treningsbonus inkludert i nettomål</p>
+                      </div>
+                    )}
+                  </div>
+                  {smartDietPlan.macros && (
+                    <div className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-white/40 mb-2">Makromål</p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        {[
+                          { label: 'Protein', value: `${smartDietPlan.macros.proteinG}g`, color: 'text-violet-300' },
+                          { label: 'Karbo', value: `${smartDietPlan.macros.carbsG}g`, color: 'text-emerald-300' },
+                          { label: 'Fett', value: `${smartDietPlan.macros.fatG}g`, color: 'text-amber-300' },
+                        ].map(({ label, value, color }) => (
+                          <div key={label}>
+                            <p className={`text-base font-bold ${color}`}>{value}</p>
+                            <p className="text-[11px] text-white/40">{label}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {smartDietPlan.adjustmentReason && (
+                    <p className="text-xs text-white/50 px-1">{localizeAdjustmentReason(smartDietPlan.adjustmentReason, t)}</p>
+                  )}
+                  {smartDietPlan.projectedProgressText && (
+                    <div className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-3 text-center">
+                      <p className="text-xs font-semibold text-emerald-400">{localizeProjectionText(smartDietPlan.projectedProgressText)}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {sidebarView === 'journey' && (
+                <div>
+                  {journeyWeightSeries.length === 0 ? (
+                    <p className="text-xs text-white/40 text-center py-4">Ingen vektdata enda. Logg en måling for graf.</p>
+                  ) : (
+                    <div className="rounded-2xl bg-white/[0.05] border border-white/[0.07] p-4">
+                      <p className="text-xs font-semibold text-white/60 mb-3">Vekttrend (kg)</p>
+                      <svg viewBox="0 0 420 170" className="w-full h-36">
+                        {(() => {
+                          const values = journeyWeightSeries.map((p) => p.value);
+                          const min = Math.min(...values);
+                          const max = Math.max(...values);
+                          const range = Math.max(1, max - min);
+                          const coords = journeyWeightSeries.map((p, i) => ({
+                            x: journeyWeightSeries.length === 1 ? 210 : (i / (journeyWeightSeries.length - 1)) * 390 + 15,
+                            y: 145 - ((p.value - min) / range) * 120,
+                            value: p.value,
+                            date: p.date,
+                          }));
+                          return (
+                            <>
+                              <line x1="15" y1="145" x2="405" y2="145" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                              <polyline fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={coords.map((c) => `${c.x},${c.y}`).join(' ')} />
+                              {coords.map((c) => (
+                                <circle key={`${c.date}-${c.value}`} cx={c.x} cy={c.y} r="3.5" fill="#f97316" />
+                              ))}
+                              <text x="15" y="164" fontSize="10" fill="rgba(255,255,255,0.3)">{formatDateKey(coords[0]?.date ?? todayKey)}</text>
+                              <text x="340" y="164" fontSize="10" fill="rgba(255,255,255,0.3)">{formatDateKey(coords[coords.length - 1]?.date ?? todayKey)}</text>
+                            </>
+                          );
+                        })()}
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+        ) : null,
+        document.body
+      )}
 
-        {/* Workout energy sparks */}
-        {ringPumping && (
-          <div className="absolute inset-0 pointer-events-none overflow-hidden">
-            {[14, 28, 42, 58, 72, 86].map((left, i) => (
-              <div
-                key={i}
-                className="workout-spark"
-                style={{ left: `${left}%`, animationDelay: `${i * 75}ms` }}
+      {/* ===== COMPACT TOP BAR ===== */}
+      <div className={`screen-header${identityHeaderModifier ? ` ${identityHeaderModifier}` : ''}${headerMomentFlash ? ' screen-header-moment-flash' : ''}`}>
+        {/* Persistent header bottom wave */}
+        <span className="screen-header-wave" aria-hidden="true" />
+        {waterPourActive && (
+          <div className="water-pour-container" aria-hidden="true">
+            <div className="water-pour-wave" />
+            {[9, 21, 34, 48, 61, 74, 88].map((left, i) => (
+              <span
+                key={left}
+                className="water-drop"
+                style={{ left: `${left}%`, animationDelay: `${i * 0.06}s` }}
               />
             ))}
           </div>
         )}
-
-        <div className="flex justify-between items-start mb-3">
-          <div className="flex items-center gap-2">
-            <div className={`w-10 h-10 bg-white/20 rounded-full flex items-center justify-center ${streak > 0 && !dayHasAnyLog && isTodaySelected ? 'streak-at-risk' : ''}`}>
-              <Flame className={`w-5 h-5 text-white ${streak > 0 ? 'streak-flame' : ''}`} />
-            </div>
-            <div>
-              <span className={`text-white/90 text-sm font-medium ${[3,7,14,30,60,90,365].includes(streak) ? 'streak-milestone inline-block' : ''}`}>{streak} dagers streak</span>
-              {streak > 0 && !dayHasAnyLog && isTodaySelected && (
-                <p className="text-yellow-200 text-xs font-semibold animate-pulse">⚠️ Streak i fare!</p>
-              )}
-              <p className="text-white/70 text-xs">Konsistensscore: {weeklyConsistencyScore}%</p>
-              <p className="text-white/70 text-xs">Daglig disiplin: {discipline.score}/100</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setLazyMode((prev) => !prev)}
-              className="h-10 px-3 bg-white/20 rounded-full text-xs font-semibold text-white"
-              title="Lazy mode"
-            >
-              {lazyMode ? 'Lazy ON' : 'Lazy'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowQuickAddMenu((prev) => !prev)}
-              className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center"
-              title="Quick add"
-              disabled={isPastSelectedDay}
-            >
-              <Plus className="w-5 h-5 text-white" />
-            </button>
-          </div>
-        </div>
-
-        {/* Context status chip — shows what just happened */}
-        {headerStatusChip && (
-          <div className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 mb-2 text-xs font-semibold text-white header-chip-enter ${headerStatusChip.cls}`}>
-            {headerStatusChip.text}
-          </div>
-        )}
-
-        {smartPrompt && !headerStatusChip && (
-          <div className="rounded-xl bg-white/15 px-3 py-2 mb-3">
-            <p className="text-xs text-white">{smartPrompt}</p>
-          </div>
-        )}
-
-        <div className="mt-3 flex flex-col items-center justify-center gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <button
-            type="button"
-            onClick={onRingTap}
-            className={`progress-circle shrink-0 ${caloriesRemaining >= 0 && caloriesRemaining <= 80 && consumed > 0 ? 'ring-complete' : ''} ${ringPumping ? 'ring-pumping' : ''}`}
-            title="Vis kaloridetaljer"
-          >
-            <svg width="190" height="190" viewBox="0 0 200 200">
-              <circle className="progress-circle-bg" cx="100" cy="100" r={RING_RADIUS} />
-              <circle
-                cx="100"
-                cy="100"
-                r={RING_RADIUS}
-                fill="none"
-                stroke={ringColor}
-                strokeWidth="12"
-                strokeLinecap="round"
-                strokeDasharray={RING_CIRCUMFERENCE}
-                strokeDashoffset={strokeDashoffset}
-                style={{ transition: 'stroke-dashoffset 500ms ease, stroke 300ms ease' }}
-              />
-            </svg>
-            <div className="progress-text">
-              {ringCenterEmoji ? (
-                <p key={ringCenterEmoji} className="text-5xl count-bounce">{ringCenterEmoji}</p>
-              ) : (
-                <p className="text-5xl font-bold text-white"><span key={progressValue} className="count-bounce">{progressValue}</span></p>
-              )}
-              <p className="text-white/70 text-sm mt-1">{ringSubLabel}</p>
-              <span className="mt-2 inline-flex text-white/80 text-xs items-center gap-1">
-                Trykk for detaljer <ChevronRight className={`w-3 h-3 ${ringExpanded ? 'rotate-90' : ''} transition-transform`} />
+        <div className="screen-header-bubbles" aria-hidden="true">
+          {headerBubbleSpecs.map(({ Icon, left, delay, duration, size, threshold }, index) => {
+            const intensity = Math.max(0, Math.min((headerActivityScore - threshold) / (1 - threshold), 1));
+            if (intensity <= 0.02) return null;
+            return (
+              <span
+                key={`${left}-${index}`}
+                className="screen-header-bubble"
+                style={{
+                  left,
+                  animationDelay: delay,
+                  animationDuration: `${(parseFloat(duration) * identityBubbleDurationFactor).toFixed(2)}s`,
+                  opacity: 0.1 + intensity * 0.34,
+                  transform: `translate3d(0, ${18 - intensity * 10}px, 0) scale(${0.78 + intensity * 0.42})`,
+                }}
+              >
+                <Icon size={size} strokeWidth={2.1} />
               </span>
-            </div>
-          </button>
+            );
+          })}
+        </div>
 
-          <div className="w-full flex-1 rounded-2xl bg-white/10 px-3 py-3">
-            <p className="text-[11px] uppercase text-white/75 mb-2">Ukesoversikt</p>
-            <div className="flex items-end justify-between gap-1 h-28">
-              {weeklyData.map((day) => {
-                const ratio = Math.min(day.consumed / Math.max(optimizedTargetKcal, 1), 1.15);
-                const fillHeight = Math.max(10, Math.round(ratio * 64));
-                const barColor = getWeeklyBarColor(ratio);
-                return (
-                  <div key={day.key} className="flex flex-1 justify-center">
-                    <div
-                      className={`w-4 h-24 rounded-full bg-white/20 p-[2px] flex flex-col ${day.isSelected ? 'ring-2 ring-white' : day.isToday ? 'ring-1 ring-white/60' : ''}`}
-                    >
-                      <div
-                        className="w-full rounded-full mt-auto transition-all"
-                        style={{ height: `${Math.min(fillHeight, 70)}px`, backgroundColor: barColor }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+        <div className="screen-header-content">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSidebar((prev) => {
+                    const next = !prev;
+                    if (next) setSidebarView('menu');
+                    return next;
+                  });
+                }}
+                className="h-9 w-9 shrink-0 rounded-2xl bg-slate-100/80 dark:bg-white/[0.07] flex items-center justify-center text-slate-600 dark:text-white/70 transition-colors hover:bg-slate-200/80 dark:hover:bg-white/[0.12]"
+                title="Åpne meny"
+              >
+                {showSidebar ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+              </button>
+              <div className="min-w-0">
+                <p className="text-[17px] font-bold text-slate-900 dark:text-white/95 leading-tight">{timeGreeting}</p>
+                <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                  <span className="text-[11px] text-slate-400 dark:text-white/35 leading-tight truncate">{identityCaption}</span>
+                  <span className="text-slate-300 dark:text-white/15 text-[10px] shrink-0">·</span>
+                  <span className="flex items-center gap-0.5 text-[11px] text-slate-500 dark:text-white/40 font-medium shrink-0">
+                    <Flame className="h-3 w-3 text-orange-400" />
+                    {streak > 0 ? `${streak}d` : 'Start!'}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-4 flex items-center justify-center gap-4">
-          <p className="text-white/90 text-sm font-medium">{coachMessage}</p>
-          <div className="flex items-end gap-2 rounded-xl bg-white/10 px-3 py-2">
-            <div className="relative w-5 h-8 rounded-b-md rounded-t-sm border border-white/70 overflow-hidden bg-white/10">
-              <div
-                className="absolute bottom-0 left-0 right-0 bg-cyan-300/90 transition-all"
-                style={{ height: `${Math.round(waterProgress * 100)}%` }}
-              />
+        {activeHeroMessage && (
+          <div className="hero-message-shell mt-3">
+            <div className={`hero-message-card ${heroMessageVisible ? 'hero-message-card-visible' : 'hero-message-card-hidden'}`}>
+              <p className="hero-message-text">{activeHeroMessage}</p>
             </div>
-            <p className="text-xs text-white/85 whitespace-nowrap">
-              {dayLog.waterMl} / {WATER_GOAL_ML} ml
-            </p>
-          </div>
-        </div>
-
-        {ringExpanded && (
-          <div className="mt-4 bg-white/10 rounded-2xl p-4 grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-white/70">Protein</p>
-              <p className="text-white font-semibold">{Math.round(protein)} g</p>
-            </div>
-            <div>
-              <p className="text-white/70">Karbo</p>
-              <p className="text-white font-semibold">{Math.round(carbs)} g</p>
-            </div>
-            <div>
-              <p className="text-white/70">Fett</p>
-              <p className="text-white font-semibold">{Math.round(fat)} g</p>
-            </div>
-            <div>
-              <p className="text-white/70">7-dagers snitt</p>
-              <p className="text-white font-semibold">{weeklyAverage} kcal</p>
-            </div>
-          </div>
-        )}
-
-        <div className="grid grid-cols-3 mt-4 text-center gap-2 items-end">
-          <div>
-            <p className="text-2xl font-bold text-white">{optimizedTargetKcal}</p>
-            <p className="text-white/60 text-xs">TARGET KCAL</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-white"><span key={consumed} className="count-bounce">{consumed}</span></p>
-            <p className="text-white/60 text-xs">INNTAK</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-white">+<span key={dayLog.trainingKcal} className="count-bounce">{dayLog.trainingKcal}</span></p>
-            <p className="text-white/60 text-xs">TRENING</p>
-          </div>
-        </div>
-
-        <div className="mt-3 rounded-xl bg-white/10 p-3">
-          <p className="text-[11px] text-white/70">Optimized target: {smartDietPlan.optimizedTargetKcal} kcal ({smartDietPlan.weeklyAdjustmentKcal >= 0 ? '+' : ''}{smartDietPlan.weeklyAdjustmentKcal} fra basis)</p>
-          <p className="text-[11px] text-white/70 mt-1">BMR {smartDietPlan.bmr} | TDEE {smartDietPlan.tdee} | Basis {smartDietPlan.baseTargetKcal}</p>
-          <p className="text-[11px] text-white/70 mt-1">{smartDietPlan.adjustmentReason}</p>
-          <p className="text-[11px] text-white/70 mt-1">{smartDietPlan.projectedProgressText}</p>
-          {smartDietPlan.macros && (
-            <p className="text-[11px] text-white/70 mt-1">
-              Makro-mal: P {smartDietPlan.macros.proteinG}g | F {smartDietPlan.macros.fatG}g | K {smartDietPlan.macros.carbsG}g
-            </p>
-          )}
-        </div>
-
-        {allTips.length > 0 && (
-          <div className="mt-2 rounded-xl bg-white/10 px-3 py-2 flex items-center gap-2 min-h-[32px]">
-            <span className="text-white/50 text-[10px] shrink-0 font-bold uppercase tracking-wide">Tips</span>
-            <p
-              key={tipIndex}
-              className="text-[11px] text-white/85 leading-snug"
-              style={{
-                opacity: tipVisible ? 1 : 0,
-                transform: tipVisible ? 'translateY(0)' : 'translateY(4px)',
-                transition: 'opacity 0.35s ease, transform 0.35s ease',
-              }}
-            >
-              {allTips[tipIndex]}
-            </p>
-            <span className="ml-auto text-white/30 text-[10px] shrink-0">{tipIndex + 1}/{allTips.length}</span>
           </div>
         )}
       </div>
 
+      {/* ===== DAILY COACH CARD ===== */}
+      {isTodaySelected && (
+        <div style={{ padding: '0 16px 0 16px' }}>
+          <CoachCard
+            message={coachMessage}
+            onAction={(priority) => {
+              if (priority === 'protein' || priority === 'calories_under' || priority === 'logging') {
+                window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
+              } else if (priority === 'water') {
+                setShowWorkoutModal(false);
+                // Scroll to water section — trigger by setting focus hint
+                document.getElementById('water-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              } else if (priority === 'workout') {
+                setShowWorkoutModal(true);
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {/* ===== CALORIE RING HERO ===== */}
+      <div className={`calorie-hero${identityHeaderModifier ? ` calorie-hero-${identityMode.replace('_', '-')}` : ''}`}>
+        {/* Identity orbs — soft ambient particles that float around the card */}
+        <span className="hero-orb hero-orb-1" aria-hidden="true" />
+        <span className="hero-orb hero-orb-2" aria-hidden="true" />
+        <span className="hero-orb hero-orb-3" aria-hidden="true" />
+        {/* Ambient shimmer wave */}
+        <span className="hero-shimmer" aria-hidden="true" />
+        {/* Rain effect when water is logged */}
+        {waterPourActive && (
+          <div className="hero-rain-container" aria-hidden="true">
+            <div className="hero-rain-wave" />
+            {[4,10,17,24,30,37,44,51,57,63,70,76,82,88,94].map((left, i) => (
+              <span
+                key={left}
+                className="hero-rain-drop"
+                style={{
+                  left: `${left}%`,
+                  animationDelay: `${i * 0.04}s`,
+                  height: `${10 + (i % 3) * 4}px`,
+                  opacity: 0.6 + (i % 4) * 0.1,
+                }}
+              />
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onRingTap}
+          className={`progress-circle ${ringAnimating ? 'progress-circle-animating' : ''} ${ringPumping ? 'progress-circle-pumping' : ''}`}
+          title="Vis kaloridetaljer"
+        >
+          <svg width="220" height="220" viewBox="0 0 200 200">
+            <defs>
+              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={ringColor} />
+                <stop offset="100%" stopColor={ringColor} stopOpacity="0.5" />
+              </linearGradient>
+              <filter id="ringGlow">
+                <feGaussianBlur stdDeviation="4" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+            <circle className="progress-circle-bg" cx="100" cy="100" r={RING_RADIUS} />
+            <circle
+              cx="100" cy="100" r={RING_RADIUS}
+              fill="none" stroke="url(#ringGrad)" strokeWidth="10" strokeLinecap="round"
+              strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={animatedStrokeDashoffset}
+              filter="url(#ringGlow)"
+              className="progress-circle-meter"
+              style={{ transition: 'stroke 300ms ease' }}
+            />
+          </svg>
+          <div className="progress-text">
+            <p className="progress-value">{kcalNumberFormat.format(animatedProgressValue)}</p>
+            <p className="progress-label">{progressText}</p>
+            <p className="progress-detail">{progressDetailText}</p>
+          </div>
+        </button>
+
+        {/* Stats row */}
+        <div className="hero-stats-row">
+          <div className={`hero-stat-pill hero-stat-pill-goal text-center${flashedStat === 'goal' ? ' hero-stat-flash' : ''}`}>
+            <p className="hero-stat-value text-slate-900 dark:text-white">{kcalNumberFormat.format(animatedGoal)}</p>
+            <p className="hero-stat-label">Mål</p>
+          </div>
+          <div className="hero-stat-divider" />
+          <div className={`hero-stat-pill hero-stat-pill-eaten text-center${flashedStat === 'consumed' ? ' hero-stat-flash' : ''}`}>
+            <p className="hero-stat-value text-orange-500 dark:text-orange-300">{kcalNumberFormat.format(animatedConsumed)}</p>
+            <p className="hero-stat-label">Spist</p>
+          </div>
+          <div className="hero-stat-divider" />
+          <div className={`hero-stat-pill hero-stat-pill-training text-center${flashedStat === 'training' ? ' hero-stat-flash' : ''}`}>
+            <p className="hero-stat-value text-emerald-500 dark:text-emerald-300">+{kcalNumberFormat.format(animatedTraining)}</p>
+            <p className="hero-stat-label">Trening</p>
+          </div>
+        </div>
+
+        {/* Macro row when expanded — tap to open nutrient detail */}
+        {ringExpanded && (
+          <button
+            type="button"
+            onClick={() => setShowNutrientModal(true)}
+            className="mt-5 w-full grid grid-cols-4 gap-2 group"
+            title="Se næringsstoffoversikt"
+          >
+            {[
+              { label: 'Protein', value: Math.round(protein), unit: 'g', target: smartDietPlan.macros?.proteinG ?? 120, color: '#3b82f6' },
+              { label: 'Karbo', value: Math.round(carbs), unit: 'g', target: smartDietPlan.macros?.carbsG ?? 200, color: '#f97316' },
+              { label: 'Fett', value: Math.round(fat), unit: 'g', target: smartDietPlan.macros?.fatG ?? 70, color: '#a855f7' },
+              { label: 'Snitt/uke', value: weeklyAverage, unit: '', target: optimizedTargetKcal, color: '#22c55e' },
+            ].map(({ label, value, unit, target, color }) => {
+              const pct = Math.min(100, Math.round((value / Math.max(1, target)) * 100));
+              return (
+                <div key={label} className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center relative overflow-hidden">
+                  <div
+                    className="absolute bottom-0 left-0 right-0 rounded-b-xl opacity-30 transition-all duration-700"
+                    style={{ height: `${pct}%`, background: color }}
+                  />
+                  <p className="relative text-lg font-bold text-slate-900 dark:text-white">{value}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">{unit}</span></p>
+                  <p className="relative text-[10px] text-slate-500 dark:text-white/35 mt-0.5">{label}</p>
+                </div>
+              );
+            })}
+            <p className="col-span-4 text-[10px] text-slate-400 dark:text-white/25 flex items-center justify-center gap-1 mt-0.5">
+              Se fullstendig næringsoversikt <ChevronDown className="w-3 h-3" />
+            </p>
+          </button>
+        )}
+      </div>
+
+      {/* ===== WEEKLY BAR CHART ===== */}
+      <div className="weekly-card">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[11px] text-slate-600 dark:text-white/40 font-semibold tracking-wider uppercase">Denne uken</p>
+          <p className="text-[11px] text-slate-500 dark:text-white/30">Snitt: {weeklyAverage} kcal</p>
+        </div>
+        <div className="flex items-end justify-between gap-2 h-24">
+          {weeklyData.map((day, barIndex) => {
+            const dayTarget = Math.max(1, optimizedTargetKcal + (logsByDate[day.key]?.trainingKcal ?? 0));
+            const ratioRaw = day.consumed / dayTarget;
+            const ratio = Math.max(0, Math.min(ratioRaw, 1));
+            const fillHeight = day.consumed > 0 ? Math.max(6, Math.round(ratio * 100)) : 4;
+            const barColor = getWeeklyBarColor(ratio);
+            return (
+              <div key={day.key} className="flex-1 flex flex-col items-center gap-1.5">
+                <div className="w-full max-w-[14px] h-20 rounded-full bg-slate-200/70 dark:bg-white/[0.04] flex flex-col justify-end overflow-hidden">
+                  <div
+                    className="w-full rounded-full weekly-bar-fill transition-all duration-700 ease-out"
+                    style={{
+                      height: `${fillHeight}%`,
+                      backgroundColor: day.consumed > 0 ? barColor : 'rgba(148,163,184,0.4)',
+                      boxShadow: day.consumed > 0 ? `0 0 8px ${barColor}30` : 'none',
+                      animationDelay: `${barIndex * 60}ms`,
+                    }}
+                  />
+                </div>
+                <span className={`text-[10px] font-medium ${
+                  day.isSelected
+                    ? 'text-orange-500 dark:text-orange-400'
+                    : day.isToday
+                      ? 'text-slate-600 dark:text-white/60'
+                      : 'text-slate-400 dark:text-white/25'
+                }`}>
+                  {day.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div
-        className="flex items-center justify-center gap-4 py-4 select-none"
+        className="date-nav-row"
         onTouchStart={onDateTouchStart}
         onTouchEnd={onDateTouchEnd}
       >
-        <button type="button" className="text-gray-500 dark:text-gray-400 p-2" onClick={goPreviousDay} title="Forrige dag">
-          <ChevronLeft className="w-5 h-5" />
+        <button 
+          type="button" 
+          className="date-nav-button" 
+          onClick={goPreviousDay} 
+          title="Forrige dag"
+        >
+          <ChevronLeft className="w-4 h-4 text-slate-500 dark:text-white/50" />
         </button>
-        <p className="text-gray-600 dark:text-gray-300 font-medium text-center min-w-[220px]">{dateLabel}</p>
-        <button type="button" className="text-gray-500 dark:text-gray-400 p-2" onClick={goNextDay} title="Neste dag">
-          <ChevronRight className="w-5 h-5" />
+        <button
+          key={selectedDateKey}
+          type="button"
+          className="date-nav-chip date-nav-chip-animate flex items-center gap-2"
+          onClick={() => { setHistoryViewDate(today); setHistorySelectedKey(null); setShowActivityHistory(true); }}
+          title="Se aktivitetshistorikk"
+        >
+          <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-white/40 shrink-0" />
+          <p className="text-slate-800 dark:text-white/80 font-medium text-center min-w-0 flex-1 text-sm">{dateLabel}</p>
         </button>
+        <button 
+          type="button" 
+          className="date-nav-button" 
+          onClick={goNextDay} 
+          title="Neste dag"
+        >
+          <ChevronRight className="w-4 h-4 text-slate-500 dark:text-white/50" />
+        </button>
+      </div>
+
+      {/* Quick log actions */}
+      <div className="card card-elevated">
+        <div className="grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={() => openScanTab('photo')}
+            className="btn-primary text-sm py-3 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={isPastSelectedDay}
+          >
+            <Camera className="w-4 h-4" />
+            Ta bilde
+          </button>
+          <button
+            type="button"
+            onClick={() => openScanTab('barcode')}
+            className="btn-secondary text-sm py-3 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={isPastSelectedDay}
+          >
+            <ScanLine className="w-4 h-4" />
+            Strekkode
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickAdd('repeat-last')}
+            className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={isPastSelectedDay || !lastLoggedFood}
+          >
+            Gjenta sist
+          </button>
+          <button
+            type="button"
+            onClick={() => handleQuickAdd('repeat-day-yesterday')}
+            className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={isPastSelectedDay}
+          >
+            Gjenta i går
+          </button>
+        </div>
+      </div>
+
+      {/* Daily summary + log */}
+      <div className="card card-elevated">
+        {/* Kcal + Protein stats */}
+        {isTodaySelected && (
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            {/* Calories */}
+            <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5">
+              <p className="text-[11px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wide mb-1">Kalorier</p>
+              <p className={`text-2xl font-bold leading-none ${caloriesRemaining < 0 ? 'text-red-500' : 'text-slate-800 dark:text-white/90'}`}>
+                {caloriesRemaining < 0 ? `+${Math.abs(Math.round(caloriesRemaining))}` : Math.round(caloriesRemaining)}
+              </p>
+              <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{caloriesRemaining < 0 ? 'over mål' : 'kcal igjen'}</p>
+              <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-white/[0.08] overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${caloriesRemaining < 0 ? 'bg-red-400' : 'bg-orange-400'}`}
+                  style={{ width: `${Math.min(progressRatio * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+            {/* Protein */}
+            {smartDietPlan.macros ? (
+              <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5">
+                <p className="text-[11px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wide mb-1">Protein</p>
+                <p className={`text-2xl font-bold leading-none ${protein >= smartDietPlan.macros.proteinG ? 'text-emerald-500' : 'text-slate-800 dark:text-white/90'}`}>
+                  {protein >= smartDietPlan.macros.proteinG ? '✓' : `${Math.round(smartDietPlan.macros.proteinG - protein)}g`}
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{protein >= smartDietPlan.macros.proteinG ? 'nådd!' : 'igjen'}</p>
+                <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-white/[0.08] overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${protein >= smartDietPlan.macros.proteinG ? 'bg-emerald-400' : 'bg-violet-400'}`}
+                    style={{ width: `${Math.min((protein / smartDietPlan.macros.proteinG) * 100, 100)}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5 flex items-center justify-center">
+                <p className="text-xs text-slate-400 dark:text-white/30">—</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Log header */}
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-white/70">Dagens matlogg</h3>
+          {todaysLoggedItems.length > 0 && (
+            <span className="text-[11px] text-slate-400 dark:text-white/30">{todaysLoggedItems.length} varer</span>
+          )}
+        </div>
+
+        {todaysLoggedItems.length === 0 ? (
+          <p className="text-xs text-slate-400 dark:text-white/30 py-1">
+            {isTodaySelected ? 'Ingen matvarer logget ennå i dag.' : 'Ingen matvarer logget.'}
+          </p>
+        ) : (
+          <div className="mt-3 space-y-2">
+            {todaysLoggedItems.map(({ mealId, index, entry }, itemIndex) => (
+              <div key={entry.id} className="food-log-item rounded-lg border border-slate-200 dark:border-white/[0.06] px-3 py-2" style={{ animationDelay: `${itemIndex * 40}ms` }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase text-slate-400 dark:text-white/30">{mealId === 'breakfast' ? t('home.meals.breakfast') : mealId === 'lunch' ? t('home.meals.lunch') : mealId === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')} #{index + 1}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white/90 truncate">{entry.name}</p>
+                    <p className="text-xs text-slate-500 dark:text-white/40">{entry.kcal} kcal | P {entry.protein} | K {entry.carbs} | F {entry.fat}</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openFoodEdit(mealId, entry)}
+                      className="h-8 w-8 rounded-md border border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-white/40 flex items-center justify-center disabled:text-white/20 disabled:border-slate-200 dark:border-white/[0.06]"
+                      title="Rediger"
+                      disabled={isPastSelectedDay}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingDelete({ mealId, entryId: entry.id, name: entry.name })}
+                      className="h-8 w-8 rounded-md border border-red-500/20 text-red-400 flex items-center justify-center disabled:text-red-400/50 disabled:border-red-100"
+                      title="Slett"
+                      disabled={isPastSelectedDay}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 pb-24">
@@ -1495,42 +2600,42 @@ export default function HomeScreen() {
           return (
             <div
               key={meal.id}
-              className="meal-item flex-col items-stretch"
+              className={`meal-item flex-col items-stretch${isExpanded ? ' meal-item-expanded' : ''}`}
               onTouchStart={(event) => onMealTouchStart(meal.id, event.touches[0]?.clientX ?? 0)}
               onTouchEnd={(event) => onMealTouchEnd(meal.id, event.changedTouches[0]?.clientX ?? 0)}
             >
               <button
                 type="button"
-                className="flex items-center justify-between tap-scale w-full"
+                className="flex items-center justify-between"
                 onClick={() => toggleMealExpanded(meal.id)}
               >
                 <div className="meal-info">
-                  <div className="meal-icon" style={{ background: meal.color }}>
-                    <MealIcon className="w-6 h-6 text-gray-700" />
+                  <div key={`${meal.id}-${String(isExpanded)}`} className={`meal-icon ${mealIconToneById[meal.id]}${isExpanded ? ' meal-icon-popping' : ''}`}>
+                    <MealIcon className={`w-6 h-6 ${mealIconGlyphToneById[meal.id]}`} />
                   </div>
                   <div className="text-left min-w-0">
-                    <h3 className="font-semibold text-gray-800 dark:text-gray-100">{meal.name}</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{items.length ? <span key={totals.kcal} className="meal-kcal-tick">{totals.kcal} kcal</span> : `Anbefalt: ${meal.recommended} kcal`}</p>
+                    <h3 className="font-semibold text-slate-900 dark:text-white/90">{meal.id === 'breakfast' ? t('home.meals.breakfast') : meal.id === 'lunch' ? t('home.meals.lunch') : meal.id === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')}</h3>
+                    <p className="text-sm text-slate-500 dark:text-white/40">{items.length ? `${totals.kcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}</p>
                     {mealHistory.avgKcal > 0 && (
-                      <p className="text-[11px] text-gray-400 dark:text-gray-500">Vanlig: ~{mealHistory.avgKcal} kcal</p>
+                      <p className="text-[11px] text-slate-400 dark:text-white/30">Vanlig: ~{mealHistory.avgKcal} kcal</p>
                     )}
                     {items.length > 0 ? (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
+                      <p className="text-xs text-slate-500 dark:text-white/40 mt-1 truncate">
                         {previewItems.map((item) => `${item.name}${item.count > 1 ? ` x${item.count}` : ''}`).join(' + ')}
                         {extraPreviewCount > 0 ? ` + ${extraPreviewCount} til` : ''}
                       </p>
                     ) : (
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Trykk for å legge til mat</p>
+                      <p className="text-xs text-slate-400 dark:text-white/30 mt-1">Trykk for a legge til mat</p>
                     )}
                   </div>
                 </div>
-                <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                <ChevronRight className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
               </button>
 
               {isExpanded && (
-                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 slide-fade-in">
+                <div className="mt-3 pt-3 border-t border-slate-200 dark:border-white/[0.06]">
                   {mealHistory.lastThree.length > 0 && (
-                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
+                    <p className="text-[11px] text-slate-500 dark:text-white/40 mb-2">
                       Last 3: {mealHistory.lastThree.join(' / ')} kcal
                     </p>
                   )}
@@ -1552,7 +2657,7 @@ export default function HomeScreen() {
                           `predictive:${meal.id}`,
                         )
                       }
-                      className="mb-3 w-full text-left text-xs px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300"
+                      className="mb-3 w-full text-left text-xs px-3 py-2 rounded-lg bg-blue-500/10 text-blue-400"
                       disabled={isPastSelectedDay}
                     >
                       Du pleier ca {suggestedKcal} kcal her. Trykk for auto prefill.
@@ -1566,7 +2671,7 @@ export default function HomeScreen() {
                           key={quick.id}
                           type="button"
                           onClick={() => addFoodToMeal(meal.id, quick)}
-                          className="text-xs px-3 py-1.5 rounded-full bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-300 tap-scale"
+                          className="text-xs px-3 py-1.5 rounded-full bg-orange-500/10 text-orange-400"
                           disabled={isPastSelectedDay}
                         >
                           + {quick.name}
@@ -1576,31 +2681,38 @@ export default function HomeScreen() {
                         <button
                           key={template.id}
                           type="button"
-                          onClick={() =>
-                            template.items.forEach((item) => addFoodToMeal(meal.id, { ...item, id: createFoodId() }, `template:${template.id}`))
-                          }
-                          className="text-xs px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-300"
+                          onClick={() => {
+                            template.items.forEach((item) => addFoodToMeal(meal.id, { ...item, id: createFoodId() }, `template:${template.id}`));
+                            setSavedMealTemplates((prev) =>
+                              prev.map((entry) => (
+                                entry.id === template.id
+                                  ? { ...entry, usageCount: (entry.usageCount ?? 0) + 1 }
+                                  : entry
+                              )),
+                            );
+                          }}
+                          className="text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400"
                           disabled={isPastSelectedDay}
                         >
                           + {template.name}
                         </button>
                       ))}
                       {quickSuggestions.length === 0 && mealTemplatesForSlot.length === 0 && (
-                        <p className="text-xs text-gray-400">Ingen forslag enda. Logg forste matvare for a bygge forslag.</p>
+                        <p className="text-xs text-slate-400 dark:text-white/30">Ingen forslag enda. Logg forste matvare for a bygge forslag.</p>
                       )}
                     </div>
                   )}
 
-                  {items.length > 0 && !lazyMode && (
+                  {items.length > 0 && (
                     <div>
                       <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded-full bg-gray-100 dark:bg-gray-600 px-2 py-0.5 text-gray-600 dark:text-gray-200">P {Math.round(totals.protein)}g</span>
-                        <span className="rounded-full bg-gray-100 dark:bg-gray-600 px-2 py-0.5 text-gray-600 dark:text-gray-200">K {Math.round(totals.carbs)}g</span>
-                        <span className="rounded-full bg-gray-100 dark:bg-gray-600 px-2 py-0.5 text-gray-600 dark:text-gray-200">F {Math.round(totals.fat)}g</span>
+                        <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-slate-600 dark:text-white/60">P {Math.round(totals.protein)}g</span>
+                        <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-slate-600 dark:text-white/60">K {Math.round(totals.carbs)}g</span>
+                        <span className="rounded-full bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 text-slate-600 dark:text-white/60">F {Math.round(totals.fat)}g</span>
                       </div>
                       <div className="space-y-1">
                         {visibleItems.map((item) => (
-                          <p key={item.name} className="text-sm text-gray-700 dark:text-gray-200 flex justify-between gap-3">
+                          <p key={item.name} className="text-sm text-slate-700 dark:text-white/70 flex justify-between gap-3">
                             <span className="truncate">
                               {item.name}
                               {item.count > 1 ? ` x${item.count}` : ''}
@@ -1608,7 +2720,7 @@ export default function HomeScreen() {
                             <span>{item.kcal} kcal</span>
                           </p>
                         ))}
-                        {hiddenItemCount > 0 && <p className="text-xs text-gray-400 dark:text-gray-500">+{hiddenItemCount} flere varer</p>}
+                        {hiddenItemCount > 0 && <p className="text-xs text-slate-400 dark:text-white/30">+{hiddenItemCount} flere varer</p>}
                       </div>
                     </div>
                   )}
@@ -1617,7 +2729,7 @@ export default function HomeScreen() {
                     <button
                       type="button"
                       onClick={() => addFoodToMeal(meal.id, createQuickPhotoEntry(meal.id, suggestedKcal))}
-                      className="rounded-lg bg-orange-500 text-white text-xs px-3 py-2 font-medium"
+                      className="rounded-lg bg-orange-500/100 text-white text-xs px-3 py-2 font-medium"
                       title="Hurtigfoto"
                       disabled={isPastSelectedDay}
                     >
@@ -1625,7 +2737,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
                       onClick={() => setScanHint('AI food recognition blir hovedmodus her.')}
                       title="AI matgjenkjenning"
                       disabled={isPastSelectedDay}
@@ -1635,7 +2747,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-orange-200 dark:border-orange-800 text-orange-600 dark:text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
                       onClick={() => setScanHint('Strekkodeskanner klar for rask logging.')}
                       title="Strekkodeskanner"
                       disabled={isPastSelectedDay}
@@ -1645,12 +2757,20 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 text-xs px-3 py-2"
-                      onClick={() => setScanHint('Voice: "To egg og toast" (kommer snart).')}
-                      title="Voice input"
+                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      onClick={() => {
+                        setManualAddMeal(meal.id);
+                        setManualName('');
+                        setManualKcal('');
+                        setManualProtein('');
+                        setManualCarbs('');
+                        setManualFat('');
+                      }}
+                      title="Manuell logging"
                       disabled={isPastSelectedDay}
                     >
-                      Stemme (snart)
+                      <Pencil className="w-3.5 h-3.5" />
+                      Manuell
                     </button>
                   </div>
                 </div>
@@ -1661,8 +2781,8 @@ export default function HomeScreen() {
       </div>
 
       {pendingTemplate && (
-        <div className="mx-4 mb-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 p-3">
-          <p className="text-xs text-emerald-700 dark:text-emerald-300 mb-2">
+        <div className="mx-4 mb-3 rounded-xl bg-emerald-500/10 p-3">
+          <p className="text-xs text-emerald-400 mb-2">
             Du har logget dette flere ganger. Lagre som "{pendingTemplate.suggestedName}"?
           </p>
           <div className="flex gap-2">
@@ -1682,14 +2802,14 @@ export default function HomeScreen() {
                 setPendingTemplate(null);
                 setScanHint('Maltid lagret for 1-tap logging.');
               }}
-              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 dark:bg-emerald-700 text-white"
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
             >
               Lagre
             </button>
             <button
               type="button"
               onClick={() => setPendingTemplate(null)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-400"
             >
               Senere
             </button>
@@ -1697,214 +2817,455 @@ export default function HomeScreen() {
         </div>
       )}
 
-      <div className="card mt-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Dumbbell className="w-5 h-5 text-orange-500" />
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Trening</h3>
+      <div className="card">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
+              <Dumbbell className="w-5 h-5 text-orange-400" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Trening</h3>
           </div>
           <button
             type="button"
             onClick={openWorkoutModal}
-            className="text-xs font-medium text-orange-600 dark:text-orange-400 px-2 py-1 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/30"
+            className="text-sm font-bold text-orange-400 px-3 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-100 transition-colors duration-200"
             disabled={isPastSelectedDay}
           >
-            Logg tilpasset økt
+            Logg detaljert
           </button>
         </div>
-        <div className="grid grid-cols-3 gap-2 mt-3">
+        <div className="mt-4 rounded-2xl border border-orange-500/20 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-5 shadow-inner">
+          <div className="flex items-start gap-5">
+            <div className="shrink-0">
+              <div className="flex h-28 w-24 items-center justify-center rounded-2xl bg-white/60 shadow-md border border-orange-500/10">
+                <div className={`flex-arm-emoji ${isTrainingFlexing ? 'training-flex-active' : ''}`} aria-hidden="true" style={{ fontSize: '3.5rem' }}>💪</div>
+              </div>
+            </div>
+            <div className="min-w-0 flex-1 pt-1">
+              <p className="text-xs font-bold uppercase tracking-wide text-orange-800 mb-1">Dagens trening</p>
+              <p className="text-xl font-black text-orange-200 mb-2">{dayLog.trainingKcal} kcal logget</p>
+              <p className="text-xs text-orange-700 dark:text-orange-300 font-medium leading-relaxed">
+                {hasTrainingLogged ? 'Trykk en treningsøkt for flex! 💪' : 'Armen hviler til du logger en økt.'}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-4">
           <button
             type="button"
             onClick={() => addTraining(420, 'workout:45-intense')}
-            className="w-full p-2 text-xs rounded-lg bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-300"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
-            <span className="block font-medium">Intensiv økt</span>
-            <span className="block opacity-70">ca. 420 kcal</span>
+            +45 min
           </button>
           <button
             type="button"
             onClick={() => addTraining(300, 'workout:strength')}
-            className="w-full p-2 text-xs rounded-lg bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-300"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
-            <span className="block font-medium">Styrketrening</span>
-            <span className="block opacity-70">ca. 300 kcal</span>
+            +Styrke
           </button>
           <button
             type="button"
             onClick={() => addTraining(350, 'workout:10k-steps')}
-            className="w-full p-2 text-xs rounded-lg bg-orange-50 dark:bg-orange-950/30 text-orange-600 dark:text-orange-300"
+            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
             disabled={isPastSelectedDay}
           >
-            <span className="block font-medium">10 000 skritt</span>
-            <span className="block opacity-70">ca. 350 kcal</span>
+            +10k skritt
           </button>
         </div>
         {selectedDayWorkouts.length > 0 && (
-          <div className="mt-3 rounded-lg bg-orange-50 dark:bg-orange-950/30 p-2">
-            <p className="text-[11px] text-orange-700 dark:text-orange-300 mb-1">Dagens okter</p>
-            <div className="space-y-1">
+          <div className="mt-4 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-orange-500/10 p-3 shadow-sm">
+            <p className="text-xs font-bold text-orange-800 mb-2 uppercase tracking-wide">Dagens økter</p>
+            <div className="space-y-2">
               {selectedDayWorkouts.map((session) => (
-                <div key={session.id} className="text-xs text-orange-700 dark:text-orange-300 flex items-center justify-between gap-2">
-                  <span className="truncate flex-1">
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={triggerTrainingFlex}
+                  className="w-full text-left text-sm text-orange-800 flex justify-between items-center gap-3 rounded-lg px-3 py-2 bg-orange-500/10 hover:bg-orange-100 transition-colors font-semibold"
+                >
+                  <span className="truncate">
                     {session.exerciseName} ({session.durationMin} min)
                   </span>
-                  <span className="shrink-0">{session.caloriesBurned} kcal</span>
-                  {!isPastSelectedDay && (
-                    <button
-                      type="button"
-                      onClick={() => removeWorkoutSession(session.id)}
-                      className="shrink-0 w-4 h-4 rounded-full bg-orange-200 dark:bg-orange-800 text-orange-700 dark:text-orange-200 flex items-center justify-center hover:bg-orange-300 dark:hover:bg-orange-700"
-                      aria-label="Fjern økt"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
+                  <span className="font-bold">{session.caloriesBurned} kcal</span>
+                </button>
               ))}
             </div>
           </div>
         )}
       </div>
 
-      <div className="card">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Droplets className="w-5 h-5 text-cyan-600" />
-            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Vann</h3>
+      <div id="water-section" className="card">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
+              <Droplets className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Vann</h3>
           </div>
-          <p className="text-xs text-cyan-700 dark:text-cyan-400">{dayLog.waterMl} / {WATER_GOAL_ML} ml</p>
-        </div>
-
-        <div className="mt-3 rounded-lg bg-cyan-50 dark:bg-cyan-950/30 p-3">
-          <div className="flex items-center justify-between text-xs text-cyan-700 dark:text-cyan-300 mb-2">
-            <span>Vannmeter</span>
-            <span>{waterMeterMl} ml</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={1000}
-            step={50}
-            value={waterMeterMl}
-            onChange={(event) => setWaterMeterMl(Number(event.target.value))}
-            className="w-full accent-cyan-500"
-            disabled={isPastSelectedDay}
-          />
-          <div className="mt-1 flex justify-between text-[11px] text-cyan-600 dark:text-cyan-400">
-            <span>0 ml</span>
-            <span>500 ml</span>
-            <span>1000 ml</span>
-          </div>
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => addWater(waterMeterMl, 'water:meter:add')}
-              className="w-full p-2 text-xs rounded-lg bg-cyan-600 text-white disabled:bg-cyan-300 tap-scale"
-              disabled={isPastSelectedDay || waterMeterMl <= 0}
-            >
-              Fyll glass
-            </button>
+          <div className="text-right">
+            <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{hydrationMl} / {WATER_GOAL_ML} ml</p>
+            <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
           </div>
         </div>
 
-        {!dayHasAnyLog && isTodaySelected && (
-          <button
-            type="button"
-            onClick={() => handleQuickAdd('streak-protect')}
-            className="w-full mt-3 p-3 text-xs rounded-lg bg-violet-50 dark:bg-violet-950/30 text-violet-700 dark:text-violet-300"
-          >
-            Quick Save 0 kcal to protect streak
-          </button>
-        )}
+        <div className="mt-4">
+          {/* 8 Water Bottle Icons */}
+            <div className="flex justify-center items-center gap-2 mb-4">
+              {Array.from({ length: MAX_WATER_CUPS }, (_, index) => {
+                const cupIndex = index + 1;
+                const cupsNeeded = Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
+                const isFilled = cupIndex <= cupsNeeded;
+                const isFirstUnfilled = cupIndex === cupsNeeded + 1;
+                const isAnimating = animatingWaterCups.includes(cupIndex);
+              
+              const isLastFilled = isFilled && cupIndex === Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
+              return (
+                <button
+                  key={cupIndex}
+                  type="button"
+                  onClick={() => {
+                    if (isPastSelectedDay) return;
+                    if (isFilled) {
+                      removeWater(WATER_CUP_SIZE_ML);
+                    } else {
+                      addWater(WATER_CUP_SIZE_ML, 'water:cup:tap');
+                    }
+                  }}
+                  title={isFilled ? 'Klikk for å fjerne 250 ml' : 'Klikk for å legge til 250 ml'}
+                  className={`relative h-14 w-9 transition-all duration-200 ${
+                    !isPastSelectedDay ? 'cursor-pointer active:scale-95' : 'cursor-default'
+                  }`}
+                  disabled={isPastSelectedDay}
+                >
+                  <div className={`water-bottle-shell ${isAnimating ? 'water-cup-shell-fill' : ''} ${isFilled ? 'water-bottle-shell-filled' : 'water-bottle-shell-empty'}`}>
+                    <div className="water-bottle-cap" />
+                    <div className="water-bottle-body">
+                      <div className={`water-bottle-liquid-layer ${isFilled ? 'water-bottle-liquid-filled' : ''} ${isAnimating ? 'water-cup-liquid-fill' : ''}`} />
+                      <div className="water-bottle-shine" />
+                    </div>
+                  </div>
+
+                  {/* Minus overlay for last filled cup */}
+                  {isLastFilled && !isPastSelectedDay && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
+                      <Minus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
+                    </div>
+                  )}
+                  {/* Plus overlay for first unfilled cup */}
+                  {isFirstUnfilled && !isPastSelectedDay && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
+                      <Plus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          
+            {/* Water progress text */}
+            <div className="text-center mb-3">
+              <p className="text-sm text-cyan-700 dark:text-cyan-300 font-medium">{hydrationMl} / {WATER_GOAL_ML} ml</p>
+            </div>
+
+            {/* Quick-add water buttons */}
+            {!isPastSelectedDay && (
+              <div className="flex gap-2 justify-center flex-wrap">
+                {[250, 500, 750].map((ml) => (
+                  <button
+                    key={ml}
+                    type="button"
+                    onClick={() => addWater(ml, `water:quick:${ml}`)}
+                    className="px-3 py-1.5 rounded-lg bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-semibold hover:bg-cyan-200 dark:hover:bg-cyan-800/40 transition-colors"
+                  >
+                    +{ml} ml
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setShowCustomWater((v) => !v)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-white/[0.1] transition-colors"
+                >
+                  Egendefinert
+                </button>
+              </div>
+            )}
+
+            {/* Custom water amount input */}
+            {showCustomWater && !isPastSelectedDay && (
+              <div className="flex gap-2 mt-2">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  placeholder="ml"
+                  value={customWaterInput}
+                  onChange={(e) => setCustomWaterInput(e.target.value)}
+                  className="flex-1 rounded-lg border border-cyan-200 dark:border-cyan-800/40 bg-white dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ml = Number(customWaterInput);
+                    if (ml > 0) {
+                      addWater(ml, 'water:custom');
+                      setCustomWaterInput('');
+                      setShowCustomWater(false);
+                    }
+                  }}
+                  className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-600 transition-colors"
+                >
+                  Legg til
+                </button>
+              </div>
+            )}
+          </div>
+
       </div>
 
-      {/* Daily Challenges card */}
-      {isTodaySelected && (
-        <div className="card">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">⚡</span>
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Daglige utfordringer</h3>
+      {/* Weight Graph Section */}
+      <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
+              <Scale className="w-5 h-5 text-orange-600 dark:text-orange-400" />
             </div>
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${challengesCompletedToday === 3 ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
-              {challengesCompletedToday}/3
-            </span>
-          </div>
-          <div className="space-y-3">
-            {/* Challenge 1: Discipline score */}
-            <div className={`rounded-xl p-3 border transition-all ${challenge1Done ? 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 challenge-flash' : 'bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700'}`}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                  {challenge1Done ? '✅' : '🎯'} Disiplinscore ≥ 80
-                </span>
-                <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400">+20 XP</span>
-              </div>
-              <div className="h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${challenge1Done ? 'bg-amber-500' : 'bg-orange-400'}`}
-                  style={{ width: `${Math.min(100, (discipline.score / 80) * 100)}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">{discipline.score}/80 poeng</p>
-            </div>
-
-            {/* Challenge 2: Protein */}
-            <div className={`rounded-xl p-3 border transition-all ${challenge2Done ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 challenge-flash' : 'bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700'}`}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                  {challenge2Done ? '✅' : '💪'} Proteinmål 85 %
-                </span>
-                <span className="text-[11px] font-bold text-green-600 dark:text-green-400">+12 XP</span>
-              </div>
-              <div className="h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${challenge2Done ? 'bg-green-500' : 'bg-emerald-400'}`}
-                  style={{ width: `${Math.min(100, proteinMetricPct)}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">{Math.round(proteinMetricPct)}/85 %</p>
-            </div>
-
-            {/* Challenge 3: Water */}
-            <div className={`rounded-xl p-3 border transition-all ${challenge3Done ? 'bg-cyan-50 dark:bg-cyan-950/30 border-cyan-200 dark:border-cyan-800 challenge-flash' : 'bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700'}`}>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-1.5">
-                  {challenge3Done ? '✅' : '💧'} Vannmål 85 %
-                </span>
-                <span className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400">+12 XP</span>
-              </div>
-              <div className="h-1.5 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${challenge3Done ? 'bg-cyan-500' : 'bg-sky-400'}`}
-                  style={{ width: `${Math.min(100, waterMetricPct)}%` }}
-                />
-              </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">{Math.round(waterMetricPct)}/85 %</p>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kroppsvekt</h3>
+              {journeyWeightSeries.length >= 2 && (() => {
+                const first = journeyWeightSeries[0].value;
+                const last = journeyWeightSeries[journeyWeightSeries.length - 1].value;
+                const delta = last - first;
+                return (
+                  <p className={`text-xs font-medium ${delta < 0 ? 'text-green-600 dark:text-green-400' : delta > 0 ? 'text-red-500' : 'text-slate-500 dark:text-white/40'}`}>
+                    {delta > 0 ? '+' : ''}{delta.toFixed(1)} kg totalt
+                  </p>
+                );
+              })()}
             </div>
           </div>
-          {challengesCompletedToday === 3 && (
-            <p className="mt-3 text-center text-xs font-bold text-amber-600 dark:text-amber-400 animate-pulse">
-              🏆 Alle utfordringer fullført — +44 XP!
-            </p>
+          {journeyWeightSeries.length > 0 && (
+            <div className="text-right">
+              <p className="text-xl font-bold text-slate-900 dark:text-white/90">
+                {journeyWeightSeries[journeyWeightSeries.length - 1].value.toFixed(1)} kg
+              </p>
+              <p className="text-xs text-slate-500 dark:text-white/40">Siste måling</p>
+            </div>
           )}
+        </div>
+
+        {/* Improved Weight Chart */}
+        {journeyWeightSeries.length > 0 ? (() => {
+          const values = journeyWeightSeries.map((p) => p.value);
+          const minVal = Math.min(...values);
+          const maxVal = Math.max(...values);
+          const range = Math.max(0.5, maxVal - minVal);
+          const padded = { min: minVal - range * 0.15, max: maxVal + range * 0.15 };
+          const W = 340;
+          const H = 140;
+          const PL = 36; // left padding for y-axis labels
+          const PR = 10;
+          const PT = 20;
+          const PB = 30; // bottom padding for x-axis labels
+          const chartW = W - PL - PR;
+          const chartH = H - PT - PB;
+
+          const toX = (i: number) => journeyWeightSeries.length === 1
+            ? PL + chartW / 2
+            : PL + (i / (journeyWeightSeries.length - 1)) * chartW;
+          const toY = (v: number) => PT + chartH - ((v - padded.min) / (padded.max - padded.min)) * chartH;
+
+          // Y-axis gridlines — 3 levels
+          const gridLevels = [minVal, (minVal + maxVal) / 2, maxVal];
+
+          // X-axis: show first, last, and middle dates
+          const showDateAt = new Set([0, Math.floor((journeyWeightSeries.length - 1) / 2), journeyWeightSeries.length - 1]);
+
+          const coords = journeyWeightSeries.map((p, i) => ({ x: toX(i), y: toY(p.value), value: p.value, date: p.date }));
+          const polyPoints = coords.map((c) => `${c.x},${c.y}`).join(' ');
+
+          return (
+            <div className="mb-4 bg-white dark:bg-white/[0.02] rounded-xl border border-slate-200 dark:border-white/[0.05] overflow-hidden">
+              <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: '160px' }}>
+                {/* Grid lines */}
+                {gridLevels.map((v) => {
+                  const gy = toY(v);
+                  return (
+                    <g key={v}>
+                      <line x1={PL} y1={gy} x2={W - PR} y2={gy} stroke="currentColor" strokeOpacity="0.07" strokeWidth="1" className="text-slate-900 dark:text-white" />
+                      <text x={PL - 4} y={gy + 4} textAnchor="end" fontSize="9" fill="currentColor" fillOpacity="0.45" className="text-slate-700 dark:text-white">{v.toFixed(1)}</text>
+                    </g>
+                  );
+                })}
+
+                {/* Area fill */}
+                <defs>
+                  <linearGradient id="wgt-grad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f97316" stopOpacity="0.25" />
+                    <stop offset="100%" stopColor="#f97316" stopOpacity="0.02" />
+                  </linearGradient>
+                </defs>
+                <polygon
+                  fill="url(#wgt-grad)"
+                  points={`${coords[0].x},${PT + chartH} ${polyPoints} ${coords[coords.length - 1].x},${PT + chartH}`}
+                />
+
+                {/* Line */}
+                <polyline fill="none" stroke="#f97316" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={polyPoints} />
+
+                {/* Data points with weight labels */}
+                {coords.map((c, i) => (
+                  <g key={`${c.date}-${i}`}>
+                    <circle cx={c.x} cy={c.y} r="4" fill="#f97316" />
+                    <text
+                      x={c.x}
+                      y={c.y - 8}
+                      textAnchor="middle"
+                      fontSize="9"
+                      fontWeight="600"
+                      fill="#f97316"
+                    >
+                      {c.value.toFixed(1)}
+                    </text>
+                    {/* X-axis date labels */}
+                    {showDateAt.has(i) && (
+                      <text
+                        x={c.x}
+                        y={H - 4}
+                        textAnchor="middle"
+                        fontSize="8"
+                        fill="currentColor"
+                        fillOpacity="0.4"
+                        className="text-slate-700 dark:text-white"
+                      >
+                        {c.date.slice(5)}
+                      </text>
+                    )}
+                  </g>
+                ))}
+              </svg>
+            </div>
+          );
+        })() : (
+          <div className="h-40 flex flex-col items-center justify-center gap-2 bg-white dark:bg-white/[0.02] rounded-xl border border-slate-200 dark:border-white/[0.05] mb-4">
+            <Scale className="w-8 h-8 text-slate-300 dark:text-white/20" />
+            <p className="text-slate-500 dark:text-white/40 text-sm">Ingen vektdata enda</p>
+            <p className="text-xs text-slate-400 dark:text-white/30">Logg vekt for å se graf</p>
+          </div>
+        )}
+
+        {/* Log Weight Button */}
+        <button
+          type="button"
+          onClick={() => {
+            setWeightInput(profilePrefs.weightKg?.toString() ?? '');
+            setShowWeightModal(true);
+          }}
+          className="w-full bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-semibold py-3 rounded-xl transition-colors duration-200 flex items-center justify-center gap-2"
+        >
+          <Scale className="w-4 h-4" />
+          Logg vekt
+        </button>
+      </div>
+
+      {/* Diet / Goal Section */}
+      <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center">
+            <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kosthold & Mål</h3>
+        </div>
+
+        {/* Goal toggle */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          {([
+            { key: 'fat_loss', label: 'Gå ned i vekt', emoji: '🔥', desc: 'Kaloriunderskudd' },
+            { key: 'muscle_gain', label: 'Øke i vekt', emoji: '💪', desc: 'Kalorioverskudd' },
+          ] as { key: HomeProfile['goalMode']; label: string; emoji: string; desc: string }[]).map(({ key, label, emoji, desc }) => {
+            const isActive = (profilePrefs.goalMode ?? 'fat_loss') === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setProfilePrefs((prev) => ({ ...prev, goalMode: key }))}
+                className={`p-3 rounded-xl border-2 text-left transition-all duration-200 ${
+                  isActive
+                    ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20'
+                    : 'border-slate-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.03] opacity-60'
+                }`}
+              >
+                <div className="text-xl mb-1">{emoji}</div>
+                <p className={`text-sm font-semibold ${isActive ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-white/60'}`}>{label}</p>
+                <p className={`text-xs ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-white/30'}`}>{desc}</p>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Diet targets based on goal */}
+        <div className="bg-white dark:bg-white/[0.03] rounded-xl p-3 border border-slate-200 dark:border-white/[0.06]">
+          {(() => {
+            const goalMode = profilePrefs.goalMode ?? 'fat_loss';
+            const dietLabel =
+              goalMode === 'muscle_gain' ? { title: 'Bulkdiett — daglige mål', color: 'text-emerald-600 dark:text-emerald-400', desc: 'Høyt protein + kalorioverskudd for muskelvekst' }
+              : goalMode === 'recomp'     ? { title: 'Rekomposisjon — daglige mål', color: 'text-sky-600 dark:text-sky-400', desc: 'Moderat underskudd + høyt protein for fettforbrenning og muskelbevaring' }
+              : goalMode === 'maintenance'? { title: 'Vedlikehold — daglige mål', color: 'text-slate-600 dark:text-slate-400', desc: 'Kaloribalanse med høyt protein for å holde vekten stabil' }
+              : { title: 'Slankediett — daglige mål', color: 'text-orange-600 dark:text-orange-400', desc: 'Kaloriunderskudd med høyt protein for å bevare muskler' };
+            return (
+              <>
+                <p className={`text-xs font-semibold ${dietLabel.color} uppercase tracking-wide mb-2`}>{dietLabel.title}</p>
+                <div className="grid grid-cols-4 gap-2 text-center">
+                  <div>
+                    <p className="text-sm font-bold text-slate-900 dark:text-white/90">{netGoal} kcal</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Kalorimål</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-purple-600 dark:text-purple-400">{smartDietPlan.macros?.proteinG ?? '—'}g</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Protein</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{smartDietPlan.macros?.carbsG ?? '—'}g</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Karbo</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{smartDietPlan.macros?.fatG ?? '—'}g</p>
+                    <p className="text-[11px] text-slate-500 dark:text-white/40">Fett</p>
+                  </div>
+                </div>
+                {dayLog.trainingKcal > 0 && (
+                  <p className="text-[11px] text-emerald-500 dark:text-emerald-400 mt-2 text-center">+{dayLog.trainingKcal} kcal trening inkludert i kalorimål</p>
+                )}
+                <p className="text-xs text-slate-500 dark:text-white/40 mt-1 text-center">{dietLabel.desc}</p>
+              </>
+            );
+          })()}
+        </div>
+      </div>
+
+      {/* ===== NUTRITION TWIN / TRAJECTORY ===== */}
+      {isTodaySelected && adaptiveComplexity !== 'minimal' && (
+        <div style={{ padding: '0 16px' }}>
+          <TrajectoryChart logsByDate={logsByDate} rawProfile={profilePrefs} />
         </div>
       )}
 
       {isPastSelectedDay && (
-        <p className="px-4 mt-2 text-xs text-amber-600">
+        <p className="px-4 mt-2 text-xs text-amber-400/80">
           Denne dagen er last fordi den har passert. Dagens score er derfor uforanderlig.
         </p>
       )}
 
-      {scanHint && (
+      {scanHint && createPortal(
         <div className="fixed left-1/2 -translate-x-1/2 bottom-28 bg-gray-900 text-white text-xs px-3 py-2 rounded-full z-50">
           {scanHint}
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showPopup && (
+      {showPopup && createPortal(
         <div className="popup-overlay">
           <div className="popup">
             <button
@@ -1915,22 +3276,70 @@ export default function HomeScreen() {
             >
               x
             </button>
-            <div className="popup-icon">Goal</div>
-            <h3 className="popup-title">MAL NADD</h3>
+            <div className="popup-icon">🎯</div>
+            <h3 className="popup-title">MÅL NÅDD</h3>
             <p className="popup-text">Sterk dag. Du holder deg innenfor kalorimarginen.</p>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showWorkoutModal && (
+      {showWeightModal && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowWeightModal(false); }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Logg vekt</h3>
+              <button type="button" onClick={() => setShowWeightModal(false)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 flex items-center justify-center">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="mb-4">
+              <label className="text-xs text-slate-500 dark:text-white/40 block mb-1">Vekt (kg)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                placeholder="f.eks. 75.5"
+                value={weightInput}
+                onChange={(e) => setWeightInput(e.target.value)}
+                autoFocus
+                className="w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-2xl font-bold text-slate-900 dark:text-white/90 text-center"
+              />
+            </div>
+            {journeyWeightSeries.length > 0 && (
+              <p className="text-xs text-slate-500 dark:text-white/40 text-center mb-4">
+                Forrige: {journeyWeightSeries[journeyWeightSeries.length - 1].value.toFixed(1)} kg
+                {(() => {
+                  const prev = journeyWeightSeries[journeyWeightSeries.length - 1].value;
+                  const curr = Number(weightInput);
+                  if (!Number.isFinite(curr) || weightInput === '') return null;
+                  const d = curr - prev;
+                  return <span className={d < 0 ? 'text-green-500' : d > 0 ? 'text-red-500' : ''}> ({d > 0 ? '+' : ''}{d.toFixed(1)} kg)</span>;
+                })()}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => logWeight(Number(weightInput))}
+              disabled={!weightInput || Number(weightInput) <= 0}
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white font-semibold py-3 rounded-xl transition-colors"
+            >
+              Lagre
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {showWorkoutModal && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-xl">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Logg treningsokt</h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Logg treningsokt</h3>
               <button
                 type="button"
                 onClick={() => setShowWorkoutModal(false)}
-                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60"
               >
                 x
               </button>
@@ -1938,45 +3347,45 @@ export default function HomeScreen() {
 
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400">Tidspunkt</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Tidspunkt</label>
                 <input
                   type="datetime-local"
                   value={workoutStartedAt}
                   onChange={(event) => setWorkoutStartedAt(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400">Varighet (min)</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Varighet (min)</label>
                   <input
                     inputMode="numeric"
                     value={workoutDurationMin}
                     onChange={(event) => setWorkoutDurationMin(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 dark:text-gray-400">Kcal forbrent</label>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Kcal forbrent</label>
                   <input
                     inputMode="numeric"
                     value={workoutCalories}
                     onChange={(event) => setWorkoutCalories(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400">Type</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Type</label>
                 <div className="mt-1 grid grid-cols-3 gap-2">
                   {(['Run', 'Ride', 'Walk', 'Strength', 'HIIT', 'Other'] as WorkoutSession['workoutType'][]).map((type) => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setWorkoutType(type)}
-                      className={`rounded-lg px-2 py-2 text-xs border ${workoutType === type ? 'bg-orange-500 text-white border-orange-500' : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'}`}
+                      className={`rounded-lg px-2 py-2 text-xs border ${workoutType === type ? 'bg-orange-500/100 text-white border-orange-500' : 'bg-slate-100 dark:bg-white/[0.04] text-slate-700 dark:text-white/70 border-slate-200 dark:border-white/[0.08]'}`}
                     >
                       {type}
                     </button>
@@ -1985,23 +3394,23 @@ export default function HomeScreen() {
               </div>
 
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400">Ovelse / aktivitet</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Ovelse / aktivitet</label>
                 <input
                   value={workoutExerciseName}
                   onChange={(event) => setWorkoutExerciseName(event.target.value)}
                   placeholder="f.eks. Intervallop, benokt, sykkel"
-                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                 />
               </div>
 
               <div>
-                <label className="text-xs text-gray-500 dark:text-gray-400">Notater (valgfritt)</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Notater (valgfritt)</label>
                 <textarea
                   value={workoutNotes}
                   onChange={(event) => setWorkoutNotes(event.target.value)}
                   rows={3}
                   placeholder="Hvordan kjentes okten?"
-                  className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 px-3 py-2 text-sm resize-none"
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90 resize-none"
                 />
               </div>
             </div>
@@ -2010,67 +3419,266 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={() => setShowWorkoutModal(false)}
-                className="flex-1 rounded-lg bg-gray-100 dark:bg-gray-700 px-3 py-2 text-sm text-gray-700 dark:text-gray-200"
+                className="flex-1 rounded-lg bg-slate-100 dark:bg-white/[0.06] px-3 py-2 text-sm text-slate-700 dark:text-white/70"
               >
                 Avbryt
               </button>
               <button
                 type="button"
                 onClick={saveWorkoutSession}
-                className="flex-1 rounded-lg bg-orange-500 px-3 py-2 text-sm text-white"
+                className="flex-1 rounded-lg bg-orange-500/100 px-3 py-2 text-sm text-white"
               >
                 Lagre okt
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {showQuickAddMenu && (
-        <div className="fixed right-4 bottom-24 z-50 w-72 rounded-2xl bg-white dark:bg-gray-800 shadow-2xl border border-gray-200 dark:border-gray-700 p-2 quick-menu-enter">
-          <p className="text-[11px] uppercase text-gray-400 dark:text-gray-500 px-3 py-1">Smart quick buttons</p>
+      {manualAddMeal && createPortal(
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0">
+          <div className="w-full max-w-lg rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-white/[0.08] overflow-hidden shadow-2xl">
+            <div className="px-5 pt-5 pb-4 bg-gradient-to-br from-orange-500/10 to-amber-500/5">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-orange-500/15 flex items-center justify-center">
+                    <Pencil className="w-4.5 h-4.5 text-orange-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white/90">Legg til mat</h3>
+                    <p className="text-xs text-slate-500 dark:text-white/40 capitalize">
+                      {manualAddMeal === 'breakfast' ? t('home.meals.breakfast') : manualAddMeal === 'lunch' ? t('home.meals.lunch') : manualAddMeal === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setManualAddMeal(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center text-slate-500 dark:text-white/50"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="px-5 pb-5 space-y-4">
+              <div>
+                <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Matvare</label>
+                <input
+                  autoFocus
+                  placeholder="f.eks. Havregrøt med bær"
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Kalorier (kcal)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualKcal}
+                    onChange={(e) => setManualKcal(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-orange-500/30 bg-orange-500/5 dark:bg-orange-500/[0.04] px-4 py-3 text-sm font-semibold text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Protein (g)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualProtein}
+                    onChange={(e) => setManualProtein(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Karbohydrat (g)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualCarbs}
+                    onChange={(e) => setManualCarbs(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Fett (g)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={manualFat}
+                    onChange={(e) => setManualFat(e.target.value)}
+                    className="mt-1.5 w-full rounded-xl border border-slate-200 dark:border-white/[0.08] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/20 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!manualAddMeal) return;
+                  const name = manualName.trim();
+                  const kcal = Number(manualKcal.replace(',', '.'));
+                  const protein = Number(manualProtein.replace(',', '.') || '0');
+                  const carbs = Number(manualCarbs.replace(',', '.') || '0');
+                  const fat = Number(manualFat.replace(',', '.') || '0');
+                  if (!name) { setScanHint('Navn mangler.'); return; }
+                  if (!Number.isFinite(kcal) || kcal < 0) { setScanHint('Ugyldig kaloriverdi.'); return; }
+                  addFoodToMeal(manualAddMeal, {
+                    id: createFoodId(),
+                    name,
+                    kcal: Math.round(kcal),
+                    protein: Math.max(0, Math.round(protein)),
+                    carbs: Math.max(0, Math.round(carbs)),
+                    fat: Math.max(0, Math.round(fat)),
+                  }, 'manual:add');
+                  setManualAddMeal(null);
+                }}
+                className="w-full rounded-2xl bg-orange-500 text-white py-3.5 text-sm font-semibold flex items-center justify-center gap-2 shadow-lg shadow-orange-500/20"
+              >
+                <Plus className="w-4 h-4" />
+                Legg til {manualKcal ? `${manualKcal} kcal` : 'mat'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {editingFood && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Rediger matpost</h3>
+              <button
+                type="button"
+                onClick={() => setEditingFood(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-500 dark:text-white/40">Navn</label>
+                <input
+                  value={editingFood.name}
+                  onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, name: event.target.value } : null))}
+                  className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Kcal</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.kcal}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, kcal: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Protein</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.protein}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, protein: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Karbo</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.carbs}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, carbs: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 dark:text-white/40">Fett</label>
+                  <input
+                    inputMode="decimal"
+                    value={editingFood.fat}
+                    onChange={(event) => setEditingFood((prev) => (prev ? { ...prev, fat: event.target.value } : null))}
+                    className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingFood(null)}
+                className="flex-1 rounded-lg bg-slate-100 dark:bg-white/[0.06] px-3 py-2 text-sm text-slate-700 dark:text-white/70"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={saveFoodEdit}
+                className="flex-1 rounded-lg bg-orange-500/100 px-3 py-2 text-sm text-white"
+              >
+                Lagre endringer
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {showQuickAddMenu && createPortal(
+        <div className="fixed right-4 bottom-24 z-50 w-72 rounded-2xl bg-white shadow-xl border border-slate-200 dark:border-white/[0.06] p-2">
+          <p className="text-[11px] uppercase text-slate-400 dark:text-white/30 px-3 py-1">Smart quick buttons</p>
           {smartQuickActions.slice(0, 6).map((action) => (
             <button
               key={action.id}
               type="button"
               onClick={() => handleQuickAdd(action.id)}
-              className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200"
+              className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm"
             >
               {action.label}
             </button>
           ))}
 
-          <p className="text-[11px] uppercase text-gray-400 dark:text-gray-500 px-3 py-1 mt-1">Intelligent repeat</p>
-          <button type="button" onClick={() => handleQuickAdd('repeat-breakfast')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
-            Gjenta frokost
+          <p className="text-[11px] uppercase text-slate-400 dark:text-white/30 px-3 py-1 mt-1">Intelligent repeat</p>
+          <button type="button" onClick={() => handleQuickAdd('repeat-breakfast')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
+            Repeat Breakfast
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-lunch')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
-            Gjenta lunsj
+          <button type="button" onClick={() => handleQuickAdd('repeat-lunch')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
+            Repeat Lunch
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-day-yesterday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
-            Gjenta hele dagen
+          <button type="button" onClick={() => handleQuickAdd('repeat-day-yesterday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
+            Repeat Whole Day
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-last-monday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
-            Gjenta siste mandag
+          <button type="button" onClick={() => handleQuickAdd('repeat-last-monday')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
+            Repeat Last Monday
           </button>
-          <button type="button" onClick={() => handleQuickAdd('repeat-frequent')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
-            Gjenta vanligste dag
+          <button type="button" onClick={() => handleQuickAdd('repeat-frequent')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
+            Repeat Most Frequent Day
           </button>
 
-          <p className="text-[11px] uppercase text-gray-400 dark:text-gray-500 px-3 py-1 mt-1">Rask makro-logging</p>
-          <button type="button" onClick={() => handleQuickAdd('macro-protein')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
+          <p className="text-[11px] uppercase text-slate-400 dark:text-white/30 px-3 py-1 mt-1">Macro-only quick log</p>
+          <button type="button" onClick={() => handleQuickAdd('macro-protein')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
             +30g protein
           </button>
-          <button type="button" onClick={() => handleQuickAdd('macro-carbs')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
-            +50g karbohydrater
+          <button type="button" onClick={() => handleQuickAdd('macro-carbs')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
+            +50g carbs
           </button>
-          <button type="button" onClick={() => handleQuickAdd('macro-fat')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-200">
-            +20g fett
+          <button type="button" onClick={() => handleQuickAdd('macro-fat')} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-100/70 dark:bg-white/[0.03] text-sm">
+            +20g fat
           </button>
-        </div>
+        </div>,
+        document.body
       )}
 
-      {undoAction && (
+      {undoAction && createPortal(
         <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-50 rounded-full bg-gray-900 text-white text-xs px-3 py-2 flex items-center gap-3">
           <span>{undoAction.label}</span>
           <button
@@ -2080,22 +3688,669 @@ export default function HomeScreen() {
               setUndoAction(null);
               setScanHint('Angret');
             }}
-            className="text-orange-300 font-semibold"
+            className="text-orange-700 dark:text-orange-300 font-semibold"
           >
             Angre
           </button>
-        </div>
+        </div>,
+        document.body
       )}
 
-      <button
-        type="button"
-        onClick={() => setShowQuickAddMenu((prev) => !prev)}
-        className="fixed right-4 bottom-8 z-50 w-14 h-14 rounded-full bg-orange-500 text-white shadow-lg flex items-center justify-center fab-pulse"
-        title="Quick add"
-        disabled={isPastSelectedDay}
-      >
-        <Plus className={`w-6 h-6 transition-transform ${showQuickAddMenu ? 'rotate-45' : ''}`} />
-      </button>
+      {/* ===== NUTRIENT DETAIL MODAL ===== */}
+      {showNutrientModal && createPortal((() => {
+        const macroTargets = smartDietPlan.macros;
+        const proteinTarget = macroTargets?.proteinG ?? 120;
+        const carbsTarget = macroTargets?.carbsG ?? 200;
+        const fatTarget = macroTargets?.fatG ?? 70;
+        const fiberTarget = macroTargets?.fiberG ?? (profilePrefs.sex === 'male' ? 38 : 25);
+        const sugarsMaxTarget = macroTargets?.sugarsMaxG ?? 50;
+        const satFatMaxTarget = macroTargets?.saturatedFatMaxG ?? 22;
+        const sodiumMaxTarget = macroTargets?.sodiumMaxMg ?? 2000;
+
+        const dayMicro = microLogsByDate[selectedDateKey] ?? {};
+
+        // Use logged value if present, else estimate from intake
+        const microVal = (key: keyof DayMicroLog, est: number) =>
+          dayMicro[key] != null ? dayMicro[key]! : est;
+
+        const logMicro = (key: keyof DayMicroLog, raw: string) => {
+          const n = Number(raw.replace(',', '.'));
+          if (!Number.isFinite(n) || n < 0) return;
+          setMicroLogsByDate(prev => ({
+            ...prev,
+            [selectedDateKey]: { ...(prev[selectedDateKey] ?? {}), [key]: Math.round(n * 10) / 10 },
+          }));
+          setMicroInputKey(null);
+          setMicroInputValue('');
+        };
+
+        const addMicro = (key: keyof DayMicroLog, delta: number) => {
+          setMicroLogsByDate(prev => {
+            const cur = (prev[selectedDateKey] ?? {})[key] ?? 0;
+            return { ...prev, [selectedDateKey]: { ...(prev[selectedDateKey] ?? {}), [key]: Math.max(0, Math.round((cur + delta) * 10) / 10) } };
+          });
+        };
+
+        const getBarColor = (pct: number) => {
+          if (pct < 30) return '#ef4444';
+          if (pct < 55) return '#f97316';
+          if (pct < 80) return '#eab308';
+          if (pct <= 115) return '#22c55e';
+          return '#3b82f6';
+        };
+
+        const isMale = profilePrefs.sex === 'male';
+        const age = profilePrefs.age ?? 30;
+
+        // Fiber: use actual scanned data if available, otherwise estimate at 14g/1000 kcal
+        const fiberEst = Math.round((consumed / 1000) * 14);
+        const fiberValue = dayFiber ?? dayMicro['fiberG'] ?? fiberEst;
+        const fiberIsScanned = dayFiber != null;
+
+        const macros = [
+          { label: 'Protein', value: Math.round(protein), target: proteinTarget, unit: 'g', color: '#3b82f6' },
+          { label: 'Karbo', value: Math.round(carbs), target: carbsTarget, unit: 'g', color: '#f97316' },
+          { label: 'Fett', value: Math.round(fat), target: fatTarget, unit: 'g', color: '#a855f7' },
+          { label: 'Fiber', value: typeof fiberValue === 'number' ? Math.round(fiberValue) : 0, target: fiberTarget, unit: 'g', color: '#22c55e' },
+        ];
+        const maxMacroVal = Math.max(...macros.map(m => Math.max(m.value, m.target)));
+
+        // Personalized micro targets by sex and age (Nordic/WHO recommendations)
+        const ironTarget = isMale ? 9 : age < 50 ? 18 : 9;
+        const calciumTarget = age >= 70 ? 1200 : 1000;
+        const vitCTarget = isMale ? 90 : 75;
+        const vitDTarget = age >= 70 ? 25 : 20;
+        const magTarget = isMale ? (age >= 31 ? 420 : 400) : age >= 31 ? 320 : 310;
+        const zincTarget = isMale ? 11 : 8;
+
+        type MicroDef = { label: string; key: keyof DayMicroLog; est: number; target: number; unit: string; step: number };
+        const microDefs: MicroDef[] = [
+          // Fiber: use scanned data when available, otherwise estimate
+          { label: 'Fiber', key: 'fiberG', est: typeof fiberValue === 'number' ? fiberValue : fiberEst, target: fiberTarget, unit: 'g', step: 1 },
+          { label: 'Omega-3', key: 'omega3G', est: Math.round(fat * 0.06 * 10) / 10, target: isMale ? 1.6 : 1.1, unit: 'g', step: 0.1 },
+          { label: 'Jern', key: 'ironMg', est: Math.round((consumed / 2000) * ironTarget), target: ironTarget, unit: 'mg', step: 1 },
+          { label: 'Kalsium', key: 'calciumMg', est: Math.round((consumed / 2000) * calciumTarget), target: calciumTarget, unit: 'mg', step: 50 },
+          { label: 'Vitamin C', key: 'vitCMg', est: Math.round((consumed / 2000) * vitCTarget), target: vitCTarget, unit: 'mg', step: 10 },
+          { label: 'Vitamin D', key: 'vitDUg', est: Math.round((consumed / 2000) * vitDTarget), target: vitDTarget, unit: 'µg', step: 1 },
+          { label: 'Magnesium', key: 'magMg', est: Math.round((consumed / 2000) * magTarget), target: magTarget, unit: 'mg', step: 25 },
+          { label: 'Sink', key: 'zincMg', est: Math.round((consumed / 2000) * zincTarget), target: zincTarget, unit: 'mg', step: 1 },
+        ];
+
+        return (
+          <div className="fixed inset-0 z-[1400] flex items-end justify-center">
+            <button type="button" className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => { setShowNutrientModal(false); setMicroInputKey(null); }} aria-label="Lukk" />
+            <div className="relative w-full max-w-[430px] max-h-[90dvh] overflow-y-auto rounded-t-3xl bg-white dark:bg-zinc-950 shadow-2xl border-t border-white/20 dark:border-white/[0.08]">
+              {/* Handle + header */}
+              <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 pt-3 pb-2 px-5 border-b border-slate-100 dark:border-white/[0.06]">
+                <div className="w-10 h-1 bg-slate-200 dark:bg-white/20 rounded-full mx-auto mb-3" />
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Næringsstoffer</h2>
+                    <p className="text-xs text-slate-500 dark:text-white/40">{isTodaySelected ? t('home.today') : dateLabel} · {consumed} kcal spist</p>
+                  </div>
+                  <button type="button" onClick={() => { setShowNutrientModal(false); setMicroInputKey(null); }} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center">
+                    <X className="w-4 h-4 text-slate-600 dark:text-white/60" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-5 py-4 space-y-6 pb-8">
+                {/* ── Macro pillar chart ── */}
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-4">Makronæringsstoffer</p>
+                  <div className="flex items-end justify-around gap-4 h-44">
+                    {macros.map(({ label, value, target, unit, color }) => {
+                      const pct = Math.min(100, (value / Math.max(1, maxMacroVal)) * 100);
+                      const targetPct = Math.min(100, (target / Math.max(1, maxMacroVal)) * 100);
+                      const fillPct = Math.min(130, Math.round((value / Math.max(1, target)) * 100));
+                      const barColor = getBarColor(fillPct);
+                      return (
+                        <div key={label} className="flex-1 flex flex-col items-center gap-1.5">
+                          <p className="text-xs font-bold text-slate-700 dark:text-white/80">{value}<span className="text-[10px] text-slate-400 dark:text-white/30 ml-0.5">{unit}</span></p>
+                          <div className="relative w-full max-w-[56px] h-32 rounded-2xl bg-slate-100 dark:bg-white/[0.05] overflow-hidden flex flex-col justify-end">
+                            <div className="absolute left-0 right-0 border-t-2 border-dashed opacity-40" style={{ bottom: `${targetPct}%`, borderColor: color }} />
+                            <div className="w-full rounded-b-2xl transition-all duration-700 ease-out" style={{ height: `${pct}%`, background: `linear-gradient(to top, ${barColor}, ${barColor}bb)`, boxShadow: `0 0 14px ${barColor}55` }} />
+                          </div>
+                          <p className="text-[11px] font-bold" style={{ color: barColor }}>{fillPct}%</p>
+                          <p className="text-[10px] text-slate-500 dark:text-white/35 text-center">{label}</p>
+                          <p className="text-[9px] text-slate-400 dark:text-white/20">/{target}{unit}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-slate-400 dark:text-white/25 text-center mt-2">
+                    Stiplet linje = dagsmål · Fiber: {fiberIsScanned ? 'fra matvare' : 'estimert'}
+                  </p>
+                </div>
+
+                {/* ── Limits: sugars, saturated fat, sodium ── */}
+                {(daySugars != null || daySatFat != null || daySodium != null) && (
+                  <div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-3">Begrensninger – fra matvarer</p>
+                    <div className="space-y-3">
+                      {([
+                        { label: 'Sukker', value: daySugars, max: sugarsMaxTarget, unit: 'g' },
+                        { label: 'Mettet fett', value: daySatFat, max: satFatMaxTarget, unit: 'g' },
+                        { label: 'Natrium', value: daySodium, max: sodiumMaxTarget, unit: 'mg' },
+                      ] as const).filter((row) => row.value != null).map(({ label, value, max, unit }) => {
+                        const pct = Math.min(130, Math.round(((value as number) / Math.max(1, max)) * 100));
+                        const over = pct > 100;
+                        const barColor = pct <= 70 ? '#22c55e' : pct <= 100 ? '#eab308' : '#ef4444';
+                        return (
+                          <div key={label}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-sm font-medium text-slate-700 dark:text-white/70">{label}</span>
+                              <span className="text-xs font-semibold tabular-nums" style={{ color: barColor }}>
+                                {value}{unit} <span className="text-slate-400 dark:text-white/30 font-normal">/ maks {max}{unit}</span>
+                              </span>
+                            </div>
+                            <div className="h-2.5 bg-slate-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${Math.min(100, pct)}%`, background: `linear-gradient(to right, ${barColor}88, ${barColor})` }} />
+                            </div>
+                            <p className="text-[10px] text-slate-400 dark:text-white/25 mt-0.5">{over ? `${pct - 100}% over grense` : `${100 - pct}% under grense`}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Micro radar chart ── */}
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-3">Mikronæring – oversikt</p>
+                  <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-100 dark:border-white/[0.06] py-3 px-1">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <RadarChart data={microDefs.map(({ label, key, est, target }) => ({
+                        subject: label,
+                        value: Math.min(120, Math.round((microVal(key, est) / Math.max(1, target)) * 100)),
+                        fullMark: 100,
+                      }))}>
+                        <PolarGrid stroke="rgba(148,163,184,0.2)" />
+                        <PolarAngleAxis dataKey="subject" tick={{ fill: 'rgba(148,163,184,0.7)', fontSize: 10, fontWeight: 600 }} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
+                        <Radar dataKey="value" stroke="#14b8a6" fill="#14b8a6" fillOpacity={0.25} dot={{ r: 3, fill: '#14b8a6', strokeWidth: 0 }} />
+                        <RechartsTooltip
+                          formatter={(val: number) => [`${val}%`, 'Av dagsmål']}
+                          contentStyle={{ background: 'rgba(15,15,20,0.92)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, fontSize: 12 }}
+                          labelStyle={{ color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}
+                          itemStyle={{ color: '#14b8a6' }}
+                        />
+                      </RadarChart>
+                    </ResponsiveContainer>
+                    <p className="text-[10px] text-slate-400 dark:text-white/25 text-center -mt-1">% av dagsmål per næringsstoff</p>
+                  </div>
+                </div>
+
+                {/* ── Micro loggable bars ── */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-white/40">Mikronæringsstoffer</p>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-semibold">Loggbart</span>
+                  </div>
+                  <div className="space-y-4">
+                    {microDefs.map(({ label, key, est, target, unit, step }) => {
+                      const logged = dayMicro[key] != null;
+                      const value = microVal(key, est);
+                      const pct = Math.min(100, Math.round((value / Math.max(1, target)) * 100));
+                      const barColor = getBarColor(pct);
+                      const isEditing = microInputKey === key;
+                      return (
+                        <div key={key}>
+                          <div className="flex items-center justify-between mb-1 gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-sm font-medium text-slate-700 dark:text-white/70">{label}</span>
+                              {key === 'fiberG' && fiberIsScanned && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-100 dark:bg-sky-500/15 text-sky-600 dark:text-sky-300 font-bold">SKANN</span>}
+                              {logged && key !== 'fiberG' && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 font-bold">LOGGET</span>}
+                              {key === 'fiberG' && !fiberIsScanned && dayMicro['fiberG'] != null && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 font-bold">LOGGET</span>}
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-xs font-semibold tabular-nums" style={{ color: barColor }}>{value}{unit}</span>
+                              <span className="text-[10px] text-slate-400 dark:text-white/25">/{target}</span>
+                              {!isPastSelectedDay && (
+                                <>
+                                  <button type="button" onClick={() => addMicro(key, -step)} className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/50 text-sm font-bold flex items-center justify-center leading-none">−</button>
+                                  <button type="button" onClick={() => addMicro(key, step)} className="w-6 h-6 rounded-lg bg-orange-100 dark:bg-orange-500/15 text-orange-600 dark:text-orange-300 text-sm font-bold flex items-center justify-center leading-none">+</button>
+                                  <button type="button" onClick={() => { setMicroInputKey(isEditing ? null : key); setMicroInputValue(String(value)); }} className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/50 text-xs flex items-center justify-center">✏️</button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          {isEditing && (
+                            <div className="flex gap-2 mb-1.5">
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                value={microInputValue}
+                                onChange={e => setMicroInputValue(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') logMicro(key, microInputValue); }}
+                                className="flex-1 rounded-xl border border-orange-300 dark:border-orange-500/40 bg-white dark:bg-white/[0.06] px-3 py-1.5 text-sm dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-400/50"
+                                placeholder={`Skriv inn ${unit}`}
+                                autoFocus
+                              />
+                              <button type="button" onClick={() => logMicro(key, microInputValue)} className="rounded-xl bg-orange-500 text-white px-3 py-1.5 text-sm font-semibold">Lagre</button>
+                            </div>
+                          )}
+                          <div className="h-2.5 bg-slate-100 dark:bg-white/[0.06] rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: `linear-gradient(to right, ${barColor}88, ${barColor})` }} />
+                          </div>
+                          <p className="text-[10px] text-slate-400 dark:text-white/25 mt-0.5">
+                            {pct}% av dagsmål
+                            {key === 'fiberG' && fiberIsScanned ? ' · fra matvarer' : (!logged ? ' · estimert' : '')}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-5 text-[11px] text-slate-400 dark:text-white/25 text-center leading-relaxed">
+                    Trykk + / − for å justere, eller ✏️ for manuell verdi. Verdier er estimert fra kaloriinntak – mål inn faktiske verdier for nøyaktighet.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body)}
+
+      <style>{`
+        @keyframes waterBottleWaveMove {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        @keyframes waterBottleWaveBob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(2px); }
+        }
+        .water-bottle-wave {
+          position: absolute;
+          left: -50%;
+          width: 200%;
+          height: 30px;
+          border-radius: 45%;
+          animation: waterBottleWaveMove 3.4s linear infinite;
+        }
+        .water-bottle-wave-back {
+          top: -12px;
+          background: rgba(255, 255, 255, 0.25);
+          animation-duration: 4.1s;
+        }
+        .water-bottle-wave-front {
+          top: -8px;
+          background: rgba(255, 255, 255, 0.38);
+          animation-duration: 2.7s;
+          animation-name: waterBottleWaveMove, waterBottleWaveBob;
+          animation-timing-function: linear, ease-in-out;
+          animation-iteration-count: infinite, infinite;
+        }
+        @keyframes flexArmEmoji {
+          0%, 100% { transform: rotate(-8deg) scale(1); }
+          50% { transform: rotate(0deg) scale(1.14); }
+        }
+        .flex-arm-emoji {
+          font-size: 3rem;
+          line-height: 1;
+          transform: rotate(-8deg) scale(1);
+          transform-origin: 60% 70%;
+          filter: drop-shadow(0 4px 8px rgba(234, 88, 12, 0.22));
+        }
+        .training-flex-active {
+          animation: flexArmEmoji 1.15s ease-in-out infinite;
+        }
+
+        /* ── Ring pump ───────────────────────────────── */
+        @keyframes ringPump {
+          0%   { transform: scale(1); }
+          28%  { transform: scale(1.06); filter: drop-shadow(0 0 30px rgba(249,115,22,0.55)); }
+          55%  { transform: scale(0.97); }
+          78%  { transform: scale(1.018); }
+          100% { transform: scale(1); filter: none; }
+        }
+        .progress-circle-pumping {
+          animation: ringPump 500ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+
+        /* ── Hero card shimmer wave ───────────────────── */
+        .hero-shimmer {
+          position: absolute; inset: 0;
+          pointer-events: none; z-index: 1;
+          border-radius: inherit;
+          background: linear-gradient(105deg,
+            transparent 0%, transparent 38%,
+            rgba(255,255,255,0.22) 50%,
+            transparent 62%, transparent 100%);
+          background-size: 220% 100%;
+          animation: heroShimmerSweep 6s ease-in-out infinite;
+        }
+        @keyframes heroShimmerSweep {
+          0%   { background-position: 180% 0; opacity: 0; }
+          8%   { opacity: 1; }
+          40%  { background-position: -40% 0; opacity: 0.6; }
+          42%  { opacity: 0; }
+          100% { background-position: -40% 0; opacity: 0; }
+        }
+
+        /* ── Screen-header bottom wave ────────────────── */
+        .screen-header-wave {
+          position: absolute; bottom: -6px; left: 0; right: 0; height: 18px;
+          pointer-events: none; z-index: 3; overflow: hidden;
+        }
+        .screen-header-wave::before, .screen-header-wave::after {
+          content: ''; position: absolute;
+          width: 200%; height: 100%; top: 0; border-radius: 40%;
+          animation: headerWaveRoll 5s linear infinite;
+        }
+        .screen-header-wave::before {
+          left: -50%;
+          background: rgba(249,115,22,0.10);
+          animation-duration: 5s;
+        }
+        .screen-header-wave::after {
+          left: -50%;
+          background: rgba(251,146,60,0.07);
+          animation-duration: 7s;
+          animation-direction: reverse;
+        }
+        @keyframes headerWaveRoll {
+          0%   { transform: translateX(0) scaleY(1); }
+          50%  { transform: translateX(25%) scaleY(1.15); }
+          100% { transform: translateX(50%) scaleY(1); }
+        }
+
+        /* ── Hero rain effect ─────────────────────────── */
+        .hero-rain-container {
+          position: absolute; inset: 0; pointer-events: none; z-index: 5;
+          overflow: hidden; border-radius: inherit;
+        }
+        .hero-rain-wave {
+          position: absolute; inset: 0;
+          background: linear-gradient(180deg,
+            rgba(56,189,248,0.28) 0%, rgba(14,165,233,0.14) 40%,
+            rgba(56,189,248,0.05) 70%, transparent 100%);
+          animation: heroRainWaveFall 1.8s cubic-bezier(0.22,0.61,0.36,1) forwards;
+        }
+        @keyframes heroRainWaveFall {
+          0%   { transform: translateY(-100%); opacity: 0; }
+          8%   { opacity: 1; }
+          50%  { transform: translateY(0); opacity: 0.6; }
+          100% { transform: translateY(0); opacity: 0; }
+        }
+        .hero-rain-drop {
+          position: absolute; top: 0; width: 3px;
+          border-radius: 50% 50% 46% 46% / 30% 30% 70% 70%;
+          background: linear-gradient(180deg,
+            rgba(186,237,255,0.95) 0%, rgba(56,189,248,0.88) 60%,
+            rgba(14,165,233,0.75) 100%);
+          box-shadow: 0 0 6px rgba(56,189,248,0.5), inset 0 1px 0 rgba(255,255,255,0.6);
+          animation: heroRainDropFall 1.1s ease-in forwards;
+        }
+        @keyframes heroRainDropFall {
+          0%   { transform: translateY(-20px) scaleY(0.7); opacity: 0; }
+          10%  { opacity: 1; }
+          80%  { opacity: 0.7; }
+          100% { transform: translateY(280px) scaleY(1.4) scaleX(0.7); opacity: 0; }
+        }
+
+        /* ── Activity History — full-screen ─────────── */
+        .ah-overlay {
+          position: fixed; inset: 0; z-index: 1800;
+          animation: ahFadeIn 180ms ease both;
+        }
+        @keyframes ahFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .ah-panel {
+          position: absolute; inset: 0;
+          display: flex; flex-direction: column; overflow: hidden;
+          animation: ahSlideIn 320ms cubic-bezier(0.22,1,0.36,1) both;
+        }
+        @keyframes ahSlideIn {
+          from { transform: translateY(40px); opacity: 0; }
+          to   { transform: translateY(0);    opacity: 1; }
+        }
+        .ah-day-cell {
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+          border-radius: 14px; padding: 4px 2px;
+          transition: background 0.15s ease, transform 0.12s ease;
+          animation: ahCellPop 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
+        }
+        .ah-day-cell:disabled { opacity: 0.25; pointer-events: none; }
+        .ah-day-cell:not(:disabled):active { transform: scale(0.84); }
+        .ah-day-selected { background: rgba(249,115,22,0.13); outline: 2px solid rgba(249,115,22,0.45); }
+        @keyframes ahCellPop {
+          from { opacity: 0; transform: scale(0.55); }
+          to   { opacity: 1; transform: scale(1); }
+        }
+        .ah-ring-fill { animation: ahRingDraw 0.65s cubic-bezier(0.22,1,0.36,1) both; }
+        @keyframes ahRingDraw {
+          from { opacity: 0; stroke-dashoffset: 69.12; }
+          to   { opacity: 1; }
+        }
+        .ah-detail-card {
+          border-radius: 22px; padding: 18px;
+          background: rgba(248,250,252,1);
+          border: 1px solid rgba(226,232,240,0.8);
+          animation: ahDetailSlide 0.28s cubic-bezier(0.22,1,0.36,1) both;
+        }
+        .ah-detail-ring-fill { animation: ahRingDraw 0.55s cubic-bezier(0.22,1,0.36,1) both; }
+        @keyframes ahDetailSlide {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
+      {/* ===== ACTIVITY HISTORY MODAL ===== */}
+      {showActivityHistory && createPortal(
+        <div className="ah-overlay bg-white dark:bg-slate-950">
+          <div className="ah-panel bg-white dark:bg-slate-950">
+            {/* Header bar */}
+            <div className="shrink-0 px-5 pt-5 pb-4 flex items-center justify-between border-b border-slate-100 dark:border-white/[0.06]">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Aktivitetshistorikk</h2>
+                <p className="text-xs text-slate-400 dark:text-white/35 mt-0.5">Trykk en dag for detaljer</p>
+              </div>
+              <button type="button" onClick={() => setShowActivityHistory(false)} className="w-10 h-10 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center">
+                <X className="w-5 h-5 text-slate-500 dark:text-white/60" />
+              </button>
+            </div>
+
+            {/* Scrollable area */}
+            <div className="overflow-y-auto flex-1 px-5 pb-10">
+
+              {/* Month nav */}
+              <div className="flex items-center justify-between mt-5 mb-5">
+                <button
+                  type="button"
+                  onClick={() => setHistoryViewDate((d) => { const n = new Date(d); n.setMonth(n.getMonth() - 1); return n; })}
+                  className="w-11 h-11 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center active:scale-90 transition-transform"
+                >
+                  <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-white/70" />
+                </button>
+                <span className="text-lg font-bold text-slate-800 dark:text-white capitalize">{historyMonthLabel}</span>
+                <button
+                  type="button"
+                  onClick={() => setHistoryViewDate((d) => { const n = new Date(d); n.setMonth(n.getMonth() + 1); return n; })}
+                  disabled={historyViewDate.getFullYear() === today.getFullYear() && historyViewDate.getMonth() >= today.getMonth()}
+                  className="w-11 h-11 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center disabled:opacity-25 active:scale-90 transition-transform"
+                >
+                  <ChevronRight className="w-5 h-5 text-slate-600 dark:text-white/70" />
+                </button>
+              </div>
+
+              {/* Summary stats */}
+              <div className="grid grid-cols-3 gap-3 mb-6">
+                {[
+                  { label: 'Snitt score', value: `${historyMonthStats.avgScore}%`, color: historyMonthStats.avgScore >= 75 ? 'text-green-500 dark:text-green-400' : historyMonthStats.avgScore >= 50 ? 'text-orange-500' : 'text-slate-400 dark:text-white/40' },
+                  { label: 'Dager logget', value: String(historyMonthStats.loggedDays), color: 'text-slate-800 dark:text-white' },
+                  { label: 'Streak nå', value: `${streak}d`, color: streak >= 7 ? 'text-orange-500' : 'text-slate-800 dark:text-white' },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-2xl bg-slate-50 dark:bg-white/[0.05] border border-slate-100 dark:border-white/[0.07] px-3 py-4 text-center">
+                    <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                    <p className="text-[11px] text-slate-400 dark:text-white/35 mt-1 font-medium">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Weekday labels */}
+              <div className="grid grid-cols-7 mb-2">
+                {['Ma', 'Ti', 'On', 'To', 'Fr', 'Lø', 'Sø'].map((d) => (
+                  <div key={d} className="text-center text-[11px] font-bold text-slate-300 dark:text-white/25 tracking-wide py-1">{d}</div>
+                ))}
+              </div>
+
+              {/* Calendar grid — bigger rings */}
+              <div className="grid grid-cols-7 gap-y-0.5">
+                {historyMonthDays.map((date, i) => {
+                  const key = toDateKey(date);
+                  const inMonth = date.getMonth() === historyViewDate.getMonth();
+                  const isFuture = date > today;
+                  const log = !isFuture ? (logsByDate[key] ?? null) : null;
+                  const score = log ? calculateDailyDisciplineScore(log).score : 0;
+                  const hasData = log ? (Object.values(log.meals).flat().length > 0 || getTotalHydrationMl(log) > 0 || log.trainingKcal > 0) : false;
+                  const isToday = key === todayKey;
+                  const isSelected = key === historySelectedKey;
+                  const ringR = 14;
+                  const ringC = 2 * Math.PI * ringR;
+                  const ringOffset = ringC * (1 - (hasData ? score / 100 : 0));
+                  const ringColor = score >= 80 ? '#22c55e' : score >= 55 ? '#f97316' : score > 0 ? '#ef4444' : 'rgba(148,163,184,0.25)';
+                  const trackColor = inMonth && !isFuture ? 'rgba(148,163,184,0.12)' : 'rgba(148,163,184,0.06)';
+                  const numColor = !inMonth || isFuture ? 'rgba(148,163,184,0.25)' : isToday ? '#f97316' : hasData ? (score >= 55 ? '#1e293b' : '#64748b') : '#94a3b8';
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => inMonth && !isFuture ? setHistorySelectedKey(isSelected ? null : key) : undefined}
+                      disabled={!inMonth || isFuture}
+                      className={`ah-day-cell ${isSelected ? 'ah-day-selected' : ''}`}
+                      style={{ animationDelay: `${i * 10}ms` }}
+                    >
+                      <svg width="36" height="36" viewBox="0 0 36 36">
+                        <circle cx="18" cy="18" r={ringR} fill="none" stroke={trackColor} strokeWidth="3" />
+                        {hasData && (
+                          <circle
+                            cx="18" cy="18" r={ringR}
+                            fill="none" stroke={ringColor} strokeWidth="3" strokeLinecap="round"
+                            strokeDasharray={ringC} strokeDashoffset={ringOffset}
+                            transform="rotate(-90 18 18)"
+                            className="ah-ring-fill"
+                            style={{ animationDelay: `${i * 10 + 60}ms`, animationDuration: `${0.5 + (score / 100) * 0.9}s` }}
+                          />
+                        )}
+                        {isToday && <circle cx="18" cy="18" r={ringR + 1.5} fill="none" stroke="rgba(249,115,22,0.3)" strokeWidth="1" />}
+                        <text x="18" y="22.5" textAnchor="middle" fontSize="9" fontWeight="700" fill={numColor}>
+                          {date.getDate()}
+                        </text>
+                      </svg>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Day detail card */}
+              {historySelectedKey && historySelectedLog && (() => {
+                const log = historySelectedLog;
+                const dayConsumed = Object.values(log.meals).flat().reduce((s, f) => s + f.kcal, 0);
+                const dayProtein = Object.values(log.meals).flat().reduce((s, f) => s + f.protein, 0);
+                const dayWater = getTotalHydrationMl(log);
+                const dayTarget = optimizedTargetKcal + log.trainingKcal;
+                const dayScore = calculateDailyDisciplineScore(log);
+                const detailRings = [
+                  { label: 'Kalorier', value: `${kcalNumberFormat.format(dayConsumed)}`, sub: `av ${kcalNumberFormat.format(dayTarget)}`, ratio: Math.min(1, dayConsumed / Math.max(1, dayTarget)), color: '#f97316' },
+                  { label: 'Protein', value: `${Math.round(dayProtein)}g`, sub: `av ${smartDietPlan.macros?.proteinG ?? PROTEIN_GOAL_G}g`, ratio: Math.min(1, dayProtein / (smartDietPlan.macros?.proteinG ?? PROTEIN_GOAL_G)), color: '#a855f7' },
+                  { label: 'Vann', value: `${Math.round(dayWater / 100) / 10}L`, sub: `av ${WATER_GOAL_ML / 1000}L`, ratio: Math.min(1, dayWater / WATER_GOAL_ML), color: '#38bdf8' },
+                  { label: 'Trening', value: log.trainingKcal > 0 ? `${log.trainingKcal} kcal` : '—', sub: log.trainingKcal > 0 ? 'trent' : 'ikke trent', ratio: Math.min(1, log.trainingKcal / 300), color: '#22c55e' },
+                ];
+                const detailR = 20;
+                const detailC = 2 * Math.PI * detailR;
+                return (
+                  <div className="ah-detail-card mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-900 dark:text-white/90">{formatDateKey(historySelectedKey)}</p>
+                        <p className="text-xs text-slate-400 dark:text-white/40">Disiplinscore: <span className="font-semibold text-slate-700 dark:text-white/70">{dayScore.score}%</span></p>
+                      </div>
+                      <button type="button" onClick={() => setHistorySelectedKey(null)} className="w-7 h-7 rounded-full bg-slate-100 dark:bg-white/10 flex items-center justify-center">
+                        <X className="w-3 h-3 text-slate-400 dark:text-white/40" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      {detailRings.map((ring, ri) => (
+                        <div key={ring.label} className="flex flex-col items-center gap-1" style={{ animationDelay: `${ri * 60}ms` }}>
+                          <svg width="52" height="52" viewBox="0 0 52 52">
+                            <circle cx="26" cy="26" r={detailR} fill="none" stroke="rgba(148,163,184,0.15)" strokeWidth="4" />
+                            <circle
+                              cx="26" cy="26" r={detailR}
+                              fill="none"
+                              stroke={ring.color}
+                              strokeWidth="4"
+                              strokeLinecap="round"
+                              strokeDasharray={detailC}
+                              strokeDashoffset={detailC * (1 - ring.ratio)}
+                              transform="rotate(-90 26 26)"
+                              className="ah-detail-ring-fill"
+                              style={{ animationDelay: `${ri * 60 + 100}ms`, animationDuration: `${0.45 + ring.ratio * 0.85}s` }}
+                            />
+                          </svg>
+                          <p className="text-[11px] font-bold text-slate-800 dark:text-white/80 leading-none">{ring.value}</p>
+                          <p className="text-[9px] text-slate-400 dark:text-white/35 leading-none text-center">{ring.label}</p>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Meal breakdown */}
+                    {Object.entries(log.meals).some(([, items]) => items.length > 0) && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 dark:border-white/[0.06] space-y-1.5">
+                        {(Object.entries(log.meals) as Array<[MealId, FoodEntry[]]>).map(([mealId, items]) => {
+                          if (items.length === 0) return null;
+                          const label = mealId === 'breakfast' ? t('home.meals.breakfast') : mealId === 'lunch' ? t('home.meals.lunch') : mealId === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks');
+                          const mealKcal = items.reduce((s, f) => s + f.kcal, 0);
+                          return (
+                            <div key={mealId} className="flex items-center justify-between">
+                              <span className="text-xs text-slate-600 dark:text-white/55">{label}</span>
+                              <span className="text-xs font-semibold text-slate-700 dark:text-white/70">{mealKcal} kcal · {items.length} varer</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => { setDayOffset(Math.round((new Date(historySelectedKey.replace(/-/g, '/')).getTime() - today.getTime()) / 86400000)); setShowActivityHistory(false); }}
+                      className="mt-3 w-full py-2.5 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 text-xs font-semibold"
+                    >
+                      Gå til denne dagen →
+                    </button>
+                  </div>
+                );
+              })()}
+
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Delete confirmation sheet */}
+      {pendingDelete && createPortal(
+        <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-black/40 p-4" onClick={() => setPendingDelete(null)}>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-slate-800 dark:text-white/90 mb-1">{t('home.deleteConfirm.title')}</p>
+            <p className="text-xs text-slate-500 dark:text-white/50 mb-5 truncate">{pendingDelete.name}</p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                className="flex-1 py-3 rounded-xl border border-slate-200 dark:border-white/10 text-sm font-semibold text-slate-700 dark:text-white/70"
+              >
+                {t('home.deleteConfirm.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={() => { removeFoodFromMeal(pendingDelete.mealId, pendingDelete.entryId); setPendingDelete(null); }}
+                className="flex-1 py-3 rounded-xl bg-red-500 text-white text-sm font-semibold"
+              >
+                {t('home.deleteConfirm.confirm')}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
