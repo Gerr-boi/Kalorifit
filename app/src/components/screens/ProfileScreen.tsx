@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity, ArrowLeft, Trophy, X } from 'lucide-react';
+import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity, ArrowLeft, Trophy, X, Trash2, AlertTriangle } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
+import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
+import PrivacyPolicyModal from '../legal/PrivacyPolicyModal';
+import TermsModal from '../legal/TermsModal';
 import {
   calculateDailyDisciplineScore,
   createEmptyDayLog,
@@ -145,6 +148,11 @@ const DIET_EXPLORER_OPTIONS: Array<{
 
 export default function ProfileScreen() {
   const { currentUser, updateUserName } = useCurrentUser();
+  const { signOut, deleteAccount } = useSupabaseAuth();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
   const [profile, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
   const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
   const [weeklyReports, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>('home.weeklyReports.v1', {});
@@ -154,6 +162,7 @@ export default function ProfileScreen() {
   const [showPersonalSettings, setShowPersonalSettings] = useState(false);
   const [showDietExplorer, setShowDietExplorer] = useState(false);
   const [showIdentity, setShowIdentity] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [heightCm, setHeightCm] = useState<string>(String(profile.heightCm));
   const [weightKg, setWeightKg] = useState<string>(String(profile.weightKg));
   const [draftName, setDraftName] = useState(profile.name);
@@ -468,10 +477,10 @@ export default function ProfileScreen() {
   const getMenuItems = () => [
     { id: 'notifications', icon: Bell, label: 'Varsler', value: profile.notificationsEnabled ? 'Pa' : 'Av' },
     { id: 'privacy', icon: Shield, label: 'Personvern', value: profile.privacyMode },
-    { id: 'darkmode', icon: Moon, label: 'Mork modus', value: darkMode ? 'Pa' : 'Av' },
-    { id: 'language', icon: Globe, label: 'Sprak', value: profile.language },
-    { id: 'bmi', icon: Activity, label: 'Mine malinger', value: '' },
-    { id: 'help', icon: HelpCircle, label: 'Hjelp og stotte', value: '' },
+    { id: 'darkmode', icon: Moon, label: 'Mørk modus', value: darkMode ? 'På' : 'Av' },
+    { id: 'language', icon: Globe, label: 'Språk', value: profile.language },
+    { id: 'bmi', icon: Activity, label: 'Mine målinger', value: '' },
+    { id: 'help', icon: HelpCircle, label: 'Hjelp og støtte', value: '' },
   ];
 
   const initials = profile.name
@@ -858,7 +867,7 @@ export default function ProfileScreen() {
           </button>
           <button
             onClick={openPersonalSettings}
-            className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center"
+            className="w-10 h-10 bg-orange-500 hover:bg-orange-400 rounded-full flex items-center justify-center shadow-sm transition-colors"
             title="Rediger profil"
           >
             <Settings className="w-5 h-5 text-white" />
@@ -1097,6 +1106,14 @@ export default function ProfileScreen() {
         </div>
       </div>
 
+      {/* Health disclaimer */}
+      <div className="mt-4 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 flex items-start gap-3">
+        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+          KaloriFit er ikke medisinsk rådgivning. Rådfør deg med lege eller ernæringsfysiolog ved behov.
+        </p>
+      </div>
+
       <div className="card mt-4 p-0 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
         {getMenuItems().map((item, index) => (
           <button
@@ -1107,6 +1124,7 @@ export default function ProfileScreen() {
               if (item.id === 'notifications') toggleNotifications();
               if (item.id === 'privacy') togglePrivacyMode();
               if (item.id === 'language') toggleLanguage();
+              if (item.id === 'help') setShowHelp(true);
             }}
             className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b last:border-b-0 dark:border-gray-600"
           >
@@ -1126,10 +1144,183 @@ export default function ProfileScreen() {
         ))}
       </div>
 
-      <button className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium">
+      {/* Logout */}
+      <button
+        onClick={() => signOut()}
+        className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium"
+      >
         <LogOut className="w-5 h-5" />
         Logg ut
       </button>
+
+      {/* Legal links */}
+      <div className="flex justify-center gap-4 mt-2 pb-1">
+        <button
+          onClick={() => setShowPrivacy(true)}
+          className="text-xs text-gray-400 dark:text-zinc-500 underline underline-offset-2 hover:text-gray-600 dark:hover:text-zinc-300 transition-colors"
+        >
+          Personvernerklæring
+        </button>
+        <button
+          onClick={() => setShowTerms(true)}
+          className="text-xs text-gray-400 dark:text-zinc-500 underline underline-offset-2 hover:text-gray-600 dark:hover:text-zinc-300 transition-colors"
+        >
+          Brukervilkår
+        </button>
+      </div>
+
+      {/* Delete account */}
+      <button
+        onClick={() => setShowDeleteConfirm(true)}
+        className="w-full flex items-center justify-center gap-2 p-3 mt-1 mb-6 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
+      >
+        <Trash2 className="w-4 h-4" />
+        Slett konto og data
+      </button>
+
+      {/* Delete account confirmation dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
+          <div className="w-full sm:max-w-sm bg-white dark:bg-zinc-900 rounded-t-2xl sm:rounded-2xl shadow-2xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white text-base">Slett konto og data</h3>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">Dette kan ikke angres</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-zinc-300 mb-6 leading-relaxed">
+              All data slettes permanent: kostholdslogger, progresjon, merker og kontoopplysninger.
+              I henhold til GDPR fjernes alle personopplysninger innen 30 dager.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
+              >
+                Avbryt
+              </button>
+              <button
+                disabled={deleteLoading}
+                onClick={async () => {
+                  setDeleteLoading(true);
+                  await deleteAccount();
+                  setDeleteLoading(false);
+                  setShowDeleteConfirm(false);
+                  window.location.reload();
+                }}
+                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm disabled:opacity-50 transition-colors"
+              >
+                {deleteLoading ? 'Sletter...' : 'Slett alt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPrivacy && <PrivacyPolicyModal onClose={() => setShowPrivacy(false)} />}
+      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
+
+      {/* Help & Support modal */}
+      {showHelp && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
+          <div className="w-full sm:max-w-lg bg-white dark:bg-zinc-900 rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[90dvh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-zinc-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                  <HelpCircle className="w-5 h-5 text-orange-500" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900 dark:text-white">Hjelp og støtte</h2>
+                  <p className="text-xs text-gray-500 dark:text-zinc-400">KaloriFit — v1.0</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowHelp(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-zinc-800 flex items-center justify-center"
+              >
+                <X className="w-4 h-4 text-gray-600 dark:text-zinc-300" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="overflow-y-auto px-5 py-4 space-y-5 text-sm text-gray-700 dark:text-zinc-300">
+
+              {/* Contact */}
+              <div className="rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-700/30 p-4">
+                <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-1">Kontakt oss</p>
+                <p className="text-sm text-gray-700 dark:text-zinc-300">
+                  Har du spørsmål, fant en feil, eller trenger hjelp?
+                </p>
+                <p className="mt-1 font-medium text-orange-500">support@kalorifit.no</p>
+              </div>
+
+              {/* FAQ */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wide mb-3">Vanlige spørsmål</p>
+                <div className="space-y-3">
+                  {[
+                    {
+                      q: 'Hvordan endre kalorirmål?',
+                      a: 'Gå til Rediger profil (tannhjulet øverst) og oppdater vekt, mål og aktivitetsnivå. Målene beregnes automatisk.',
+                    },
+                    {
+                      q: 'Dataene mine forsvant — hva gjør jeg?',
+                      a: 'Data lagres lokalt på enheten. Logg inn med konto for å synkronisere på tvers av enheter og unngå tap.',
+                    },
+                    {
+                      q: 'Kan jeg eksportere dataene mine?',
+                      a: 'Dataeksport er under utvikling. Send oss en e-post så hjelper vi deg manuelt i mellomtiden.',
+                    },
+                    {
+                      q: 'Er anbefalingene medisinsk rådgivning?',
+                      a: 'Nei. KaloriFit er et støtteverktøy, ikke en medisinsk tjeneste. Rådfør deg med helsepersonell ved behov.',
+                    },
+                    {
+                      q: 'Hvordan slette kontoen min?',
+                      a: 'Scroll ned på denne siden og trykk "Slett konto og data". All data fjernes permanent.',
+                    },
+                  ].map(({ q, a }) => (
+                    <div key={q} className="rounded-xl border border-gray-100 dark:border-zinc-800 p-3">
+                      <p className="font-semibold text-gray-800 dark:text-white text-sm mb-1">{q}</p>
+                      <p className="text-xs text-gray-500 dark:text-zinc-400 leading-relaxed">{a}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Legal links */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setShowHelp(false); setShowPrivacy(true); }}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 text-xs font-medium text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  Personvernerklæring
+                </button>
+                <button
+                  onClick={() => { setShowHelp(false); setShowTerms(true); }}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 text-xs font-medium text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  Brukervilkår
+                </button>
+              </div>
+
+            </div>
+
+            <div className="px-5 py-4 border-t border-gray-100 dark:border-zinc-800 shrink-0">
+              <button
+                onClick={() => setShowHelp(false)}
+                className="w-full py-3 bg-orange-500 hover:bg-orange-400 text-white font-semibold rounded-xl text-sm transition-colors"
+              >
+                Lukk
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showDietExplorer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
@@ -1319,7 +1510,7 @@ export default function ProfileScreen() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 -mt-24">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Mine malinger</h3>
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Mine målinger</h3>
               <button
                 onClick={() => setShowBmi(false)}
                 className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-600 flex items-center justify-center"
@@ -1368,7 +1559,7 @@ export default function ProfileScreen() {
 
               <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
                 {bmi === null ? (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Skriv inn hoyde og vekt for a beregne malinger.</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Skriv inn høyde og vekt for å beregne målinger.</p>
                 ) : (
                   <div className="space-y-3">
                     <div>
@@ -1378,26 +1569,26 @@ export default function ProfileScreen() {
                     </div>
                     {healthyWeightRange && (
                       <p className="text-xs text-gray-600 dark:text-gray-300">
-                        Sunn vekt for din hoyde: ca. {healthyWeightRange.min}-{healthyWeightRange.max} kg
+                        Sunn vekt for din høyde: ca. {healthyWeightRange.min}-{healthyWeightRange.max} kg
                       </p>
                     )}
                     <button
                       onClick={saveBmi}
                       className="rounded-xl bg-orange-500 px-4 py-2 text-white font-medium"
                     >
-                      Lagre maling
+                      Lagre måling
                     </button>
                   </div>
                 )}
               </div>
 
               <p className="text-xs text-gray-500 dark:text-gray-500">
-                Tips: Logg malinger 1-2 ganger i uka pa samme tidspunkt for jevnere trend.
+                Tips: Logg målinger 1-2 ganger i uka på samme tidspunkt for jevnere trend.
               </p>
 
               {profile.bmiHistory.length > 0 && (
                 <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Siste malinger</p>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Siste målinger</p>
                   <div className="space-y-1">
                     {profile.bmiHistory.slice(0, 3).map((entry) => (
                       <p key={`${entry.date}-${entry.bmi}`} className="text-xs text-gray-600 dark:text-gray-300">

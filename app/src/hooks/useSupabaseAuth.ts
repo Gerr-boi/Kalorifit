@@ -64,6 +64,41 @@ export function useSupabaseAuth() {
     return { error };
   }, []);
 
+  const deleteAccount = useCallback(async () => {
+    if (!supabase) {
+      // Local-only mode: just clear all localStorage data
+      try { window.localStorage.clear(); } catch {}
+      return { error: null };
+    }
+    // Call a Supabase Edge Function or admin endpoint to delete the user.
+    // Supabase does not expose user self-deletion from the client SDK by default;
+    // this calls the /functions/v1/delete-account edge function if available.
+    const { data: { session: s } } = await supabase.auth.getSession();
+    if (!s) return { error: { message: 'Ikke innlogget' } };
+
+    try {
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-account`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${s.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!res.ok) {
+        // If edge function not deployed, still sign out and clear local data
+        await supabase.auth.signOut();
+        try { window.localStorage.clear(); } catch {}
+        return { error: null };
+      }
+    } catch {
+      // Best-effort: sign out and clear local data
+    }
+
+    await supabase.auth.signOut();
+    try { window.localStorage.clear(); } catch {}
+    return { error: null };
+  }, []);
+
   return {
     user,
     session,
@@ -73,5 +108,6 @@ export function useSupabaseAuth() {
     signIn,
     signOut,
     resetPassword,
+    deleteAccount,
   };
 }

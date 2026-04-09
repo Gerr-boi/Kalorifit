@@ -8,6 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="KaloriFit" />
     <meta name="description" content="Norges smarteste kaloriapp. Logg maten, få kontroll, lev lettere." />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
 
     <!-- Open Graph -->
     <meta property="og:title" content="KaloriFit - Logg maten. Få kontroll. Lev lettere." />
@@ -124,8 +125,8 @@
         to { transform: rotate(360deg); }
       }
     </style>
-    <script type="module" crossorigin src="/assets/index-BmaQ4lSz.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-GCzAeD_T.css">
+    <script type="module" crossorigin src="/assets/index-V6YxZkd0.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C5bA4aFD.css">
   </head>
   <body>
     <div id="root">
@@ -146,13 +147,12 @@
       });
 
       window.setTimeout(() => {
-        const root = document.getElementById('root');
         const boot = document.getElementById('boot-status');
-        if (!root || !boot) return;
-        if (root.childElementCount <= 1) {
+        // boot-status still in DOM = React hasn't mounted yet
+        if (boot) {
           boot.innerHTML = '<strong>App did not mount.</strong><br/>Check browser console and dev server terminal.';
         }
-      }, 3000);
+      }, 8000);
     </script>
     
     <!-- Service Worker Registration -->

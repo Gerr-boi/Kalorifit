@@ -1683,13 +1683,13 @@ export default function HomeScreen() {
       return;
     }
     if (!Number.isFinite(calories) || calories <= 0) {
-      setScanHint('Legg inn gyldige kalorier for treningsokten.');
+      setScanHint('Legg inn gyldige kalorier for treningsøkten.');
       return;
     }
 
     const exerciseName =
       workoutExerciseName.trim() ||
-      (workoutType === 'Other' ? 'Custom workout' : workoutType);
+      ({ Run: 'Løping', Ride: 'Sykling', Walk: 'Gåtur', Strength: 'Styrke', HIIT: 'HIIT', Other: 'Annet' }[workoutType]);
 
     setWorkoutSessions((prev) => [
       ...prev,
@@ -1850,7 +1850,7 @@ export default function HomeScreen() {
   }, []);
   const _coachMessage =
     consumed === 0
-      ? 'Start dagen med et maltid for a bygge streak.'
+      ? 'Start dagen med et måltid for å bygge streak.'
       : caloriesRemaining > 0
       ? `Du er ${caloriesRemaining} kcal under malet i dag.`
       : `Du har overstiget malet med ${Math.abs(caloriesRemaining)} kcal.`;
@@ -2625,7 +2625,7 @@ export default function HomeScreen() {
                         {extraPreviewCount > 0 ? ` + ${extraPreviewCount} til` : ''}
                       </p>
                     ) : (
-                      <p className="text-xs text-slate-400 dark:text-white/30 mt-1">Trykk for a legge til mat</p>
+                      <p className="text-xs text-slate-400 dark:text-white/30 mt-1">Trykk for å legge til mat</p>
                     )}
                   </div>
                 </div>
@@ -2698,7 +2698,7 @@ export default function HomeScreen() {
                         </button>
                       ))}
                       {quickSuggestions.length === 0 && mealTemplatesForSlot.length === 0 && (
-                        <p className="text-xs text-slate-400 dark:text-white/30">Ingen forslag enda. Logg forste matvare for a bygge forslag.</p>
+                        <p className="text-xs text-slate-400 dark:text-white/30">Ingen forslag enda. Logg første matvare for å bygge forslag.</p>
                       )}
                     </div>
                   )}
@@ -2818,23 +2818,13 @@ export default function HomeScreen() {
       )}
 
       <div className="card">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
-              <Dumbbell className="w-5 h-5 text-orange-400" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Trening</h3>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
+            <Dumbbell className="w-5 h-5 text-orange-400" />
           </div>
-          <button
-            type="button"
-            onClick={openWorkoutModal}
-            className="text-sm font-bold text-orange-400 px-3 py-2 rounded-xl bg-orange-500/10 hover:bg-orange-100 transition-colors duration-200"
-            disabled={isPastSelectedDay}
-          >
-            Logg detaljert
-          </button>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Trening</h3>
         </div>
-        <div className="mt-4 rounded-2xl border border-orange-500/20 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-5 shadow-inner">
+        <div className="rounded-2xl border border-orange-500/20 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-5 shadow-inner">
           <div className="flex items-start gap-5">
             <div className="shrink-0">
               <div className="flex h-28 w-24 items-center justify-center rounded-2xl bg-white/60 shadow-md border border-orange-500/10">
@@ -2843,39 +2833,25 @@ export default function HomeScreen() {
             </div>
             <div className="min-w-0 flex-1 pt-1">
               <p className="text-xs font-bold uppercase tracking-wide text-orange-800 mb-1">Dagens trening</p>
-              <p className="text-xl font-black text-orange-200 mb-2">{dayLog.trainingKcal} kcal logget</p>
-              <p className="text-xs text-orange-700 dark:text-orange-300 font-medium leading-relaxed">
-                {hasTrainingLogged ? 'Trykk en treningsøkt for flex! 💪' : 'Armen hviler til du logger en økt.'}
+              <p className="text-xl font-black text-orange-700 mb-2">
+                {hasTrainingLogged ? `${dayLog.trainingKcal} kcal forbrent` : '0 kcal logget'}
+              </p>
+              <p className="text-xs text-orange-700/70 font-medium leading-relaxed">
+                {hasTrainingLogged
+                  ? `${selectedDayWorkouts.length > 0 ? `${selectedDayWorkouts.length} økt${selectedDayWorkouts.length > 1 ? 'er' : ''} logget` : 'Trening registrert'} — bra jobba! 💪`
+                  : 'Armen hviler til du logger en økt.'}
               </p>
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-3 mt-4">
-          <button
-            type="button"
-            onClick={() => addTraining(420, 'workout:45-intense')}
-            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
-            disabled={isPastSelectedDay}
-          >
-            +45 min
-          </button>
-          <button
-            type="button"
-            onClick={() => addTraining(300, 'workout:strength')}
-            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
-            disabled={isPastSelectedDay}
-          >
-            +Styrke
-          </button>
-          <button
-            type="button"
-            onClick={() => addTraining(350, 'workout:10k-steps')}
-            className="bg-gradient-to-b from-orange-100 to-orange-200 border border-orange-500/20 text-orange-800 font-bold text-sm p-3 rounded-xl hover:from-orange-200 hover:to-orange-300 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0"
-            disabled={isPastSelectedDay}
-          >
-            +10k skritt
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={openWorkoutModal}
+          disabled={isPastSelectedDay}
+          className="mt-4 w-full rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm py-3 px-4 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Logg treningsøkt
+        </button>
         {selectedDayWorkouts.length > 0 && (
           <div className="mt-4 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-orange-500/10 p-3 shadow-sm">
             <p className="text-xs font-bold text-orange-800 mb-2 uppercase tracking-wide">Dagens økter</p>
@@ -3335,13 +3311,13 @@ export default function HomeScreen() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-white/[0.08] p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Logg treningsokt</h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white/90">Logg treningsøkt</h3>
               <button
                 type="button"
                 onClick={() => setShowWorkoutModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60"
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 flex items-center justify-center text-lg leading-none"
               >
-                x
+                ×
               </button>
             </div>
 
@@ -3380,25 +3356,32 @@ export default function HomeScreen() {
               <div>
                 <label className="text-xs text-slate-500 dark:text-white/40">Type</label>
                 <div className="mt-1 grid grid-cols-3 gap-2">
-                  {(['Run', 'Ride', 'Walk', 'Strength', 'HIIT', 'Other'] as WorkoutSession['workoutType'][]).map((type) => (
+                  {([
+                    ['Run', 'Løping'],
+                    ['Ride', 'Sykling'],
+                    ['Walk', 'Gåtur'],
+                    ['Strength', 'Styrke'],
+                    ['HIIT', 'HIIT'],
+                    ['Other', 'Annet'],
+                  ] as [WorkoutSession['workoutType'], string][]).map(([type, label]) => (
                     <button
                       key={type}
                       type="button"
                       onClick={() => setWorkoutType(type)}
-                      className={`rounded-lg px-2 py-2 text-xs border ${workoutType === type ? 'bg-orange-500/100 text-white border-orange-500' : 'bg-slate-100 dark:bg-white/[0.04] text-slate-700 dark:text-white/70 border-slate-200 dark:border-white/[0.08]'}`}
+                      className={`rounded-lg px-2 py-2 text-xs border font-semibold transition-colors ${workoutType === type ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-100 dark:bg-white/[0.04] text-slate-700 dark:text-white/70 border-slate-200 dark:border-white/[0.08] hover:bg-orange-50'}`}
                     >
-                      {type}
+                      {label}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div>
-                <label className="text-xs text-slate-500 dark:text-white/40">Ovelse / aktivitet</label>
+                <label className="text-xs text-slate-500 dark:text-white/40">Øvelse / aktivitet</label>
                 <input
                   value={workoutExerciseName}
                   onChange={(event) => setWorkoutExerciseName(event.target.value)}
-                  placeholder="f.eks. Intervallop, benokt, sykkel"
+                  placeholder="f.eks. Intervallløp, benøkt, sykkel"
                   className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
                 />
               </div>
@@ -3408,8 +3391,8 @@ export default function HomeScreen() {
                 <textarea
                   value={workoutNotes}
                   onChange={(event) => setWorkoutNotes(event.target.value)}
-                  rows={3}
-                  placeholder="Hvordan kjentes okten?"
+                  rows={2}
+                  placeholder="Hvordan kjentes økten?"
                   className="mt-1 w-full rounded-lg border border-slate-200 dark:border-white/[0.08] bg-slate-100 dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90 resize-none"
                 />
               </div>
@@ -3426,9 +3409,9 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={saveWorkoutSession}
-                className="flex-1 rounded-lg bg-orange-500/100 px-3 py-2 text-sm text-white"
+                className="flex-1 rounded-lg bg-orange-500 hover:bg-orange-600 active:bg-orange-700 px-3 py-2 text-sm text-white font-bold transition-colors"
               >
-                Lagre okt
+                Lagre økt
               </button>
             </div>
           </div>

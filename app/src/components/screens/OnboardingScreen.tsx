@@ -351,6 +351,11 @@ export default function OnboardingScreen(_props: OnboardingScreenProps) {
           <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 14 }}>
             {t('onboarding.welcome.timing')}
           </p>
+
+          <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 10, maxWidth: 280, lineHeight: 1.6, textAlign: 'center' }}>
+            Ved å fortsette registrerer du helserelaterte data (vekt, kosthold, mål).
+            KaloriFit er ikke medisinsk rådgivning — rådfør deg med helsepersonell ved behov.
+          </p>
         </div>
       )}
 

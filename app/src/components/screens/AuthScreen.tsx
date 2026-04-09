@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Flame, UserPlus, LogIn } from 'lucide-react';
+import PrivacyPolicyModal from '../legal/PrivacyPolicyModal';
+import TermsModal from '../legal/TermsModal';
 
 type AuthMode = 'login' | 'signup';
 
@@ -17,6 +19,9 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,6 +39,11 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
 
     if (mode === 'signup' && password.length < 6) {
       setError('Passord må være minst 6 tegn');
+      return;
+    }
+
+    if (mode === 'signup' && !consentAccepted) {
+      setError('Du må godta brukervilkårene og personvernerklæringen for å opprette konto');
       return;
     }
 
@@ -158,6 +168,51 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
             )}
           </div>
 
+          {mode === 'signup' && (
+            <label className="flex items-start gap-3 cursor-pointer">
+              <div className="relative mt-0.5 shrink-0">
+                <input
+                  type="checkbox"
+                  checked={consentAccepted}
+                  onChange={(e) => setConsentAccepted(e.target.checked)}
+                  className="sr-only"
+                />
+                <div
+                  className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                    consentAccepted
+                      ? 'bg-orange-500 border-orange-500'
+                      : 'border-zinc-600 bg-zinc-800/60'
+                  }`}
+                >
+                  {consentAccepted && (
+                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
+                      <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+              <span className="text-xs text-zinc-400 leading-relaxed">
+                Jeg har lest og godtar{' '}
+                <button
+                  type="button"
+                  onClick={() => setShowTerms(true)}
+                  className="text-orange-400 hover:text-orange-300 underline underline-offset-2"
+                >
+                  brukervilkårene
+                </button>
+                {' '}og{' '}
+                <button
+                  type="button"
+                  onClick={() => setShowPrivacy(true)}
+                  className="text-orange-400 hover:text-orange-300 underline underline-offset-2"
+                >
+                  personvernerklæringen
+                </button>
+                , inkludert behandling av helserelaterte data.
+              </span>
+            </label>
+          )}
+
           {error && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
               <p className="text-red-400 text-sm">{error}</p>
@@ -190,6 +245,9 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
           </button>
         )}
       </div>
+
+      {showPrivacy && <PrivacyPolicyModal onClose={() => setShowPrivacy(false)} />}
+      {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
     </div>
   );
 }

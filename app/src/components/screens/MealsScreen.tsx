@@ -24,13 +24,13 @@ const smartSortOptions: Array<{ id: SmartSortId; label: string }> = [
   { id: 'post_workout', label: 'Etter trening' },
   { id: 'evening', label: 'Kveldvennlig' },
   { id: 'gut', label: 'Tarmvennlig' },
-  { id: 'high_energy', label: 'Hoy energi' },
+  { id: 'high_energy', label: 'Høy energi' },
   { id: 'anti_inflammatory', label: 'Anti-inflammatorisk' },
 ];
 
 const libraryOptions = [
   { id: 'discover', label: 'For deg' },
-  { id: 'mine', label: 'Mine maltider' },
+  { id: 'mine', label: 'Mine måltider' },
 ] as const;
 
 const mealFilterOptions = [
@@ -63,15 +63,15 @@ const tagInfo: Record<NutritionTagId, { label: string; explanation: string; arti
     explanation: 'Omega-3, polyfenoler og hel mat kan dempe inflammasjon.',
     article: 'Cleveland Clinic: Anti-inflammatory eating',
     url: 'https://health.clevelandclinic.org/anti-inflammatory-diet',
-    supplement: 'Omega-3 kan vurderes ved lavt fiskinntak.',
-    training: 'Legg inn restitusjon etter harde okter.',
+    supplement: 'Omega-3 kan vurderes ved lavt fiskeinntak.',
+    training: 'Legg inn restitusjon etter harde økter.',
   },
   brain_fuel: {
     label: '#BrainFuel',
     explanation: 'Jevn energi og sunt fett stotter fokus.',
     article: 'Mayo Clinic: Brain food',
     url: 'https://www.mayoclinic.org/healthy-lifestyle/nutrition-and-healthy-eating/in-depth/brain-food/art-20048351',
-    supplement: 'Magnesium er aktuelt ved hoy belastning.',
+    supplement: 'Magnesium er aktuelt ved høy belastning.',
     training: 'Unnga for lange perioder uten mat.',
   },
   hormone_support: {
@@ -96,7 +96,7 @@ const tagInfo: Record<NutritionTagId, { label: string; explanation: string; arti
     article: 'ACSM: Recovery nutrition',
     url: 'https://www.acsm.org/all-blog-posts/certification-blog/acsm-certified-blog/2020/07/31/recovery-nutrition',
     supplement: 'Kreatin kan vurderes for styrkeidrett.',
-    training: 'Spis innen 1-2 timer etter hard okt.',
+    training: 'Spis innen 1-2 timer etter hard økt.',
   },
 };
 
@@ -245,20 +245,20 @@ export default function MealsScreen() {
   const bannerTitle = profile.goalStrategy === 'gut_health'
     ? 'Bra for tarmen din i dag'
     : hardWorkoutToday
-      ? 'Restitusjonsmaltider etter hard okt'
+      ? 'Restitusjonsmåltider etter hard økt'
       : poorSleepProxy
-        ? 'Energi-stotte for en krevende dag'
-        : 'Maltider tilpasset profilen din';
+        ? 'Energistøtte for en krevende dag'
+        : 'Måltider tilpasset profilen din';
   const bannerSubtitle = profile.goalStrategy === 'gut_health'
     ? 'Mikrobiomet ditt trenger fermentert mat, fiberbredde og polyfenoler.'
     : 'Sortering og forslag er justert etter malet ditt og dagens signaler.';
 
   const recommendationBlocks = useMemo(() => {
     const blocks: Array<{ id: string; title: string; desc: string; match: (recipe: MealRecipe) => boolean }> = [];
-    if (hardWorkoutToday) blocks.push({ id: 'recovery', title: 'Restitusjonsmaltider i dag', desc: 'Basert pa hard treningsdag.', match: (r) => r.tags.includes('recovery') || r.signals.highProtein });
-    if (poorSleepProxy) blocks.push({ id: 'energy', title: 'Energi-stottende maltider', desc: 'Jevn energi ved lav restitusjon.', match: (r) => r.signals.highEnergy || r.signals.magnesiumRich });
-    if (stressProxy) blocks.push({ id: 'calming', title: 'Magnesiumrike valg', desc: 'Nyttig ved hoy belastning.', match: (r) => r.signals.magnesiumRich || r.signals.antiInflammatory });
-    if (lowFiberToday) blocks.push({ id: 'fiber', title: 'Du er lav pa fiber i dag', desc: '3 raske fiberforslag.', match: (r) => r.signals.fiber >= 7 });
+    if (hardWorkoutToday) blocks.push({ id: 'recovery', title: 'Restitusjonsmåltider i dag', desc: 'Basert på hard treningsdag.', match: (r) => r.tags.includes('recovery') || r.signals.highProtein });
+    if (poorSleepProxy) blocks.push({ id: 'energy', title: 'Energistøttende måltider', desc: 'Jevn energi ved lav restitusjon.', match: (r) => r.signals.highEnergy || r.signals.magnesiumRich });
+    if (stressProxy) blocks.push({ id: 'calming', title: 'Magnesiumrike valg', desc: 'Nyttig ved høy belastning.', match: (r) => r.signals.magnesiumRich || r.signals.antiInflammatory });
+    if (lowFiberToday) blocks.push({ id: 'fiber', title: 'Du er lav på fiber i dag', desc: '3 raske fiberforslag.', match: (r) => r.signals.fiber >= 7 });
     if (profile.goalStrategy === 'gut_health') blocks.push({ id: 'gut', title: 'Tarmmodus aktiv', desc: 'Fermentert og fiberrik mat prioriteres.', match: (r) => r.signals.fermented || r.sortContexts.includes('gut') });
     return blocks.slice(0, 4);
   }, [hardWorkoutToday, lowFiberToday, poorSleepProxy, profile.goalStrategy, stressProxy]);
@@ -312,7 +312,7 @@ export default function MealsScreen() {
         steps: recipe.customSteps ?? [],
         caption: recipe.customCaption ?? '',
       }),
-      source: 'Mine maltider',
+      source: 'Mine måltider',
     }));
   }, [rawMyRecipes]);
 
@@ -398,7 +398,7 @@ export default function MealsScreen() {
           time: 'Klar na',
           rating: 5,
           reviews: Math.max(1, template.usageCount || 0),
-          source: 'Lagrede maltider',
+          source: 'Lagrede måltider',
           servings: 1,
           ingredients: template.items.map((item) => item.name),
           steps: [],
@@ -407,8 +407,8 @@ export default function MealsScreen() {
           origin: 'saved' as const,
           customIngredients: template.items.map((item) => `${item.name} - ${Math.round(item.kcal)} kcal`),
           customSteps: [
-            'Laget som et raskt standardmaltid for logging.',
-            'Trykk "Legg til i dagbok" for a bruke det direkte i Hjem.',
+            'Laget som et raskt standardmåltid for logging.',
+            'Trykk "Legg til i dagbok" for å bruke det direkte i Hjem.',
           ],
           customCaption: `${template.usageCount} raske logger${mealSlotLabel ? ` • ${mealSlotLabel}` : ''}`,
         };
@@ -477,9 +477,9 @@ export default function MealsScreen() {
   const savedCount = savedMealTemplates.length;
   const personalizedCount = filteredRecipes.filter((recipe) => recipe.goalCategories.includes(profile.goalCategory)).length;
   const mineCount = savedMeals.length + myRecipes.length;
-  const collectionTitle = activeLibrary === 'mine' ? 'Dine maltider' : 'Alle forslag';
+  const collectionTitle = activeLibrary === 'mine' ? 'Dine måltider' : 'Alle forslag';
   const collectionDescription = activeLibrary === 'mine'
-    ? `${mineCount} lagrede eller egne maltider.`
+    ? `${mineCount} lagrede eller egne måltider.`
     : `${filteredRecipes.length} forslag fra katalog og community.`;
 
   function toggleFavoriteRecipe(recipeId: string) {
@@ -641,7 +641,7 @@ export default function MealsScreen() {
     const fat = Number(newMealFat.replace(',', '.'));
 
     if (!name) {
-      setDiaryFeedback('Gi maltidet et navn.');
+      setDiaryFeedback('Gi måltidet et navn.');
       return;
     }
     if ([kcal, protein, carbs, fat].some((value) => !Number.isFinite(value) || value < 0)) {
@@ -670,7 +670,7 @@ export default function MealsScreen() {
     setShowCreateMealModal(false);
     setActiveLibrary('mine');
     resetCreateMealForm();
-    setDiaryFeedback(`${name} lagret i Mine maltider.`);
+    setDiaryFeedback(`${name} lagret i Mine måltider.`);
   }
 
   useEffect(() => {
@@ -728,7 +728,7 @@ export default function MealsScreen() {
               className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm"
             >
               <Plus className="h-4 w-4" />
-              Opprett maltid
+              Opprett måltid
             </button>
           )}
           <div>
@@ -860,7 +860,7 @@ export default function MealsScreen() {
               className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm"
             >
               <Plus className="h-4 w-4" />
-              Opprett maltid
+              Opprett måltid
             </button>
           </div>
         )}
@@ -982,7 +982,7 @@ export default function MealsScreen() {
             </p>
               <p className="mt-1 text-xs text-slate-500 dark:text-gray-400">
                 {activeLibrary === 'mine'
-                ? 'Opprett et maltid eller del en oppskrift i Community, sa dukker det opp her.'
+                ? 'Opprett et måltid eller del en oppskrift i Community, så dukker det opp her.'
                 : 'Bytt maltype, sortering eller skru av filter for favoritter.'}
               </p>
           </div>
@@ -993,7 +993,7 @@ export default function MealsScreen() {
             recipe.goalCategories.includes(profile.goalCategory) ? 'Matcher mal' : null,
             recipe.dietStyles.includes(profile.dietStyle) ? 'Passer koststil' : null,
             hardWorkoutToday && recipe.tags.includes('recovery') ? 'Bra etter trening' : null,
-            lowFiberToday && recipe.signals.fiber >= 7 ? 'Hoy fiber i dag' : null,
+            lowFiberToday && recipe.signals.fiber >= 7 ? 'Høy fiber i dag' : null,
             activeSort === 'gut' && (recipe.signals.fermented || recipe.signals.fiber >= 6) ? 'Tarmvennlig' : null,
             activeSort === 'evening' && recipe.signals.eveningFriendly ? 'Kveldvennlig' : null,
             favoriteTagMatches[0] ? `Favoritt-tag ${tagInfo[favoriteTagMatches[0]].label}` : null,
@@ -1272,9 +1272,9 @@ export default function MealsScreen() {
             <div className="p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-lg font-semibold text-slate-900 dark:text-gray-100">Opprett maltid</h3>
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-gray-100">Opprett måltid</h3>
                   <p className="mt-1 text-sm text-slate-500 dark:text-gray-400">
-                    Lagre et standardmaltid som kan logges raskt fra bade Maltider og Hjem.
+                    Lagre et standardmåltid som kan logges raskt fra både Måltider og Hjem.
                   </p>
                 </div>
                 <button
@@ -1368,7 +1368,7 @@ export default function MealsScreen() {
                   onClick={saveCustomMeal}
                   className="flex-1 rounded-lg bg-orange-500 text-white text-sm font-medium py-2.5"
                 >
-                  Lagre maltid
+                  Lagre måltid
                 </button>
                 <button
                   type="button"
