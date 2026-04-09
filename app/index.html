@@ -144,13 +144,12 @@
       });
 
       window.setTimeout(() => {
-        const root = document.getElementById('root');
         const boot = document.getElementById('boot-status');
-        if (!root || !boot) return;
-        if (root.childElementCount <= 1) {
+        // boot-status still in DOM = React hasn't mounted yet
+        if (boot) {
           boot.innerHTML = '<strong>App did not mount.</strong><br/>Check browser console and dev server terminal.';
         }
-      }, 3000);
+      }, 8000);
     </script>
     <script type="module" src="/src/main.tsx"></script>
     

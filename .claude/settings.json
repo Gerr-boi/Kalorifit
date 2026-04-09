@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/Users/hrger/Kalorifit/app/kalorifit\" push origin main)",
+      "Bash(git -C \"c:/Users/hrger/Kalorifit/app/kalorifit\" pull --rebase origin main)",
+      "Bash(git -C \"c:/Users/hrger/Kalorifit/app/kalorifit\" stash)",
+      "Bash(git -C \"c:/Users/hrger/Kalorifit/app/kalorifit\" stash pop)",
+      "Bash(git -C \"c:/Users/hrger/Kalorifit/app/kalorifit\" pull --no-rebase origin main)",
+      "Bash(git -C \"c:/Users/hrger/Kalorifit/app/kalorifit\" add -A)",
+      "Bash(git -C:*)",
+      "Bash(cat c:/Users/hrger/Kalorifit/app/.env*)",
+      "Bash(ls c:/Users/hrger/Kalorifit/app/.env*)",
+      "Bash(npm install:*)",
+      "Bash(sed -n '34,40p' c:/Users/hrger/Kalorifit/app/src/components/screens/HomeScreen.tsx)",
+      "Bash(sed -n '1415,1435p' c:/Users/hrger/Kalorifit/app/src/components/screens/HomeScreen.tsx)"
+    ]
+  }
+}

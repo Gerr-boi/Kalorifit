@@ -20,9 +20,10 @@ ReactDOMClient.createRoot(document.getElementById('root')!).render(
 )
 
 window.setTimeout(() => {
-  const root = document.getElementById('root');
-  if (!bootStatus || !root) return;
-  if (root.childElementCount > 1) {
-    bootStatus.remove();
+  // If boot-status is still present but React has mounted, remove it as a fallback
+  // (App.tsx's useEffect handles the normal case via requestAnimationFrame)
+  const boot = document.getElementById('boot-status');
+  if (boot && document.getElementById('root')?.children[0] !== boot) {
+    boot.remove();
   }
 }, 1200);
