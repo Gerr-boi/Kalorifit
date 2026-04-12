@@ -2,12 +2,12 @@
  * communityService.ts
  *
  * Abstraction layer for all community data operations.
- * Currently backed by localStorage via simple in-memory store.
- * Swap the implementation functions below to connect a real database
- * (e.g. Supabase, Firebase, REST API) without touching any UI code.
+ * Backed by Supabase when VITE_SUPABASE_URL is set, otherwise localStorage.
  *
  * DB INTEGRATION POINTS are marked with: // ← DB_HOOK
  */
+
+import { supabase } from './supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -298,9 +298,313 @@ class LocalStorageCommunityService implements ICommunityService {
   }
 }
 
+// ─── Input sanitiser ─────────────────────────────────────────────────────────
+//
+// Centralised validation used by BOTH implementations so callers can't bypass
+// limits regardless of which backend is active.
+
+const ALLOWED_KINDS: ReadonlySet<string> = new Set(['workout', 'recipe', 'meal_win', 'struggle', 'reflection']);
+const ALLOWED_VISIBILITY: ReadonlySet<string> = new Set(['public', 'friends', 'private']);
+const ALLOWED_REACTIONS: ReadonlySet<string> = new Set(['fire', 'strong', 'beast', 'insane', 'watching']);
+const MAX_CAPTION_LEN = 500;
+const MAX_RECIPE_TITLE_LEN = 120;
+const MAX_RECIPE_ITEMS = 50;
+const MAX_RECIPE_ITEM_LEN = 200;
+const MAX_IMAGE_DATA_URL_LEN = 250_000; // ~187 KB base64
+const MAX_PR_HIGHLIGHT_LEN = 120;
+const MAX_AUTHOR_NAME_LEN = 60;
+
+function sanitiseString(s: string | undefined, maxLen: number): string {
+  return (s ?? '').trim().slice(0, maxLen);
+}
+
+function sanitiseLines(raw: string[] | undefined, maxItems: number, maxItemLen: number): string[] {
+  return (raw ?? [])
+    .map((l) => l.trim().slice(0, maxItemLen))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function validateImageDataUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  if (url.length > MAX_IMAGE_DATA_URL_LEN) return undefined;          // too large
+  if (!/^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(url)) return undefined; // must be valid image data URL
+  return url;
+}
+
+type PostDraft = Parameters<ICommunityService['createPost']>[0];
+
+function sanitiseDraft(draft: PostDraft): PostDraft {
+  if (!ALLOWED_KINDS.has(draft.kind)) throw new Error(`Invalid post kind: ${draft.kind}`);
+  if (!ALLOWED_VISIBILITY.has(draft.visibility ?? 'public')) throw new Error(`Invalid visibility`);
+  return {
+    ...draft,
+    authorName: sanitiseString(draft.authorName, MAX_AUTHOR_NAME_LEN) || 'Anonymous',
+    authorInitials: sanitiseString(draft.authorInitials, 4) || 'U',
+    authorAvatarDataUrl: validateImageDataUrl(draft.authorAvatarDataUrl),
+    caption: sanitiseString(draft.caption, MAX_CAPTION_LEN),
+    imageDataUrl: validateImageDataUrl(draft.imageDataUrl),
+    prHighlight: sanitiseString(draft.prHighlight, MAX_PR_HIGHLIGHT_LEN),
+    recipeTitle: sanitiseString(draft.recipeTitle, MAX_RECIPE_TITLE_LEN) || undefined,
+    recipeIngredients: sanitiseLines(draft.recipeIngredients, MAX_RECIPE_ITEMS, MAX_RECIPE_ITEM_LEN),
+    recipeSteps: sanitiseLines(draft.recipeSteps, MAX_RECIPE_ITEMS, MAX_RECIPE_ITEM_LEN),
+    durationMinutes: Math.max(1, Math.min(600, Number(draft.durationMinutes) || 1)),
+    calories: Math.max(0, Math.min(10_000, Number(draft.calories) || 0)),
+    recipeServings: Math.max(1, Math.min(100, Number(draft.recipeServings) || 1)),
+    recipePrepMinutes: Math.max(1, Math.min(1440, Number(draft.recipePrepMinutes) || 1)),
+    streak: Math.max(0, Math.min(3650, Number(draft.streak) || 0)),
+  };
+}
+
+// ─── Supabase implementation ──────────────────────────────────────────────────
+//
+// Reads public posts from the `community_posts` table (no auth required for
+// reads due to RLS). Writes require a signed-in Supabase user — the user_id is
+// always taken from auth.uid(), never from the client-supplied authorId.
+//
+// Schema: see supabase/migrations/20260412_community.sql
+
+class SupabaseCommunityService implements ICommunityService {
+  // Ensure supabase is non-null before calling this
+  private get db() {
+    if (!supabase) throw new Error('Supabase not configured');
+    return supabase;
+  }
+
+  async fetchPosts({ cursor, limit = 40, filter = 'all' }: { cursor?: number; limit?: number; filter?: PostKind | 'all' } = {}): Promise<ServiceResult<CommunityPost[]>> {
+    try {
+      let query = this.db
+        .from('community_posts')
+        .select('data, created_at')
+        .eq('visibility', 'public')
+        .order('created_at', { ascending: false })
+        .limit(Math.min(limit, 100));
+
+      if (cursor) {
+        query = query.lt('created_at', new Date(cursor).toISOString());
+      }
+      if (filter !== 'all') {
+        // Filter via JSONB: data->>'kind' = filter
+        query = query.eq('data->>kind', filter);
+      }
+
+      const { data, error } = await query;
+      if (error) return { ok: false, error: error.message };
+
+      const posts = (data ?? []).map((row) => row.data as CommunityPost);
+      return ok(posts);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async createPost(draft: PostDraft): Promise<ServiceResult<CommunityPost>> {
+    try {
+      const { data: { user }, error: authError } = await this.db.auth.getUser();
+      if (authError || !user) return { ok: false, error: 'Ikke innlogget' };
+
+      const clean = sanitiseDraft(draft);
+      const post: CommunityPost = {
+        ...clean,
+        // Always use the server-verified auth UID — never the client-supplied authorId
+        authorId: user.id,
+        id: createId('post'),
+        reactions: { fire: 0, strong: 0, beast: 0, insane: 0, watching: 0 },
+        saves: 0,
+        tries: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        _v: 1,
+      };
+
+      const { error } = await this.db
+        .from('community_posts')
+        .insert({
+          id: post.id,
+          user_id: user.id,
+          visibility: post.visibility ?? 'public',
+          data: post,
+          created_at: new Date(post.createdAt).toISOString(),
+          updated_at: new Date(post.updatedAt!).toISOString(),
+        });
+
+      if (error) return { ok: false, error: error.message };
+      return ok(post);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async deletePost(postId: string, _userId: string): Promise<ServiceResult<void>> {
+    try {
+      // RLS ensures only the owner can delete
+      const { error } = await this.db
+        .from('community_posts')
+        .delete()
+        .eq('id', postId);
+      if (error) return { ok: false, error: error.message };
+      return ok(undefined);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async setReaction(postId: string, _userId: string, reaction: ReactionKey | null): Promise<ServiceResult<Record<ReactionKey, number>>> {
+    try {
+      if (reaction && !ALLOWED_REACTIONS.has(reaction)) return { ok: false, error: 'Invalid reaction' };
+      const { data, error } = await this.db.rpc('community_toggle_reaction', {
+        p_post_id: postId,
+        p_reaction: reaction ?? null,
+      });
+      if (error) return { ok: false, error: error.message };
+      return ok(data as Record<ReactionKey, number>);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async toggleSave(postId: string, _userId: string): Promise<ServiceResult<{ saves: number; saved: boolean }>> {
+    try {
+      const { data, error } = await this.db.rpc('community_toggle_save', { p_post_id: postId });
+      if (error) return { ok: false, error: error.message };
+      return ok(data as { saves: number; saved: boolean });
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async toggleTry(postId: string, _userId: string): Promise<ServiceResult<{ tries: number; tried: boolean }>> {
+    try {
+      const { data, error } = await this.db.rpc('community_toggle_try', { p_post_id: postId });
+      if (error) return { ok: false, error: error.message };
+      return ok(data as { tries: number; tried: boolean });
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async upsertCheckIn(checkIn: DailyCheckIn): Promise<ServiceResult<DailyCheckIn>> {
+    try {
+      const { data: { user } } = await this.db.auth.getUser();
+      if (!user) return { ok: false, error: 'Ikke innlogget' };
+
+      const { error } = await this.db
+        .from('community_check_ins')
+        .upsert({
+          user_id: user.id,
+          date_key: checkIn.dateKey,
+          types: checkIn.types,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,date_key' });
+
+      if (error) return { ok: false, error: error.message };
+      return ok(checkIn);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async fetchCheckIn(userId: string, dateKey: string): Promise<ServiceResult<DailyCheckIn | null>> {
+    try {
+      const { data, error } = await this.db
+        .from('community_check_ins')
+        .select('types')
+        .eq('date_key', dateKey)
+        .maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      if (!data) return ok(null);
+      return ok({ userId, dateKey, types: data.types, updatedAt: Date.now() });
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async toggleChallenge(userId: string, challengeId: ChallengeId): Promise<ServiceResult<{ joined: boolean }>> {
+    try {
+      const { data: { user } } = await this.db.auth.getUser();
+      if (!user) return { ok: false, error: 'Ikke innlogget' };
+
+      const { data: existing } = await this.db
+        .from('community_joined_challenges')
+        .select('challenge_id')
+        .eq('challenge_id', challengeId)
+        .maybeSingle();
+
+      if (existing) {
+        await this.db
+          .from('community_joined_challenges')
+          .delete()
+          .eq('challenge_id', challengeId);
+        return ok({ joined: false });
+      }
+      await this.db
+        .from('community_joined_challenges')
+        .insert({ user_id: user.id, challenge_id: challengeId, joined_at: new Date().toISOString() });
+      return ok({ joined: true });
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async fetchJoinedChallenges(_userId: string): Promise<ServiceResult<JoinedChallenge[]>> {
+    try {
+      const { data, error } = await this.db
+        .from('community_joined_challenges')
+        .select('challenge_id, joined_at');
+      if (error) return { ok: false, error: error.message };
+      return ok((data ?? []).map((r) => ({
+        userId: _userId,
+        challengeId: r.challenge_id as ChallengeId,
+        joinedAt: new Date(r.joined_at).getTime(),
+      })));
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async fetchSavedPostIds(_userId: string): Promise<ServiceResult<string[]>> {
+    try {
+      const { data, error } = await this.db
+        .from('community_saves')
+        .select('post_id');
+      if (error) return { ok: false, error: error.message };
+      return ok((data ?? []).map((r) => r.post_id));
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async fetchTriedPostIds(_userId: string): Promise<ServiceResult<string[]>> {
+    try {
+      const { data, error } = await this.db
+        .from('community_tries')
+        .select('post_id');
+      if (error) return { ok: false, error: error.message };
+      return ok((data ?? []).map((r) => r.post_id));
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  async fetchMyReactions(_userId: string): Promise<ServiceResult<Record<string, ReactionKey>>> {
+    try {
+      const { data, error } = await this.db
+        .from('community_reactions')
+        .select('post_id, reaction');
+      if (error) return { ok: false, error: error.message };
+      const map: Record<string, ReactionKey> = {};
+      for (const r of data ?? []) map[r.post_id] = r.reaction as ReactionKey;
+      return ok(map);
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+}
+
 // ─── Singleton export ─────────────────────────────────────────────────────────
 //
-// ← DB_HOOK: replace `new LocalStorageCommunityService()` with your DB client:
-//   export const communityService: ICommunityService = new SupabaseCommunityService(supabaseClient);
+// Uses Supabase when configured; falls back to localStorage for offline dev.
 
-export const communityService: ICommunityService = new LocalStorageCommunityService();
+export const communityService: ICommunityService = supabase
+  ? new SupabaseCommunityService()
+  : new LocalStorageCommunityService();

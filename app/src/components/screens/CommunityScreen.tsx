@@ -22,6 +22,7 @@ import {
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { communityService } from '../../lib/communityService';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import {
   addDays,
   CALORIE_GOAL,
@@ -324,6 +325,13 @@ export default function CommunityScreen() {
 
   const [fabPortalEl, setFabPortalEl] = useState<Element | null>(null);
 
+  // Pull-to-refresh state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);  // px pulled down (0 = not pulling)
+  const pullTouchStartY = useRef<number | null>(null);
+  const pullScrollerRef = useRef<Element | null>(null);
+  const PULL_THRESHOLD = 64; // px to trigger refresh
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fabOpenTimerRef = useRef<number | null>(null);
   const fabSuppressClickRef = useRef(false);
@@ -394,6 +402,83 @@ export default function CommunityScreen() {
       window.clearTimeout(fabOpenTimerRef.current);
     }
   }, []);
+
+  // ─── Remote refresh ──────────────────────────────────────────────────────────
+
+  async function refreshPosts() {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      const result = await communityService.fetchPosts({ limit: 40 });
+      if (result.ok && result.data.length > 0) {
+        setPosts((prev) => {
+          // Merge remote posts with local-only posts (own unpublished posts kept)
+          const remoteIds = new Set(result.data.map((p) => p.id));
+          const localOnly = prev.filter((p) => !remoteIds.has(p.id) && p.authorId === activeUserId);
+          return [...localOnly, ...result.data];
+        });
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
+  // Pull-to-refresh: attach touch listeners to the .main-content scroller
+  useEffect(() => {
+    const scroller = document.querySelector('.main-content');
+    if (!scroller) return;
+    pullScrollerRef.current = scroller;
+
+    function onTouchStart(e: Event) {
+      const te = e as TouchEvent;
+      if (scroller.scrollTop <= 0) {
+        pullTouchStartY.current = te.touches[0].clientY;
+      }
+    }
+
+    function onTouchMove(e: Event) {
+      const te = e as TouchEvent;
+      if (pullTouchStartY.current === null) return;
+      if (scroller.scrollTop > 0) {
+        pullTouchStartY.current = null;
+        setPullDistance(0);
+        return;
+      }
+      const dy = te.touches[0].clientY - pullTouchStartY.current;
+      if (dy > 0) {
+        // Use sqrt damping so it feels "stretchy"
+        setPullDistance(Math.min(Math.sqrt(dy) * 8, PULL_THRESHOLD * 1.5));
+      }
+    }
+
+    function onTouchEnd() {
+      if (pullTouchStartY.current !== null && pullDistance >= PULL_THRESHOLD) {
+        void refreshPosts();
+      }
+      pullTouchStartY.current = null;
+      setPullDistance(0);
+    }
+
+    scroller.addEventListener('touchstart', onTouchStart, { passive: true });
+    scroller.addEventListener('touchmove', onTouchMove, { passive: true });
+    scroller.addEventListener('touchend', onTouchEnd);
+    scroller.addEventListener('touchcancel', onTouchEnd);
+    return () => {
+      scroller.removeEventListener('touchstart', onTouchStart);
+      scroller.removeEventListener('touchmove', onTouchMove);
+      scroller.removeEventListener('touchend', onTouchEnd);
+      scroller.removeEventListener('touchcancel', onTouchEnd);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRefreshing, pullDistance, activeUserId]);
+
+  // Load remote posts when the feed tab becomes active
+  useEffect(() => {
+    if (mainTab === 'feed') {
+      void refreshPosts();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainTab]);
 
   const todayCheckIn = useMemo(() => {
     return checkIns.find((ci) => ci.dateKey === todayKey) ?? { dateKey: todayKey, types: [] as CheckInType[] };
@@ -987,6 +1072,25 @@ export default function CommunityScreen() {
     ];
     return (
       <div className="pb-24">
+        {/* Pull-to-refresh indicator */}
+        {(pullDistance > 0 || isRefreshing) && (
+          <div
+            className="flex items-center justify-center gap-2 overflow-hidden transition-all"
+            style={{ height: isRefreshing ? 40 : pullDistance * 0.6, opacity: isRefreshing ? 1 : pullDistance / 64 }}
+          >
+            <svg
+              className={`w-5 h-5 text-orange-500 ${isRefreshing ? 'animate-spin' : ''}`}
+              style={!isRefreshing ? { transform: `rotate(${(pullDistance / 64) * 180}deg)` } : undefined}
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            >
+              <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="text-xs text-gray-400 dark:text-gray-500">
+              {isRefreshing ? 'Oppdaterer...' : pullDistance >= 64 ? 'Slipp for å oppdatere' : 'Dra ned for å oppdatere'}
+            </span>
+          </div>
+        )}
+
         {/* Search + filter */}
         <div className="px-0 py-3 space-y-3">
           <label className="friend-search-input-wrap" htmlFor="community-search">
@@ -1487,15 +1591,17 @@ export default function CommunityScreen() {
         </div>
         <p className="text-xs text-slate-500 dark:text-white/60 mb-3">Accountability · Progress · Community</p>
 
-        {/* Local-mode banner */}
-        <div className="flex items-start gap-2 rounded-xl border border-orange-200 dark:border-orange-900/40 bg-orange-50 dark:bg-orange-950/20 px-3 py-2 mb-3">
-          <AlertCircle className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
-          <p className="text-[11px] text-orange-700 dark:text-orange-300 leading-relaxed">
-            {profile.language === 'English'
-              ? 'This is your personal activity journal. Posts and challenges are saved locally — social features are coming soon.'
-              : 'Dette er din personlige aktivitetsdagbok. Innlegg og utfordringer lagres lokalt — sosiale funksjoner kommer snart.'}
-          </p>
-        </div>
+        {/* Local-mode banner — only shown when Supabase is not configured */}
+        {!isSupabaseConfigured() && (
+          <div className="flex items-start gap-2 rounded-xl border border-orange-200 dark:border-orange-900/40 bg-orange-50 dark:bg-orange-950/20 px-3 py-2 mb-3">
+            <AlertCircle className="w-3.5 h-3.5 text-orange-500 shrink-0 mt-0.5" />
+            <p className="text-[11px] text-orange-700 dark:text-orange-300 leading-relaxed">
+              {profile.language === 'English'
+                ? 'Posts are saved locally on this device only. Connect Supabase to share with others.'
+                : 'Innlegg lagres kun lokalt på denne enheten. Koble til Supabase for å dele med andre.'}
+            </p>
+          </div>
+        )}
 
         {/* Main tabs + post button */}
         <div className="flex gap-1 items-center">
