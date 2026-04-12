@@ -1418,6 +1418,115 @@ label {
 .feed-item-struggle { border-color: rgba(168,85,247,0.15); background: rgba(250,245,255,0.8); }
 .dark .feed-item-struggle { border-color: rgba(168,85,247,0.2); background: rgba(88,28,135,0.08); }
 
+/* Feed item entrance animation */
+@keyframes feed-item-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.feed-item { animation: feed-item-in 0.22s ease-out both; }
+
+/* Reaction pop micro-animation */
+@keyframes reaction-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.35); }
+  65%  { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+.reaction-pop { animation: reaction-pop 0.28s cubic-bezier(.36,.07,.19,.97) both; }
+
+/* Save fill animation */
+@keyframes save-fill {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.3) rotate(-8deg); }
+  70%  { transform: scale(0.9) rotate(4deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+.save-pop { animation: save-fill 0.32s cubic-bezier(.36,.07,.19,.97) both; }
+
+/* Skeleton shimmer */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton-pulse {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 800px 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  border-radius: 6px;
+}
+.dark .skeleton-pulse {
+  background: linear-gradient(90deg, #27272a 25%, #3f3f46 50%, #27272a 75%);
+  background-size: 800px 100%;
+}
+
+/* Toast notification */
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toast-slide-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to   { opacity: 0; transform: translateY(-8px) scale(0.96); }
+}
+.community-toast {
+  position: fixed;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+  animation: toast-slide-in 0.22s ease-out both;
+  pointer-events: none;
+}
+.community-toast-success { background: #18181b; color: #fff; }
+.community-toast-error   { background: #ef4444; color: #fff; }
+
+/* New posts available banner */
+@keyframes new-posts-drop {
+  from { opacity: 0; transform: translateY(-100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.new-posts-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 0;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, #fb923c, #ea580c);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  animation: new-posts-drop 0.25s ease-out both;
+  box-shadow: 0 4px 14px rgba(249,115,22,0.3);
+}
+
+/* Posting spinner */
+@keyframes posting-spin {
+  to { transform: rotate(360deg); }
+}
+.posting-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: posting-spin 0.6s linear infinite;
+  display: inline-block;
+}
+
 /* Challenge cards */
 .challenge-card { background: #ffffff; border: 1px solid; border-radius: 18px; padding: 14px; }
 .dark .challenge-card { background: #18181b; }

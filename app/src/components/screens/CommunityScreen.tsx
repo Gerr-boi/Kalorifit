@@ -327,10 +327,28 @@ export default function CommunityScreen() {
 
   // Pull-to-refresh state
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [pullDistance, setPullDistance] = useState(0);  // px pulled down (0 = not pulling)
+  const [pullDistance, setPullDistance] = useState(0);
   const pullTouchStartY = useRef<number | null>(null);
   const pullScrollerRef = useRef<Element | null>(null);
-  const PULL_THRESHOLD = 64; // px to trigger refresh
+  const PULL_THRESHOLD = 64;
+
+  // Toast
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  // Posting state
+  const [isPosting, setIsPosting] = useState(false);
+
+  // New-posts banner
+  const [newPostsCount, setNewPostsCount] = useState(0);
+
+  // Pagination (load more)
+  const [feedCursor, setFeedCursor] = useState<number | undefined>(undefined);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // Reaction / save animation tracking — stores "postId-reactionKey" or "save-postId"
+  const [animatingKey, setAnimatingKey] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fabOpenTimerRef = useRef<number | null>(null);
@@ -401,25 +419,71 @@ export default function CommunityScreen() {
     if (fabOpenTimerRef.current !== null && typeof window !== 'undefined') {
       window.clearTimeout(fabOpenTimerRef.current);
     }
+    if (toastTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(toastTimerRef.current);
+    }
   }, []);
+
+  // ─── Toast helper ─────────────────────────────────────────────────────────────
+
+  function showToast(msg: string, type: 'success' | 'error' = 'success') {
+    setToast({ msg, type });
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 3000);
+  }
 
   // ─── Remote refresh ──────────────────────────────────────────────────────────
 
   async function refreshPosts() {
     if (isRefreshing) return;
     setIsRefreshing(true);
+    setNewPostsCount(0);
     try {
       const result = await communityService.fetchPosts({ limit: 40 });
       if (result.ok && result.data.length > 0) {
         setPosts((prev) => {
-          // Merge remote posts with local-only posts (own unpublished posts kept)
-          const remoteIds = new Set(result.data.map((p) => p.id));
+          const existingIds = new Set(prev.map((p) => p.id));
+          const incoming = result.data;
+          const brand_new = incoming.filter((p) => !existingIds.has(p.id));
+          // Show banner only if feed is scrolled past top and there are new posts
+          const scroller = pullScrollerRef.current as HTMLElement | null;
+          if (brand_new.length > 0 && scroller && scroller.scrollTop > 80) {
+            setNewPostsCount(brand_new.length);
+          }
+          const remoteIds = new Set(incoming.map((p) => p.id));
           const localOnly = prev.filter((p) => !remoteIds.has(p.id) && p.authorId === activeUserId);
-          return [...localOnly, ...result.data];
+          return [...localOnly, ...incoming];
         });
+        // Set cursor to oldest post for load-more
+        const oldest = result.data[result.data.length - 1];
+        setFeedCursor(oldest?.createdAt);
+        setHasMore(result.data.length === 40);
       }
     } finally {
       setIsRefreshing(false);
+    }
+  }
+
+  // ─── Load more (pagination) ───────────────────────────────────────────────────
+
+  async function loadMore() {
+    if (loadingMore || !hasMore || !feedCursor) return;
+    setLoadingMore(true);
+    try {
+      const result = await communityService.fetchPosts({ cursor: feedCursor, limit: 40 });
+      if (result.ok && result.data.length > 0) {
+        setPosts((prev) => {
+          const ids = new Set(prev.map((p) => p.id));
+          return [...prev, ...result.data.filter((p) => !ids.has(p.id))];
+        });
+        const oldest = result.data[result.data.length - 1];
+        setFeedCursor(oldest?.createdAt);
+        setHasMore(result.data.length === 40);
+      } else {
+        setHasMore(false);
+      }
+    } finally {
+      setLoadingMore(false);
     }
   }
 
@@ -827,18 +891,26 @@ export default function CommunityScreen() {
       recipePrepMinutes: isRecipe ? (Number.parseInt(recipePrepMinutes, 10) || 20) : undefined,
     } as const;
 
-    // ← DB_HOOK: communityService.createPost handles persistence.
-    // With localStorage backend the service writes synchronously and
-    // the useLocalStorageState hooks pick up the change automatically.
+    setIsPosting(true);
     const result = await communityService.createPost(draft);
+    setIsPosting(false);
+
     if (result.ok) {
       setPosts((prev) => {
-        // Avoid duplicate if service already wrote to the same LS key
         const exists = prev.some((p) => p.id === result.data.id);
         return exists ? prev : [result.data, ...prev];
       });
+      closeAddPostModal();
+      showToast('Innlegg publisert! 🎉');
+      // Switch to feed and scroll to top so user sees their new post
+      setMainTab('feed');
+      window.requestAnimationFrame(() => {
+        (document.querySelector('.main-content') as HTMLElement | null)
+          ?.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    } else {
+      showToast('Kunne ikke publisere innlegget', 'error');
     }
-    closeAddPostModal();
   }
 
   async function deleteOwnPost(postId: string) {
@@ -852,27 +924,38 @@ export default function CommunityScreen() {
 
   async function chooseReaction(postId: string, reaction: ReactionKey) {
     const previous = myReactions[postId];
+    const isToggleOff = previous === reaction;
+    // Animate the tapped button
+    if (!isToggleOff) {
+      const key = `react-${postId}-${reaction}`;
+      setAnimatingKey(key);
+      window.setTimeout(() => setAnimatingKey(null), 320);
+    }
     // Optimistic update
     setPosts((prev) =>
       prev.map((post) => {
         if (post.id !== postId) return post;
         const nextReactions = { ...post.reactions };
         if (previous && nextReactions[previous] > 0) nextReactions[previous] -= 1;
-        if (previous !== reaction) nextReactions[reaction] += 1;
+        if (!isToggleOff) nextReactions[reaction] += 1;
         return { ...post, reactions: nextReactions };
       }),
     );
-    setMyReactions((prev) => ({ ...prev, [postId]: previous === reaction ? undefined : reaction }));
-    // ← DB_HOOK: persist reaction remotely
-    await communityService.setReaction(postId, activeUserId, previous === reaction ? null : reaction);
+    setMyReactions((prev) => ({ ...prev, [postId]: isToggleOff ? undefined : reaction }));
+    await communityService.setReaction(postId, activeUserId, isToggleOff ? null : reaction);
   }
 
   async function toggleSave(postId: string) {
     const alreadySaved = savedPostIds.includes(postId);
+    // Animate only when saving (not unsaving)
+    if (!alreadySaved) {
+      setAnimatingKey(`save-${postId}`);
+      window.setTimeout(() => setAnimatingKey(null), 350);
+      showToast('Lagret! 🔖');
+    }
     // Optimistic update
     setSavedPostIds((prev) => alreadySaved ? prev.filter((id) => id !== postId) : [...prev, postId]);
     setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, saves: Math.max(0, (p.saves ?? 0) + (alreadySaved ? -1 : 1)) } : p));
-    // ← DB_HOOK
     await communityService.toggleSave(postId, activeUserId);
   }
 
@@ -1124,22 +1207,76 @@ export default function CommunityScreen() {
           </div>
         </div>
 
+        {/* New posts available banner */}
+        {newPostsCount > 0 && (
+          <button
+            type="button"
+            className="new-posts-banner"
+            onClick={() => {
+              setNewPostsCount(0);
+              (document.querySelector('.main-content') as HTMLElement | null)
+                ?.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          >
+            ↑ {newPostsCount} nytt{newPostsCount !== 1 ? 'e' : ''} innlegg
+          </button>
+        )}
+
         {/* Status bar */}
-        {feedPosts.length > 0 && (
+        {feedPosts.length > 0 && !isRefreshing && (
           <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3 px-1">
-            Sorted by usefulness · {feedPosts.length} post{feedPosts.length !== 1 ? 's' : ''}
+            Sortert etter nytte · {feedPosts.length} innlegg
           </p>
+        )}
+
+        {/* Skeleton while loading first batch */}
+        {isRefreshing && feedPosts.length === 0 && (
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="feed-item" style={{ animation: 'none' }}>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="skeleton-pulse w-10 h-10 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <div className="skeleton-pulse h-3 w-1/3" />
+                    <div className="skeleton-pulse h-2 w-1/4" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="skeleton-pulse h-3 w-full" />
+                  <div className="skeleton-pulse h-3 w-5/6" />
+                  <div className="skeleton-pulse h-3 w-2/3" />
+                </div>
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Posts */}
         {feedPosts.map((post) => renderPostCard(post))}
 
-        {feedPosts.length === 0 && (
+        {/* Empty state */}
+        {feedPosts.length === 0 && !isRefreshing && (
           <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-            <p className="text-sm font-medium">No posts here yet.</p>
-            <p className="text-xs mt-1">Be the first to share a win.</p>
+            <p className="text-sm font-medium">Ingen innlegg ennå.</p>
+            <p className="text-xs mt-1">Vær den første til å dele en seier.</p>
             <button type="button" onClick={() => openAddPostModal('workout')} className="mt-4 px-4 py-2 text-sm font-semibold rounded-xl bg-orange-500 text-white">
-              Post something
+              Del noe
+            </button>
+          </div>
+        )}
+
+        {/* Load more */}
+        {hasMore && feedPosts.length > 0 && (
+          <div className="flex justify-center pt-2 pb-6">
+            <button
+              type="button"
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="flex items-center gap-2 px-5 py-2 rounded-full text-sm font-semibold border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 disabled:opacity-50"
+            >
+              {loadingMore
+                ? <><span className="posting-spinner" style={{ borderTopColor: '#f97316' }} /> Laster...</>
+                : 'Last inn flere'}
             </button>
           </div>
         )}
@@ -1266,7 +1403,7 @@ export default function CommunityScreen() {
           <button
             type="button"
             onClick={() => toggleSave(post.id)}
-            className={`action-chip ${isSaved ? 'action-chip-active-blue' : ''}`}
+            className={`action-chip ${isSaved ? 'action-chip-active-blue' : ''} ${animatingKey === `save-${post.id}` ? 'save-pop' : ''}`}
           >
             <Bookmark className="w-3.5 h-3.5" />
             {isSaved ? t('community.post.saved') : t('community.post.save')}
@@ -1291,11 +1428,13 @@ export default function CommunityScreen() {
           <div className="flex gap-1.5 ml-auto">
             {reactionConfig.slice(0, 3).map((reaction) => {
               const selected = myReactions[post.id] === reaction.key;
+              const animKey = `react-${post.id}-${reaction.key}`;
               return (
                 <button
                   key={reaction.key}
+                  type="button"
                   onClick={() => chooseReaction(post.id, reaction.key)}
-                  className={`reaction-chip text-xs ${selected ? 'reaction-chip-active' : ''}`}
+                  className={`reaction-chip text-xs ${selected ? 'reaction-chip-active' : ''} ${animatingKey === animKey ? 'reaction-pop' : ''}`}
                 >
                   <span>{reaction.token}</span>
                   {post.reactions[reaction.key] > 0 && <span>{post.reactions[reaction.key]}</span>}
@@ -1440,8 +1579,8 @@ export default function CommunityScreen() {
     const isRecipe = postKind === 'recipe';
 
     return (
-      <div className="fixed inset-0 z-[1400] bg-black/50 flex items-end justify-center p-4">
-        <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 shadow-2xl mb-16 sm:mb-0 border border-transparent dark:border-gray-700 overflow-y-auto max-h-[90vh]">
+      <div className="fixed inset-0 z-[1400] bg-black/50 flex items-end justify-center p-4" style={{ backdropFilter: 'blur(2px)' }}>
+        <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 shadow-2xl mb-16 sm:mb-0 border border-transparent dark:border-gray-700 overflow-y-auto max-h-[90vh]" style={{ animation: 'feed-item-in 0.2s ease-out both' }}>
           <div className="p-4">
             {/* Header */}
             <div className="flex items-center justify-between mb-4">
@@ -1488,19 +1627,24 @@ export default function CommunityScreen() {
             )}
 
             {/* Caption */}
-            <textarea
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              placeholder={
-                postKind === 'workout' ? t('community.prompts.workout') :
-                postKind === 'meal_win' ? t('community.prompts.mealWin') :
-                postKind === 'recipe' ? t('community.prompts.recipeDrop') :
-                postKind === 'struggle' ? t('community.prompts.struggle') :
-                t('community.prompts.reflection')
-              }
-              rows={3}
-              className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 px-3 py-2.5 text-sm text-gray-800 dark:text-gray-100 mb-3 resize-none"
-            />
+            <div className="relative mb-3">
+              <textarea
+                value={caption}
+                onChange={(e) => setCaption(e.target.value.slice(0, 500))}
+                placeholder={
+                  postKind === 'workout' ? t('community.prompts.workout') :
+                  postKind === 'meal_win' ? t('community.prompts.mealWin') :
+                  postKind === 'recipe' ? t('community.prompts.recipeDrop') :
+                  postKind === 'struggle' ? t('community.prompts.struggle') :
+                  t('community.prompts.reflection')
+                }
+                rows={3}
+                className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 px-3 py-2.5 text-sm text-gray-800 dark:text-gray-100 resize-none pb-5"
+              />
+              <span className={`absolute bottom-2 right-3 text-[10px] font-medium pointer-events-none ${caption.length > 440 ? 'text-orange-500' : 'text-gray-400 dark:text-gray-600'}`}>
+                {caption.length}/500
+              </span>
+            </div>
 
             {/* Workout fields */}
             {(postKind === 'workout' || postKind === 'meal_win') && (
@@ -1565,8 +1709,23 @@ export default function CommunityScreen() {
             )}
 
             <div className="flex justify-end gap-2">
-              <button type="button" onClick={closeAddPostModal} className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium">Cancel</button>
-              <button type="button" onClick={createPost} className="px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold">Publish</button>
+              <button
+                type="button"
+                onClick={closeAddPostModal}
+                disabled={isPosting}
+                className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 text-sm font-medium disabled:opacity-50"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={createPost}
+                disabled={isPosting}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-semibold disabled:opacity-70"
+              >
+                {isPosting && <span className="posting-spinner" />}
+                {isPosting ? 'Publiserer...' : 'Publiser'}
+              </button>
             </div>
           </div>
         </div>
@@ -1578,6 +1737,12 @@ export default function CommunityScreen() {
 
   return (
     <div className="screen community-screen">
+      {/* Toast */}
+      {toast && (
+        <div className={`community-toast ${toast.type === 'error' ? 'community-toast-error' : 'community-toast-success'}`}>
+          {toast.msg}
+        </div>
+      )}
       {/* Header */}
       <div className="community-hero">
         <div className="flex items-center justify-between mb-1">
