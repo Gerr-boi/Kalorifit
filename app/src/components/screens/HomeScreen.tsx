@@ -3368,7 +3368,7 @@ export default function HomeScreen() {
                       key={type}
                       type="button"
                       onClick={() => setWorkoutType(type)}
-                      className={`rounded-lg px-2 py-2 text-xs border font-semibold transition-colors ${workoutType === type ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-100 dark:bg-white/[0.04] text-slate-700 dark:text-white/70 border-slate-200 dark:border-white/[0.08] hover:bg-orange-50'}`}
+                      className={`rounded-lg px-2 py-2 text-xs border font-semibold transition-colors ${workoutType === type ? 'bg-orange-500 text-white border-orange-500' : 'bg-slate-100 dark:bg-white/[0.04] text-slate-700 dark:text-white/70 border-slate-200 dark:border-white/[0.08] hover:bg-orange-50 dark:hover:bg-white/[0.08]'}`}
                     >
                       {label}
                     </button>

@@ -1002,7 +1002,7 @@ export default function ProfileScreen() {
         <div className="flex items-end justify-between gap-3 mb-4">
           <div>
             <h3 className="font-semibold text-gray-800 dark:text-gray-200">Daily Discipline Score</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Automatisk basert pa dagens logging</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Automatisk basert på dagens logging</p>
           </div>
           <div className="text-right">
             <p className="text-3xl font-bold text-orange-500">{dailyDiscipline.score}</p>
@@ -1536,7 +1536,7 @@ export default function ProfileScreen() {
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Hoyde (cm)</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">Høyde (cm)</label>
                 <input
                   inputMode="decimal"
                   value={heightCm}
