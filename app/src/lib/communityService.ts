@@ -358,14 +358,67 @@ function sanitiseDraft(draft: PostDraft): PostDraft {
 
 // ─── Supabase implementation ──────────────────────────────────────────────────
 //
-// Reads public posts from the `community_posts` table (no auth required for
-// reads due to RLS). Writes require a signed-in Supabase user — the user_id is
-// always taken from auth.uid(), never from the client-supplied authorId.
+// Works with the existing community_posts column-based schema (from supabase.ts).
+// Stores a full snapshot in `data JSONB` for fast reads; also populates individual
+// columns so existing queries keep working.
+// user_id is always taken from auth.uid() — never from client-supplied authorId.
 //
 // Schema: see supabase/migrations/20260412_community.sql
 
+// Generate a proper UUID (no prefix) for Supabase UUID primary keys.
+function newUuid(): string {
+  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  // Fallback (should never be needed in a browser context)
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
+// Map a raw DB row to CommunityPost.
+// Prefers the `data` JSONB snapshot (has all fields); falls back to columns.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToPost(row: Record<string, any>): CommunityPost {
+  if (row.data && typeof row.data === 'object' && row.data.id) {
+    return row.data as CommunityPost;
+  }
+  // Reconstruct from individual columns (posts created before this migration)
+  return {
+    id: String(row.id),
+    authorId: String(row.user_id ?? ''),
+    authorName: String(row.author_name ?? 'Unknown'),
+    authorInitials: String(row.author_initials ?? 'U'),
+    authorAvatarDataUrl: row.author_avatar ? String(row.author_avatar) : undefined,
+    kind: (row.kind as PostKind) ?? 'workout',
+    caption: String(row.caption ?? ''),
+    imageDataUrl: row.image_url ? String(row.image_url) : undefined,
+    visibility: (row.visibility as PostVisibility) ?? 'public',
+    level: (row.level as CommunityPost['level']) ?? 'Beginner',
+    goal: String(row.goal ?? 'General fitness'),
+    trainingStyle: String(row.training_style ?? 'Mixed training'),
+    identityBadge: String(row.identity_badge ?? 'Starting Strong'),
+    equippedBadgeIds: Array.isArray(row.equipped_badge_ids) ? row.equipped_badge_ids as string[] : [],
+    streak: Number(row.streak ?? 0),
+    hideCalories: Boolean(row.hide_calories ?? false),
+    hideBodyPhoto: Boolean(row.hide_body_photo ?? false),
+    durationMinutes: Number(row.duration_minutes ?? 30),
+    calories: Number(row.calories ?? 0),
+    prHighlight: String(row.pr_highlight ?? ''),
+    recipeTitle: row.recipe_title ? String(row.recipe_title) : undefined,
+    recipeIngredients: Array.isArray(row.recipe_ingredients) ? row.recipe_ingredients as string[] : undefined,
+    recipeSteps: Array.isArray(row.recipe_steps) ? row.recipe_steps as string[] : undefined,
+    recipeServings: row.recipe_servings != null ? Number(row.recipe_servings) : undefined,
+    recipePrepMinutes: row.recipe_prep_minutes != null ? Number(row.recipe_prep_minutes) : undefined,
+    reactions: (typeof row.reactions === 'object' && row.reactions)
+      ? row.reactions as Record<ReactionKey, number>
+      : { fire: 0, strong: 0, beast: 0, insane: 0, watching: 0 },
+    saves: Number(row.saves ?? 0),
+    tries: Number(row.tries ?? 0),
+    createdAt: row.created_at ? new Date(String(row.created_at)).getTime() : Date.now(),
+    updatedAt: row.updated_at ? new Date(String(row.updated_at)).getTime() : undefined,
+  };
+}
+
 class SupabaseCommunityService implements ICommunityService {
-  // Ensure supabase is non-null before calling this
   private get db() {
     if (!supabase) throw new Error('Supabase not configured');
     return supabase;
@@ -375,7 +428,7 @@ class SupabaseCommunityService implements ICommunityService {
     try {
       let query = this.db
         .from('community_posts')
-        .select('data, created_at')
+        .select('*')
         .eq('visibility', 'public')
         .order('created_at', { ascending: false })
         .limit(Math.min(limit, 100));
@@ -384,15 +437,12 @@ class SupabaseCommunityService implements ICommunityService {
         query = query.lt('created_at', new Date(cursor).toISOString());
       }
       if (filter !== 'all') {
-        // Filter via JSONB: data->>'kind' = filter
-        query = query.eq('data->>kind', filter);
+        query = query.eq('kind', filter);
       }
 
       const { data, error } = await query;
       if (error) return { ok: false, error: error.message };
-
-      const posts = (data ?? []).map((row) => row.data as CommunityPost);
-      return ok(posts);
+      return ok((data ?? []).map(rowToPost));
     } catch (e) {
       return { ok: false, error: String(e) };
     }
@@ -404,28 +454,57 @@ class SupabaseCommunityService implements ICommunityService {
       if (authError || !user) return { ok: false, error: 'Ikke innlogget' };
 
       const clean = sanitiseDraft(draft);
+      const now = Date.now();
       const post: CommunityPost = {
         ...clean,
-        // Always use the server-verified auth UID — never the client-supplied authorId
-        authorId: user.id,
-        id: createId('post'),
+        authorId: user.id,          // always server-verified UID
+        id: newUuid(),              // proper UUID for the UUID primary key
         reactions: { fire: 0, strong: 0, beast: 0, insane: 0, watching: 0 },
         saves: 0,
         tries: 0,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+        createdAt: now,
+        updatedAt: now,
         _v: 1,
       };
 
+      const nowIso = new Date(now).toISOString();
       const { error } = await this.db
         .from('community_posts')
         .insert({
           id: post.id,
           user_id: user.id,
           visibility: post.visibility ?? 'public',
+          // Individual columns (existing schema)
+          author_name: post.authorName,
+          author_initials: post.authorInitials,
+          author_avatar: post.authorAvatarDataUrl ?? null,
+          kind: post.kind,
+          caption: post.caption || null,
+          image_url: post.imageDataUrl ?? null,
+          duration_minutes: post.durationMinutes,
+          calories: post.calories,
+          pr_highlight: post.prHighlight || null,
+          streak: post.streak,
+          reactions: post.reactions,
+          saves: 0,
+          tries: 0,
+          recipe_title: post.recipeTitle ?? null,
+          recipe_ingredients: post.recipeIngredients ?? null,
+          recipe_steps: post.recipeSteps ?? null,
+          recipe_servings: post.recipeServings ?? null,
+          recipe_prep_minutes: post.recipePrepMinutes ?? null,
+          // Extended columns added by migration
+          level: post.level,
+          goal: post.goal,
+          training_style: post.trainingStyle,
+          identity_badge: post.identityBadge,
+          equipped_badge_ids: post.equippedBadgeIds,
+          hide_calories: post.hideCalories,
+          hide_body_photo: post.hideBodyPhoto,
+          // Full snapshot for fast reads
           data: post,
-          created_at: new Date(post.createdAt).toISOString(),
-          updated_at: new Date(post.updatedAt!).toISOString(),
+          created_at: nowIso,
+          updated_at: nowIso,
         });
 
       if (error) return { ok: false, error: error.message };
@@ -437,11 +516,7 @@ class SupabaseCommunityService implements ICommunityService {
 
   async deletePost(postId: string, _userId: string): Promise<ServiceResult<void>> {
     try {
-      // RLS ensures only the owner can delete
-      const { error } = await this.db
-        .from('community_posts')
-        .delete()
-        .eq('id', postId);
+      const { error } = await this.db.from('community_posts').delete().eq('id', postId);
       if (error) return { ok: false, error: error.message };
       return ok(undefined);
     } catch (e) {
@@ -487,7 +562,6 @@ class SupabaseCommunityService implements ICommunityService {
     try {
       const { data: { user } } = await this.db.auth.getUser();
       if (!user) return { ok: false, error: 'Ikke innlogget' };
-
       const { error } = await this.db
         .from('community_check_ins')
         .upsert({
@@ -496,7 +570,6 @@ class SupabaseCommunityService implements ICommunityService {
           types: checkIn.types,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'user_id,date_key' });
-
       if (error) return { ok: false, error: error.message };
       return ok(checkIn);
     } catch (e) {
@@ -513,7 +586,7 @@ class SupabaseCommunityService implements ICommunityService {
         .maybeSingle();
       if (error) return { ok: false, error: error.message };
       if (!data) return ok(null);
-      return ok({ userId, dateKey, types: data.types, updatedAt: Date.now() });
+      return ok({ userId, dateKey, types: data.types as CheckInType[], updatedAt: Date.now() });
     } catch (e) {
       return { ok: false, error: String(e) };
     }
@@ -523,22 +596,16 @@ class SupabaseCommunityService implements ICommunityService {
     try {
       const { data: { user } } = await this.db.auth.getUser();
       if (!user) return { ok: false, error: 'Ikke innlogget' };
-
       const { data: existing } = await this.db
         .from('community_joined_challenges')
         .select('challenge_id')
         .eq('challenge_id', challengeId)
         .maybeSingle();
-
       if (existing) {
-        await this.db
-          .from('community_joined_challenges')
-          .delete()
-          .eq('challenge_id', challengeId);
+        await this.db.from('community_joined_challenges').delete().eq('challenge_id', challengeId);
         return ok({ joined: false });
       }
-      await this.db
-        .from('community_joined_challenges')
+      await this.db.from('community_joined_challenges')
         .insert({ user_id: user.id, challenge_id: challengeId, joined_at: new Date().toISOString() });
       return ok({ joined: true });
     } catch (e) {
@@ -555,7 +622,7 @@ class SupabaseCommunityService implements ICommunityService {
       return ok((data ?? []).map((r) => ({
         userId: _userId,
         challengeId: r.challenge_id as ChallengeId,
-        joinedAt: new Date(r.joined_at).getTime(),
+        joinedAt: new Date(r.joined_at as string).getTime(),
       })));
     } catch (e) {
       return { ok: false, error: String(e) };
@@ -564,11 +631,9 @@ class SupabaseCommunityService implements ICommunityService {
 
   async fetchSavedPostIds(_userId: string): Promise<ServiceResult<string[]>> {
     try {
-      const { data, error } = await this.db
-        .from('community_saves')
-        .select('post_id');
+      const { data, error } = await this.db.from('community_saves').select('post_id');
       if (error) return { ok: false, error: error.message };
-      return ok((data ?? []).map((r) => r.post_id));
+      return ok((data ?? []).map((r) => String(r.post_id)));
     } catch (e) {
       return { ok: false, error: String(e) };
     }
@@ -576,11 +641,9 @@ class SupabaseCommunityService implements ICommunityService {
 
   async fetchTriedPostIds(_userId: string): Promise<ServiceResult<string[]>> {
     try {
-      const { data, error } = await this.db
-        .from('community_tries')
-        .select('post_id');
+      const { data, error } = await this.db.from('community_tries').select('post_id');
       if (error) return { ok: false, error: error.message };
-      return ok((data ?? []).map((r) => r.post_id));
+      return ok((data ?? []).map((r) => String(r.post_id)));
     } catch (e) {
       return { ok: false, error: String(e) };
     }
@@ -588,12 +651,15 @@ class SupabaseCommunityService implements ICommunityService {
 
   async fetchMyReactions(_userId: string): Promise<ServiceResult<Record<string, ReactionKey>>> {
     try {
+      // Existing table uses reaction_type column (not reaction)
       const { data, error } = await this.db
         .from('community_reactions')
-        .select('post_id, reaction');
+        .select('post_id, reaction_type');
       if (error) return { ok: false, error: error.message };
       const map: Record<string, ReactionKey> = {};
-      for (const r of data ?? []) map[r.post_id] = r.reaction as ReactionKey;
+      for (const r of data ?? []) {
+        if (r.reaction_type) map[String(r.post_id)] = r.reaction_type as ReactionKey;
+      }
       return ok(map);
     } catch (e) {
       return { ok: false, error: String(e) };
