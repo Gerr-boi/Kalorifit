@@ -519,7 +519,7 @@ class SupabaseCommunityService implements ICommunityService {
     }
   }
 
-  async toggleChallenge(userId: string, challengeId: ChallengeId): Promise<ServiceResult<{ joined: boolean }>> {
+  async toggleChallenge(_userId: string, challengeId: ChallengeId): Promise<ServiceResult<{ joined: boolean }>> {
     try {
       const { data: { user } } = await this.db.auth.getUser();
       if (!user) return { ok: false, error: 'Ikke innlogget' };

@@ -425,8 +425,10 @@ export default function CommunityScreen() {
 
   // Pull-to-refresh: attach touch listeners to the .main-content scroller
   useEffect(() => {
-    const scroller = document.querySelector('.main-content');
-    if (!scroller) return;
+    const found = document.querySelector('.main-content');
+    if (!found) return;
+    // Cast once to HTMLElement so scrollTop is available inside closures
+    const scroller = found as HTMLElement;
     pullScrollerRef.current = scroller;
 
     function onTouchStart(e: Event) {
