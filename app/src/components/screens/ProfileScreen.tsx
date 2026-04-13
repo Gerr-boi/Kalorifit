@@ -212,8 +212,8 @@ export default function ProfileScreen() {
     return 'Fedme';
   };
 
-  const latestMeasurement = profile.bmiHistory[0] ?? null;
-  const previousMeasurement = profile.bmiHistory[1] ?? null;
+  const latestMeasurement = profile.bmiHistory?.[0] ?? null;
+  const previousMeasurement = profile.bmiHistory?.[1] ?? null;
   const weightDeltaFromLast =
     latestMeasurement && previousMeasurement
       ? Number((latestMeasurement.weightKg - previousMeasurement.weightKg).toFixed(1))
@@ -468,7 +468,7 @@ export default function ProfileScreen() {
       ...prev,
       heightCm: entry.heightCm,
       weightKg: entry.weightKg,
-      bmiHistory: [entry, ...prev.bmiHistory].slice(0, 20),
+      bmiHistory: [entry, ...(prev.bmiHistory ?? [])].slice(0, 20),
     }));
 
     setShowBmi(false);
