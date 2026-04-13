@@ -6,4 +6,6 @@ pydantic-settings==2.10.1
 pytest==8.4.1
 httpx==0.28.1
 pytesseract==0.3.13
-paddleocr==2.8.1
+supabase>=2.0.0,<3.0.0
+# paddleocr is NOT installed in the production image (TEXT_PROVIDER=tesseract).
+# To use PaddleOCR locally: pip install paddleocr==2.8.1

@@ -1,3 +1,4 @@
+import hmac
 import logging
 import json
 import time
@@ -30,6 +31,7 @@ from src.schemas import (
     HealthResponse,
     LogScanResponse,
 )
+from src.supabase_logger import SupabaseScanLogger
 from src.utils.image_io import load_image_from_bytes
 from src.utils.model_fingerprint import sha256_file
 
@@ -132,23 +134,26 @@ def _prepare_ocr_regions(full_image, crop_image, packaging_type: str | None):
     return regions
 
 
-def _extract_structured_ocr_fields(ocr_rows: list[dict], text_detections: list[TextDetection]) -> dict[str, Any]:
-    tokens = [_clean_ocr_text(row.get('text', '')) for row in ocr_rows]
+def _extract_structured_ocr_fields(ocr_rows: list[dict], text_detections: list[TextDetection], raw_text_blob: str = '') -> dict[str, Any]:
+    tokens = [row.get('text', '') for row in ocr_rows]
     blob = ' '.join(token for token in tokens if token)
+    # Use raw (pre-normalisation) text for numeric patterns so that digit '0'
+    # is not corrupted by the 0→o OCR correction applied during deduplication.
+    numeric_blob = raw_text_blob.strip().lower() if raw_text_blob else blob
     brand = None
     product_name = None
     volume_ml = None
     abv = None
     kcal = None
 
-    volume_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(ml|l)\b', blob)
+    volume_match = re.search(r'(\d+(?:[.,]\d+)?)\s*(ml|l)\b', numeric_blob)
     if volume_match:
         numeric = float(volume_match.group(1).replace(',', '.'))
         volume_ml = int(round(numeric * 1000)) if volume_match.group(2) == 'l' else int(round(numeric))
-    abv_match = re.search(r'(\d+(?:[.,]\d+)?)\s*%', blob)
+    abv_match = re.search(r'(\d+(?:[.,]\d+)?)\s*%', numeric_blob)
     if abv_match:
         abv = float(abv_match.group(1).replace(',', '.'))
-    kcal_match = re.search(r'(\d{1,4})\s*kcal\b', blob)
+    kcal_match = re.search(r'(\d{1,4})\s*kcal\b', numeric_blob)
     if kcal_match:
         kcal = int(kcal_match.group(1))
 
@@ -244,6 +249,11 @@ def initialize_app_state() -> None:
     app.state.dish_classifier_status = dish_classifier.status()
     app.state.model_loaded = True
     app.state.dataset_logger = DatasetLogger(settings.dataset_dir)
+    app.state.supabase_logger = SupabaseScanLogger(settings.supabase_url, settings.supabase_service_key)
+    if app.state.supabase_logger.available:
+        logger.info('Supabase scan logging enabled')
+    else:
+        logger.info('Supabase scan logging disabled (SUPABASE_URL / SUPABASE_SERVICE_KEY not set)')
     model_loaded_at = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     model_weights_path = getattr(detector, 'weights_path', None)
     model_weights_sha256 = sha256_file(model_weights_path)
@@ -283,6 +293,29 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title='Food Detection Bot', version=settings.version, lifespan=lifespan)
+
+# ── API key middleware ────────────────────────────────────────────────────────
+# Set BOT_API_KEY in env to require authentication on all non-health endpoints.
+# Uses hmac.compare_digest to prevent timing-based key enumeration.
+_OPEN_PATHS = {'/health', '/docs', '/openapi.json', '/redoc'}
+
+
+@app.middleware('http')
+async def require_api_key(request: Request, call_next):
+    if not settings.api_key or request.url.path in _OPEN_PATHS:
+        return await call_next(request)
+    provided = request.headers.get('x-api-key', '')
+    if not provided or not hmac.compare_digest(
+        provided.encode(), settings.api_key.encode()
+    ):
+        return JSONResponse(
+            status_code=401,
+            content={'error': 'UNAUTHORIZED', 'message': 'Invalid or missing x-api-key header.'},
+        )
+    return await call_next(request)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _parse_label_set(raw: str | None) -> set[str]:
@@ -382,6 +415,7 @@ async def detect(
     package_crop_bytes = _to_jpeg_bytes(crop_image) if crop_image else None
 
     text_detections = []
+    raw_text_blob = ''
     text_status = getattr(app.state, 'text_provider_status', {'available': False, 'message': 'uninitialized'})
     dish_classifier = app.state.dish_classifier
     dish_classifier_status = getattr(app.state, 'dish_classifier_status', {'available': False, 'message': 'uninitialized'})
@@ -390,15 +424,21 @@ async def detect(
     if settings.text_detection_enabled and packaging_type in OCR_HIGH_VALUE_PACKAGING:
         text_provider = app.state.text_provider
         ocr_strategy = 'targeted_packaging'
+        raw_region_detections: list[TextDetection] = []
         for region_name, region_image in _prepare_ocr_regions(img, crop_image, packaging_type):
             ocr_regions_used.append(region_name)
-            text_detections.extend(text_provider.detect_text(region_image))
+            region_detections = text_provider.detect_text(region_image)
+            raw_region_detections.extend(region_detections)
+            text_detections.extend(region_detections)
+        raw_text_blob = ' '.join(t.text for t in raw_region_detections if t.text)
         text_detections = _merge_text_detections(text_detections)
     elif settings.text_detection_enabled and packaging_type is None and crop_image is not None:
         text_provider = app.state.text_provider
         ocr_strategy = 'fallback_crop_only'
         ocr_regions_used.append('crop_full')
-        text_detections = _merge_text_detections(text_provider.detect_text(ocr_source))
+        raw_detections = text_provider.detect_text(ocr_source)
+        raw_text_blob = ' '.join(t.text for t in raw_detections if t.text)
+        text_detections = _merge_text_detections(raw_detections)
     elif settings.text_detection_enabled:
         ocr_strategy = 'skipped_low_value_packaging'
 
@@ -412,7 +452,7 @@ async def detect(
         if t.text and t.confidence >= settings.text_conf_threshold
     ]
     ocr_tokens = [_clean_ocr_text(row['text']) for row in ocr_rows if _clean_ocr_text(row['text'])]
-    structured_fields = _extract_structured_ocr_fields(ocr_rows, text_detections)
+    structured_fields = _extract_structured_ocr_fields(ocr_rows, text_detections, raw_text_blob=raw_text_blob)
     visual_hints = [d.label for d in filtered_detections]
     visual_scores = _label_hint_scores(filtered_detections)
     strongest_detection = max(filtered_detections, key=lambda d: d.confidence).label if filtered_detections else None
@@ -509,6 +549,8 @@ async def detect(
                 latency_ms=result.latency_ms,
             )
             scan_log_id = str(log_record.get('scan_log_id'))
+            supabase_logger: SupabaseScanLogger = app.state.supabase_logger
+            supabase_logger.insert_scan(log_record)
         except Exception:
             logger.exception('Failed to persist scan dataset row request_id=%s', request_id)
 
@@ -692,6 +734,8 @@ async def log_scan(
         model=model,
         latency_ms=latency_ms,
     )
+    supabase_logger: SupabaseScanLogger = app.state.supabase_logger
+    supabase_logger.insert_scan(record)
     return LogScanResponse(
         ok=True,
         scan_log_id=record['scan_log_id'],
@@ -703,6 +747,9 @@ async def log_scan(
 @app.post('/feedback', response_model=FeedbackResponse)
 async def feedback(payload: FeedbackRequest):
     dataset_logger: DatasetLogger = app.state.dataset_logger
+    supabase_logger: SupabaseScanLogger = app.state.supabase_logger
+    updated_at = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
     try:
         updated = dataset_logger.update_feedback(
             scan_log_id=payload.scan_log_id,
@@ -715,11 +762,37 @@ async def feedback(payload: FeedbackRequest):
             feedback_context=payload.feedback_context,
         )
     except FileNotFoundError as exc:
+        # The on-disk record is gone (container restart / ephemeral filesystem).
+        # If Supabase is configured the scan row still exists there — save the
+        # feedback directly so it is never silently dropped.
+        if supabase_logger.available:
+            fallback: dict = {
+                'user_confirmed': payload.user_confirmed,
+                'user_corrected_to': payload.user_corrected_to,
+                'not_food': payload.not_food,
+                'bad_photo': payload.bad_photo,
+                'feedback_notes': payload.feedback_notes,
+                'updated_at': updated_at,
+                'training_priority': None,
+                'failure_tags': [],
+            }
+            supabase_logger.update_feedback(payload.scan_log_id, fallback)
+            logger.warning(
+                'feedback file missing, saved to Supabase only scan_log_id=%s',
+                payload.scan_log_id,
+            )
+            return FeedbackResponse(
+                ok=True,
+                scan_log_id=payload.scan_log_id,
+                updated_at=updated_at,
+            )
         raise BotError(
             status_code=404,
             code='SCAN_LOG_NOT_FOUND',
             message=f'No scan log found for id={exc.args[0]}',
         ) from exc
+
+    supabase_logger.update_feedback(payload.scan_log_id, updated)
 
     return FeedbackResponse(
         ok=True,

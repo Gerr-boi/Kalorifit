@@ -34,6 +34,7 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
     this.healthPath = opts.healthPath ?? process.env.FOOD_DETECTION_BOT_HEALTH_PATH ?? DEFAULT_HEALTH_PATH;
     this.feedbackPath = opts.feedbackPath ?? process.env.FOOD_DETECTION_BOT_FEEDBACK_PATH ?? DEFAULT_FEEDBACK_PATH;
     this.timeoutMs = Number(opts.timeoutMs ?? process.env.FOOD_DETECTION_BOT_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
+    this.apiKey = opts.apiKey ?? process.env.FOOD_DETECTION_BOT_API_KEY ?? '';
     this.modelId = 'food_detection_bot';
   }
 
@@ -45,8 +46,13 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
       healthPath: this.healthPath,
       feedbackPath: this.feedbackPath,
       timeoutMs: this.timeoutMs,
+      apiKey: this.apiKey,
       request,
     });
+  }
+
+  _authHeaders() {
+    return this.apiKey ? { 'x-api-key': this.apiKey } : {};
   }
 
   getRuntimeConfig(request = null) {
@@ -99,6 +105,7 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
             method: 'POST',
             body: form,
             headers: {
+              ...this._authHeaders(),
               ...(options.scanRequestId ? { 'X-Scan-Request-Id': options.scanRequestId } : {}),
             },
             signal: controller.signal,
@@ -164,6 +171,7 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
             method: 'POST',
             headers: {
               'content-type': 'application/json',
+              ...this._authHeaders(),
               ...(options.scanRequestId ? { 'X-Scan-Request-Id': options.scanRequestId } : {}),
             },
             body: JSON.stringify(payload ?? {}),
@@ -240,6 +248,7 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
             method: 'POST',
             body: form,
             headers: {
+              ...this._authHeaders(),
               ...(options.scanRequestId ? { 'X-Scan-Request-Id': options.scanRequestId } : {}),
             },
             signal: controller.signal,
@@ -308,6 +317,7 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
         attemptedUrls.push(url);
         try {
           const response = await fetch(url, {
+            headers: this._authHeaders(),
             signal: controller.signal,
           });
           if (!response.ok) {

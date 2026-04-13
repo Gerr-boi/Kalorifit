@@ -1,10 +1,13 @@
 import argparse
 import hashlib
 import json
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from PIL import Image
 from src.training.labels import normalize_training_label
@@ -224,12 +227,26 @@ def export_yolo_dataset(output_dir: Path, samples: list[ExportSample]) -> dict[s
             encoding='utf-8',
         )
 
+    train_count = sum(1 for sample in labeled_samples if sample.split == 'train')
+    val_count = sum(1 for sample in labeled_samples if sample.split == 'val')
+
+    if train_count == 0:
+        logger.warning('YOLO export: no training samples with bounding boxes — the exported dataset cannot be trained on.')
+    if val_count == 0:
+        logger.warning(
+            'YOLO export: val split is empty (%d labeled sample(s) total). '
+            'YOLO training will fail without a validation set. '
+            'Lower --val-ratio or collect more labeled data.',
+            len(labeled_samples),
+        )
+
     data_yaml = yolo_dir / 'data.yaml'
     names_block = '\n'.join(f'  {index}: "{name}"' for index, name in enumerate(class_names))
+    # Use '.' as the dataset root so data.yaml is portable across machines.
     data_yaml.write_text(
         '\n'.join(
             [
-                f'path: {yolo_dir.as_posix()}',
+                'path: .',
                 'train: images/train',
                 'val: images/val',
                 f'nc: {len(class_names)}',
@@ -246,8 +263,8 @@ def export_yolo_dataset(output_dir: Path, samples: list[ExportSample]) -> dict[s
         'export_dir': yolo_dir.as_posix(),
         'class_names': class_names,
         'images': len(labeled_samples),
-        'train_images': sum(1 for sample in labeled_samples if sample.split == 'train'),
-        'val_images': sum(1 for sample in labeled_samples if sample.split == 'val'),
+        'train_images': train_count,
+        'val_images': val_count,
     }
 
 

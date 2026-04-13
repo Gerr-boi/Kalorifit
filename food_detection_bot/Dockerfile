@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -36,4 +37,4 @@ ENV TEXT_PROVIDER=tesseract
 ENV ENABLE_SCAN_LOGGING=false
 ENV LOG_LEVEL=INFO
 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8001}

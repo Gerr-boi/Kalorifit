@@ -1,0 +1,34 @@
+# Training data and outputs — can be GBs, never needed inside the container
+dataset/
+training_exports/
+runs/
+
+# Local model training checkpoints (not the production yolo11n.pt)
+scripts/
+
+# Test suite
+tests/
+
+# Local dev logs
+*.log
+*.err.log
+*.out.log
+
+# Python artefacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local env / secrets
+.env
+.env.*
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

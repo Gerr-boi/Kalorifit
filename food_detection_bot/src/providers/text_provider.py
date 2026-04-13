@@ -1,5 +1,9 @@
+import logging
+
 from src.core.types import TextDetection
 from PIL import Image, ImageFilter, ImageOps
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_text(value: str) -> str:
@@ -93,7 +97,8 @@ class TesseractTextProvider(TextProvider):
                         config=config,
                         output_type=pytesseract.Output.DICT,
                     )
-                except Exception:
+                except Exception as exc:
+                    logger.warning('Tesseract variant failed config=%r error=%s', config, exc)
                     continue
 
                 n = len(data.get('text', []))
@@ -132,6 +137,7 @@ class PaddleTextProvider(TextProvider):
             self._engine = PaddleOCR(use_angle_cls=True, lang='en', show_log=False)
         except Exception as exc:
             self._message = f'paddleocr unavailable: {exc}'
+            logger.warning('PaddleOCR failed to initialise, will fall back to Tesseract: %s', exc)
 
     @property
     def model_id(self) -> str:
@@ -152,7 +158,8 @@ class PaddleTextProvider(TextProvider):
         for variant in _prepare_ocr_variants(image):
             try:
                 result = self._engine.ocr(np.array(variant), cls=True)
-            except Exception:
+            except Exception as exc:
+                logger.warning('PaddleOCR variant failed error=%s', exc)
                 continue
             if not result:
                 continue

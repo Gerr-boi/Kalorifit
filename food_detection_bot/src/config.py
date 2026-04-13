@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     port: int = 8001
     log_level: str = 'INFO'
     version: str = '1.0.0'
+    # Security — set BOT_API_KEY to a strong secret; leave empty to disable auth (dev only)
+    api_key: str = ''
+    # Supabase — leave empty to disable Supabase logging
+    supabase_url: str = ''
+    supabase_service_key: str = ''
 
 
 @lru_cache(maxsize=1)
