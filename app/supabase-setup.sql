@@ -20,19 +20,23 @@ CREATE TABLE IF NOT EXISTS user_kv_store (
 
 ALTER TABLE user_kv_store ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can read own kv data" ON user_kv_store;
 CREATE POLICY "Users can read own kv data"
   ON user_kv_store FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own kv data" ON user_kv_store;
 CREATE POLICY "Users can insert own kv data"
   ON user_kv_store FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own kv data" ON user_kv_store;
 CREATE POLICY "Users can update own kv data"
   ON user_kv_store FOR UPDATE
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can delete own kv data" ON user_kv_store;
 CREATE POLICY "Users can delete own kv data"
   ON user_kv_store FOR DELETE
   USING (auth.uid() = user_id);
@@ -170,49 +174,62 @@ ALTER TABLE user_challenges ENABLE ROW LEVEL SECURITY;
 ALTER TABLE foods ENABLE ROW LEVEL SECURITY;
 
 -- Profiles
+DROP POLICY IF EXISTS "Users own data" ON profiles;
 CREATE POLICY "Users own data" ON profiles
   FOR ALL USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 
 -- Daily logs
+DROP POLICY IF EXISTS "Users own daily_logs" ON daily_logs;
 CREATE POLICY "Users own daily_logs" ON daily_logs
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Check-ins
+DROP POLICY IF EXISTS "Users own check_ins" ON check_ins;
 CREATE POLICY "Users own check_ins" ON check_ins
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Challenges
+DROP POLICY IF EXISTS "Users own challenges" ON user_challenges;
 CREATE POLICY "Users own challenges" ON user_challenges
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Community posts (public read, own write)
+DROP POLICY IF EXISTS "Public can view posts" ON community_posts;
 CREATE POLICY "Public can view posts" ON community_posts
   FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Users create own posts" ON community_posts;
 CREATE POLICY "Users create own posts" ON community_posts
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users edit own posts" ON community_posts;
 CREATE POLICY "Users edit own posts" ON community_posts
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users delete own posts" ON community_posts;
 CREATE POLICY "Users delete own posts" ON community_posts
   FOR DELETE USING (auth.uid() = user_id);
 
 -- Reactions
+DROP POLICY IF EXISTS "Users own reactions" ON community_reactions;
 CREATE POLICY "Users own reactions" ON community_reactions
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Saves
+DROP POLICY IF EXISTS "Users own saves" ON community_saves;
 CREATE POLICY "Users own saves" ON community_saves
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Foods (public read for shared foods, own write for custom)
+DROP POLICY IF EXISTS "Public foods visible" ON foods;
 CREATE POLICY "Public foods visible" ON foods
   FOR SELECT USING (user_id IS NULL OR auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users create custom foods" ON foods;
 CREATE POLICY "Users create custom foods" ON foods
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users edit own foods" ON foods;
 CREATE POLICY "Users edit own foods" ON foods
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
