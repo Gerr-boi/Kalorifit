@@ -909,7 +909,8 @@ export default function CommunityScreen() {
           ?.scrollTo({ top: 0, behavior: 'smooth' });
       });
     } else {
-      showToast('Kunne ikke publisere innlegget', 'error');
+      console.error('[createPost] failed:', result.error);
+      showToast(`Kunne ikke publisere: ${result.error}`, 'error');
     }
   }
 
