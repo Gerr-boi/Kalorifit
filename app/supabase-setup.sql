@@ -241,7 +241,7 @@ DROP TRIGGER IF EXISTS update_profiles_updated_at ON profiles;
 DROP TRIGGER IF EXISTS update_daily_logs_updated_at ON daily_logs;
 DROP TRIGGER IF EXISTS update_posts_updated_at ON community_posts;
 DROP TRIGGER IF EXISTS update_foods_updated_at ON foods;
-DROP FUNCTION IF EXISTS update_updated_at_column();
+DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -261,7 +261,7 @@ CREATE TRIGGER update_foods_updated_at BEFORE UPDATE ON foods FOR EACH ROW EXECU
 -- =====================================================
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
+DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
@@ -337,9 +337,29 @@ ON CONFLICT DO NOTHING;
 -- DEL 7: REALTIME (live oppdateringer)
 -- =====================================================
 
-ALTER PUBLICATION supabase_realtime ADD TABLE daily_logs;
-ALTER PUBLICATION supabase_realtime ADD TABLE community_posts;
-ALTER PUBLICATION supabase_realtime ADD TABLE community_reactions;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'daily_logs'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE daily_logs;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'community_posts'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE community_posts;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'community_reactions'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE community_reactions;
+  END IF;
+END $$;
 
 -- =====================================================
 -- FERDIG! 🎉
