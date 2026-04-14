@@ -39,15 +39,18 @@ function translateAuthError(msg: string): string {
     return 'Feil e-post/brukernavn eller passord';
   if (m.includes('email not confirmed'))
     return '__EMAIL_NOT_CONFIRMED__'; // sentinel — AuthScreen shows resend button
-  if (m.includes('user not found') || m.includes('user already registered'))
+  if (m.includes('user already registered'))
     return 'Det finnes allerede en konto med denne e-postadressen';
+  if (m.includes('user not found'))
+    return 'Ingen konto med denne e-postadressen';
   if (m.includes('password should be at least'))
     return 'Passordet er for kort';
-  if (m.includes('rate limit') || m.includes('too many requests') || m.includes('email rate limit'))
-    return 'For mange forsøk — prøv igjen om litt';
-  if (m.includes('network') || m.includes('fetch'))
+  if (m.includes('rate limit') || m.includes('too many request') || m.includes('email rate limit') || m.includes('over_email_send_rate_limit'))
+    return '__RATE_LIMITED__'; // sentinel — AuthScreen shows friendly wait message
+  if (m.includes('network') || m.includes('failed to fetch'))
     return 'Nettverksfeil — sjekk internettilkoblingen din';
   if (!msg) return 'Noe gikk galt — prøv igjen';
+  // Fall through with original message so we can see unexpected errors
   return msg;
 }
 

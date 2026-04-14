@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Flame,
-  UserPlus, LogIn, User, CheckCircle2, XCircle, ShieldAlert, KeyRound,
+  UserPlus, LogIn, User, CheckCircle2, XCircle, ShieldAlert, KeyRound, Clock,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import PrivacyPolicyModal from '../legal/PrivacyPolicyModal';
@@ -96,6 +96,9 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
 
+  // Server-side rate limit state
+  const [serverRateLimited, setServerRateLimited] = useState(false);
+
   // Email-not-confirmed state
   const [emailUnconfirmed, setEmailUnconfirmed] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
@@ -163,6 +166,7 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
     setError('');
     setEmailUnconfirmed(false);
     setResendSent(false);
+    setServerRateLimited(false);
 
     const locked = mode === 'login' ? getLockedUntil(identifier) : 0;
     if (locked > Date.now()) { startCountdown(locked); return; }
@@ -188,6 +192,9 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
       if (result.error === '__EMAIL_NOT_CONFIRMED__') {
         setEmailUnconfirmed(true);
         setError('');
+      } else if (result.error === '__RATE_LIMITED__') {
+        setServerRateLimited(true);
+        setError('');
       } else {
         setError(result.error);
         if (mode === 'login') {
@@ -204,7 +211,7 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
 
   const switchMode = (next: AuthMode) => {
     setMode(next); setError(''); setPassword(''); setConfirmPassword('');
-    setEmailUnconfirmed(false); setResendSent(false);
+    setEmailUnconfirmed(false); setResendSent(false); setServerRateLimited(false);
   };
 
   const formatCountdown = (s: number) =>
@@ -351,6 +358,20 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
             <div>
               <p className="text-red-400 text-sm font-medium">For mange forsøk</p>
               <p className="text-red-400/80 text-xs mt-0.5">Prøv igjen om {formatCountdown(countdown)}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Server rate-limit banner */}
+        {serverRateLimited && (
+          <div className="flex items-start gap-3 bg-zinc-800/80 border border-zinc-700 rounded-xl px-4 py-4">
+            <Clock className="w-5 h-5 text-zinc-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-zinc-200 text-sm font-medium">Tjenesten er midlertidig begrenset</p>
+              <p className="text-zinc-400 text-xs mt-0.5 leading-relaxed">
+                Dette skyldes ikke noe du har gjort. Vent 5 minutter og prøv igjen.
+                Alternativt kan du bruke <button type="button" onClick={() => { setForgotMode(true); setServerRateLimited(false); setError(''); }} className="underline underline-offset-2 hover:text-zinc-300 transition-colors">Glemt passord?</button> for å få tilgang.
+              </p>
             </div>
           </div>
         )}
