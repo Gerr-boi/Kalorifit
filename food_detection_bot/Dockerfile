@@ -24,10 +24,6 @@ RUN pip install --no-cache-dir ultralytics
 
 COPY . .
 
-# Warm-up: download YOLO model weights at build time so first request isn't slow.
-# Falls back gracefully if network is unavailable during build.
-RUN python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')" || true
-
 EXPOSE 8001
 
 ENV HOST=0.0.0.0
