@@ -38,18 +38,59 @@ export function useSupabaseAuth() {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string) => {
+  const signUp = useCallback(async (email: string, password: string, username?: string) => {
     if (!supabase) return { error: { message: 'Supabase ikke konfigurert' } };
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username: (username ?? email.split('@')[0]).toLowerCase(),
+          display_name: username ?? email.split('@')[0],
+        },
+      },
+    });
     return { data, error };
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string) => {
+  /**
+   * Sign in with email OR username.
+   * If `identifier` does not contain '@' it is treated as a username and
+   * looked up via the `get_email_by_username` RPC before signing in.
+   */
+  const signIn = useCallback(async (identifier: string, password: string) => {
     if (!supabase) return { error: { message: 'Supabase ikke konfigurert' } };
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+
+    let email = identifier.trim();
+
+    // Username login: look up the email from the profiles table
+    if (!email.includes('@')) {
+      const { data: lookedUp, error: lookupErr } = await supabase.rpc(
+        'get_email_by_username',
+        { p_username: email },
+      );
+      if (lookupErr || !lookedUp) {
+        return { error: { message: 'Brukernavnet finnes ikke' } };
+      }
+      email = lookedUp as string;
+    }
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    // Fire-and-forget login notification (requires login-notify Edge Function + RESEND_API_KEY)
+    if (!error && data.session) {
+      fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/login-notify`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${data.session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      ).catch(() => { /* ignore — notification is best-effort */ });
+    }
+
     return { data, error };
   }, []);
 
@@ -66,13 +107,9 @@ export function useSupabaseAuth() {
 
   const deleteAccount = useCallback(async () => {
     if (!supabase) {
-      // Local-only mode: just clear all localStorage data
       try { window.localStorage.clear(); } catch {}
       return { error: null };
     }
-    // Call a Supabase Edge Function or admin endpoint to delete the user.
-    // Supabase does not expose user self-deletion from the client SDK by default;
-    // this calls the /functions/v1/delete-account edge function if available.
     const { data: { session: s } } = await supabase.auth.getSession();
     if (!s) return { error: { message: 'Ikke innlogget' } };
 
@@ -85,13 +122,12 @@ export function useSupabaseAuth() {
         },
       });
       if (!res.ok) {
-        // If edge function not deployed, still sign out and clear local data
         await supabase.auth.signOut();
         try { window.localStorage.clear(); } catch {}
         return { error: null };
       }
     } catch {
-      // Best-effort: sign out and clear local data
+      // Best-effort
     }
 
     await supabase.auth.signOut();

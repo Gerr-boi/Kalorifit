@@ -257,6 +257,37 @@ CREATE TRIGGER update_posts_updated_at BEFORE UPDATE ON community_posts FOR EACH
 CREATE TRIGGER update_foods_updated_at BEFORE UPDATE ON foods FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
+-- DEL 4B: BRUKERNAVN (for innlogging med brukernavn)
+-- =====================================================
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS username TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_username_lower
+  ON profiles(lower(username))
+  WHERE username IS NOT NULL;
+
+-- Slå opp e-post fra brukernavn (brukes til innlogging)
+-- SECURITY DEFINER slik at ikke-innloggede brukere kan kalle den
+CREATE OR REPLACE FUNCTION public.get_email_by_username(p_username TEXT)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_email TEXT;
+BEGIN
+  SELECT email INTO v_email
+  FROM public.profiles
+  WHERE lower(username) = lower(trim(p_username))
+  LIMIT 1;
+  RETURN v_email;
+END;
+$$;
+
+-- Gi alle (inkl. anonyme) tilgang til å kalle funksjonen
+GRANT EXECUTE ON FUNCTION public.get_email_by_username(TEXT) TO anon, authenticated;
+
+-- =====================================================
 -- DEL 5: AUTO-OPPDATER PROFIL VED REGISTRERING
 -- =====================================================
 
@@ -266,8 +297,16 @@ DROP FUNCTION IF EXISTS public.handle_new_user() CASCADE;
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, display_name)
-  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'display_name', NEW.email));
+  INSERT INTO public.profiles (id, email, display_name, username)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
+    lower(COALESCE(NEW.raw_user_meta_data->>'username', split_part(NEW.email, '@', 1)))
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    username = EXCLUDED.username,
+    display_name = EXCLUDED.display_name;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

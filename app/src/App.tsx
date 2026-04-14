@@ -32,6 +32,25 @@ const EMPTY_WEEKLY_REPORTS: Record<string, WeeklyPerformanceReport> = {};
 const EMPTY_IDENTITY_REPORTS: IdentityReportsByMonth = {};
 const EMPTY_PROFILE: Record<string, unknown> = {};
 
+/** Translate Supabase's English auth errors into Norwegian. */
+function translateAuthError(msg: string): string {
+  const m = msg.toLowerCase();
+  if (m.includes('invalid login credentials') || m.includes('invalid credentials'))
+    return 'Feil e-post/brukernavn eller passord';
+  if (m.includes('email not confirmed'))
+    return '__EMAIL_NOT_CONFIRMED__'; // sentinel — AuthScreen shows resend button
+  if (m.includes('user not found') || m.includes('user already registered'))
+    return 'Det finnes allerede en konto med denne e-postadressen';
+  if (m.includes('password should be at least'))
+    return 'Passordet er for kort';
+  if (m.includes('rate limit') || m.includes('too many requests') || m.includes('email rate limit'))
+    return 'For mange forsøk — prøv igjen om litt';
+  if (m.includes('network') || m.includes('fetch'))
+    return 'Nettverksfeil — sjekk internettilkoblingen din';
+  if (!msg) return 'Noe gikk galt — prøv igjen';
+  return msg;
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>('home');
   const [transitioning, setTransitioning] = useState(false);
@@ -46,19 +65,19 @@ function App() {
   const { user, loading: authLoading, isAuthenticated, signUp, signIn } = useSupabaseAuth();
   useSupabaseSync(user);
 
-  const handleAuth = useCallback(async (email: string, password: string, mode: 'login' | 'signup') => {
+  const handleAuth = useCallback(async (identifier: string, password: string, mode: 'login' | 'signup', username?: string) => {
     if (mode === 'signup') {
-      const result = await signUp(email, password);
+      const result = await signUp(identifier, password, username);
       if (result.error) {
-        const msg = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || 'Noe gikk galt';
-        return { error: msg };
+        const raw = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || '';
+        return { error: translateAuthError(raw) };
       }
       return {};
     } else {
-      const result = await signIn(email, password);
+      const result = await signIn(identifier, password);
       if (result.error) {
-        const msg = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || 'Feil e-post eller passord';
-        return { error: msg };
+        const raw = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message || '';
+        return { error: translateAuthError(raw) };
       }
       return {};
     }

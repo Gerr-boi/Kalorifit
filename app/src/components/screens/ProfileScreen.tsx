@@ -148,9 +148,34 @@ const DIET_EXPLORER_OPTIONS: Array<{
 
 export default function ProfileScreen() {
   const { currentUser, updateUserName } = useCurrentUser();
-  const { signOut, deleteAccount } = useSupabaseAuth();
+  const { user, signOut, deleteAccount } = useSupabaseAuth();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  const handleSignOut = async () => {
+    try { window.localStorage.removeItem('kalorifit:skippedAuth'); } catch {}
+    await signOut();
+    window.location.reload();
+  };
+
+  const exportData = () => {
+    const data: Record<string, unknown> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) {
+        try { data[key] = JSON.parse(localStorage.getItem(key) ?? ''); } catch { data[key] = localStorage.getItem(key); }
+      }
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'kalorifit-data.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [profile, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
@@ -483,7 +508,7 @@ export default function ProfileScreen() {
     { id: 'help', icon: HelpCircle, label: 'Hjelp og støtte', value: '' },
   ];
 
-  const initials = profile.name
+  const initials = (profile.name ?? '')
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
@@ -1144,17 +1169,49 @@ export default function ProfileScreen() {
         ))}
       </div>
 
+      {/* Account status banner */}
+      {user?.email ? (
+        <div className="mx-0 mt-4 rounded-2xl bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800/30 px-4 py-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">Innlogget konto</p>
+            <p className="text-sm text-gray-700 dark:text-zinc-300 truncate">{user.email}</p>
+          </div>
+          <button
+            onClick={exportData}
+            className="shrink-0 text-xs font-medium text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 rounded-lg px-3 py-1.5 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
+          >
+            Eksporter data
+          </button>
+        </div>
+      ) : (
+        <div className="mx-0 mt-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 px-4 py-3">
+          <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 mb-0.5">Ingen konto tilknyttet</p>
+          <p className="text-sm text-gray-600 dark:text-zinc-300 leading-snug">
+            Registrer deg med e-post for å sikkerhetskopiere og eksportere dataene dine.
+          </p>
+        </div>
+      )}
+
       {/* Logout */}
       <button
-        onClick={() => signOut()}
-        className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium"
+        onClick={handleSignOut}
+        className="w-full flex items-center justify-center gap-2 p-4 mt-3 text-red-500 font-medium"
       >
         <LogOut className="w-5 h-5" />
         Logg ut
       </button>
 
+      {/* Delete account */}
+      <button
+        onClick={() => { setDeleteStep(1); setDeleteConfirmText(''); setShowDeleteConfirm(true); }}
+        className="w-full flex items-center justify-center gap-2 p-3 mt-1 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
+      >
+        <Trash2 className="w-4 h-4" />
+        Slett konto og data
+      </button>
+
       {/* Legal links */}
-      <div className="flex justify-center gap-4 mt-2 pb-1">
+      <div className="flex justify-center gap-4 mt-2 mb-8 pb-2">
         <button
           onClick={() => setShowPrivacy(true)}
           className="text-xs text-gray-400 dark:text-zinc-500 underline underline-offset-2 hover:text-gray-600 dark:hover:text-zinc-300 transition-colors"
@@ -1169,53 +1226,84 @@ export default function ProfileScreen() {
         </button>
       </div>
 
-      {/* Delete account */}
-      <button
-        onClick={() => setShowDeleteConfirm(true)}
-        className="w-full flex items-center justify-center gap-2 p-3 mt-1 mb-6 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
-      >
-        <Trash2 className="w-4 h-4" />
-        Slett konto og data
-      </button>
-
-      {/* Delete account confirmation dialog */}
+      {/* Delete account confirmation dialog — two steps */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
           <div className="w-full sm:max-w-sm bg-white dark:bg-zinc-900 rounded-t-2xl sm:rounded-2xl shadow-2xl p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-base">Slett konto og data</h3>
-                <p className="text-xs text-gray-500 dark:text-zinc-400">Dette kan ikke angres</p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-600 dark:text-zinc-300 mb-6 leading-relaxed">
-              All data slettes permanent: kostholdslogger, progresjon, merker og kontoopplysninger.
-              I henhold til GDPR fjernes alle personopplysninger innen 30 dager.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
-              >
-                Avbryt
-              </button>
-              <button
-                disabled={deleteLoading}
-                onClick={async () => {
-                  setDeleteLoading(true);
-                  await deleteAccount();
-                  setDeleteLoading(false);
-                  setShowDeleteConfirm(false);
-                  window.location.reload();
-                }}
-                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm disabled:opacity-50 transition-colors"
-              >
-                {deleteLoading ? 'Sletter...' : 'Slett alt'}
-              </button>
-            </div>
+            {deleteStep === 1 ? (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 dark:text-white text-base">Slett konto og data</h3>
+                    <p className="text-xs text-gray-500 dark:text-zinc-400">Dette kan ikke angres</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-zinc-300 mb-6 leading-relaxed">
+                  All data slettes permanent: kostholdslogger, progresjon, merker og kontoopplysninger.
+                  I henhold til GDPR fjernes alle personopplysninger innen 30 dager.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
+                  >
+                    Nei, avbryt
+                  </button>
+                  <button
+                    onClick={() => setDeleteStep(2)}
+                    className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors"
+                  >
+                    Fortsett →
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-gray-900 dark:text-white text-base">Bekreft sletting</h3>
+                    <p className="text-xs text-gray-500 dark:text-zinc-400">Skriv for å bekrefte</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-zinc-300 mb-3 leading-relaxed">
+                  Skriv <span className="font-bold text-gray-900 dark:text-white">Kalorifit</span> i feltet nedenfor for å bekrefte at du vil slette alt permanent.
+                </p>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder="Kalorifit"
+                  className="w-full border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 outline-none focus:border-red-400 dark:focus:border-red-500 mb-5"
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeleteStep(1)}
+                    className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
+                  >
+                    ← Tilbake
+                  </button>
+                  <button
+                    disabled={deleteLoading || deleteConfirmText !== 'Kalorifit'}
+                    onClick={async () => {
+                      setDeleteLoading(true);
+                      await deleteAccount();
+                      setDeleteLoading(false);
+                      setShowDeleteConfirm(false);
+                      window.location.reload();
+                    }}
+                    className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm disabled:opacity-40 transition-colors"
+                  >
+                    {deleteLoading ? 'Sletter...' : 'Slett alt'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
