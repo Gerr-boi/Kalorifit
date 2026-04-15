@@ -28,6 +28,7 @@ import {
   Scale,
   TrendingUp,
   Microscope,
+  Minus,
 } from 'lucide-react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
@@ -160,6 +161,7 @@ type DayMicroLog = {
   vitDUg?: number;
   magMg?: number;
   zincMg?: number;
+  kreatinG?: number;
 };
 
 const ALLERGY_KEYWORDS: Record<string, string[]> = {
@@ -435,8 +437,8 @@ export default function HomeScreen() {
   const [workoutType, setWorkoutType] = useState<WorkoutSession['workoutType']>('Run');
   const [workoutExerciseName, setWorkoutExerciseName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
-  const [_isTrainingFlexing, setIsTrainingFlexing] = useState(false);
-  const [_animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
+  const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
+  const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [weightInput, setWeightInput] = useState('');
   const [showCustomWater, setShowCustomWater] = useState(false);
@@ -2864,43 +2866,85 @@ export default function HomeScreen() {
       </div>
 
       <div id="water-section" className="card">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
-              <Droplets className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+            <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
+              <Droplets className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
             </div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white/90">Vann</h3>
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Vann</h3>
           </div>
           <div className="text-right">
-            <p className="text-2xl font-bold leading-none text-gray-900 dark:text-white/90">{hydrationMl}</p>
-            <p className="text-xs text-gray-400 mt-0.5">/ {WATER_GOAL_ML} ml</p>
+            <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{hydrationMl} / {WATER_GOAL_ML} ml</p>
+            <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
           </div>
         </div>
 
-        <div className="h-2 rounded-full bg-gray-100 dark:bg-white/[0.08] overflow-hidden mb-4">
-          <div
-            className="h-full rounded-full bg-orange-500 transition-all duration-700"
-            style={{ width: `${Math.min(waterProgress * 100, 100)}%` }}
-          />
-        </div>
+        <div className="mt-4">
+          {/* 8 Water Bottle Icons */}
+          <div className="flex justify-center items-center gap-2 mb-4">
+            {Array.from({ length: MAX_WATER_CUPS }, (_, index) => {
+              const cupIndex = index + 1;
+              const cupsNeeded = Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
+              const isFilled = cupIndex <= cupsNeeded;
+              const isFirstUnfilled = cupIndex === cupsNeeded + 1;
+              const isAnimating = animatingWaterCups.includes(cupIndex);
+              const isLastFilled = isFilled && cupIndex === Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
+              return (
+                <button
+                  key={cupIndex}
+                  type="button"
+                  onClick={() => {
+                    if (isPastSelectedDay) return;
+                    if (isFilled) {
+                      removeWater(WATER_CUP_SIZE_ML);
+                    } else {
+                      addWater(WATER_CUP_SIZE_ML, 'water:cup:tap');
+                    }
+                  }}
+                  title={isFilled ? 'Klikk for å fjerne 250 ml' : 'Klikk for å legge til 250 ml'}
+                  className={`relative h-14 w-9 transition-all duration-200 ${
+                    !isPastSelectedDay ? 'cursor-pointer active:scale-95' : 'cursor-default'
+                  }`}
+                  disabled={isPastSelectedDay}
+                >
+                  <div className={`water-bottle-shell ${isAnimating ? 'water-cup-shell-fill' : ''} ${isFilled ? 'water-bottle-shell-filled' : 'water-bottle-shell-empty'}`}>
+                    <div className="water-bottle-cap" />
+                    <div className="water-bottle-body">
+                      <div className={`water-bottle-liquid-layer ${isFilled ? 'water-bottle-liquid-filled' : ''} ${isAnimating ? 'water-cup-liquid-fill' : ''}`} />
+                      <div className="water-bottle-shine" />
+                    </div>
+                  </div>
+                  {/* Minus overlay for last filled cup */}
+                  {isLastFilled && !isPastSelectedDay && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
+                      <Minus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
+                    </div>
+                  )}
+                  {/* Plus overlay for first unfilled cup */}
+                  {isFirstUnfilled && !isPastSelectedDay && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
+                      <Plus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
-        {!isPastSelectedDay && (
-          <>
-            <button
-              type="button"
-              onClick={() => addWater(WATER_CUP_SIZE_ML, 'water:cup:tap')}
-              className="w-full rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm py-3 px-4 transition-colors duration-200 flex items-center justify-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Legg til vann (+{WATER_CUP_SIZE_ML} ml)
-            </button>
-            <div className="flex gap-2 mt-2 justify-center">
-              {[500, 750].map((ml) => (
+          {/* Water progress text */}
+          <div className="text-center mb-3">
+            <p className="text-sm text-cyan-700 dark:text-cyan-300 font-medium">{hydrationMl} / {WATER_GOAL_ML} ml</p>
+          </div>
+
+          {/* Quick-add water buttons */}
+          {!isPastSelectedDay && (
+            <div className="flex gap-2 justify-center flex-wrap">
+              {[250, 500, 750].map((ml) => (
                 <button
                   key={ml}
                   type="button"
                   onClick={() => addWater(ml, `water:quick:${ml}`)}
-                  className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-white/[0.06] text-gray-600 dark:text-white/60 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-white/[0.1] transition-colors"
+                  className="px-3 py-1.5 rounded-lg bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-semibold hover:bg-cyan-200 dark:hover:bg-cyan-800/40 transition-colors"
                 >
                   +{ml} ml
                 </button>
@@ -2908,48 +2952,41 @@ export default function HomeScreen() {
               <button
                 type="button"
                 onClick={() => setShowCustomWater((v) => !v)}
-                className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-white/[0.06] text-gray-600 dark:text-white/60 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-white/[0.1] transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-white/[0.1] transition-colors"
               >
                 Egendefinert
               </button>
             </div>
-            {showCustomWater && (
-              <div className="flex gap-2 mt-2">
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  placeholder="ml"
-                  value={customWaterInput}
-                  onChange={(e) => setCustomWaterInput(e.target.value)}
-                  className="flex-1 rounded-lg border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-white/[0.04] px-3 py-2 text-sm text-gray-900 dark:text-white/90"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const ml = Number(customWaterInput);
-                    if (ml > 0) {
-                      addWater(ml, 'water:custom');
-                      setCustomWaterInput('');
-                      setShowCustomWater(false);
-                    }
-                  }}
-                  className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition-colors"
-                >
-                  Legg til
-                </button>
-              </div>
-            )}
-            {hydrationMl > 0 && (
+          )}
+
+          {/* Custom water amount input */}
+          {showCustomWater && !isPastSelectedDay && (
+            <div className="flex gap-2 mt-2">
+              <input
+                type="number"
+                inputMode="numeric"
+                placeholder="ml"
+                value={customWaterInput}
+                onChange={(e) => setCustomWaterInput(e.target.value)}
+                className="flex-1 rounded-lg border border-cyan-200 dark:border-cyan-800/40 bg-white dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+              />
               <button
                 type="button"
-                onClick={() => removeWater(WATER_CUP_SIZE_ML)}
-                className="mt-2 w-full text-xs text-gray-400 py-1"
+                onClick={() => {
+                  const ml = Number(customWaterInput);
+                  if (ml > 0) {
+                    addWater(ml, 'water:custom');
+                    setCustomWaterInput('');
+                    setShowCustomWater(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-600 transition-colors"
               >
-                Fjern {WATER_CUP_SIZE_ML} ml
+                Legg til
               </button>
-            )}
-          </>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Weight Graph Section */}
@@ -3708,6 +3745,7 @@ export default function HomeScreen() {
           { label: 'Vitamin D', key: 'vitDUg', est: Math.round((consumed / 2000) * vitDTarget), target: vitDTarget, unit: 'µg', step: 1 },
           { label: 'Magnesium', key: 'magMg', est: Math.round((consumed / 2000) * magTarget), target: magTarget, unit: 'mg', step: 25 },
           { label: 'Sink', key: 'zincMg', est: Math.round((consumed / 2000) * zincTarget), target: zincTarget, unit: 'mg', step: 1 },
+          { label: 'Kreatin', key: 'kreatinG', est: 0, target: 5, unit: 'g', step: 1 },
         ];
 
         return (
