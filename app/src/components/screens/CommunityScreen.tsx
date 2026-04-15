@@ -909,8 +909,7 @@ export default function CommunityScreen() {
           ?.scrollTo({ top: 0, behavior: 'smooth' });
       });
     } else {
-      console.error('[createPost] failed:', result.error);
-      showToast(`Kunne ikke publisere: ${result.error}`, 'error');
+      showToast('Kunne ikke publisere innlegget', 'error');
     }
   }
 
@@ -1128,7 +1127,7 @@ export default function CommunityScreen() {
               {leaderboard.map((entry, i) => (
                 <div key={entry.id} className="flex items-center gap-3">
                   <p className="w-5 text-xs font-bold text-orange-600">#{i + 1}</p>
-                  <div className="w-9 h-9 bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-950/40 dark:to-orange-900/40 rounded-full flex items-center justify-center text-[10px] font-bold text-orange-700 dark:text-orange-300">
+                  <div className="w-9 h-9 bg-gray-100 dark:bg-white/[0.08] rounded-full flex items-center justify-center text-[10px] font-bold text-gray-600 dark:text-white/60">
                     {entry.initials}
                   </div>
                   <div className="flex-1 min-w-0">

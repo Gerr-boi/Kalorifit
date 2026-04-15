@@ -11,7 +11,6 @@ import {
   Menu,
   Pencil,
   Plus,
-  Minus,
   ScanLine,
   Apple,
   Egg,
@@ -436,8 +435,8 @@ export default function HomeScreen() {
   const [workoutType, setWorkoutType] = useState<WorkoutSession['workoutType']>('Run');
   const [workoutExerciseName, setWorkoutExerciseName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
-  const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
-  const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
+  const [_isTrainingFlexing, setIsTrainingFlexing] = useState(false);
+  const [_animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [weightInput, setWeightInput] = useState('');
   const [showCustomWater, setShowCustomWater] = useState(false);
@@ -2359,7 +2358,7 @@ export default function HomeScreen() {
             ].map(({ label, value, unit, target, color }) => {
               const pct = Math.min(100, Math.round((value / Math.max(1, target)) * 100));
               return (
-                <div key={label} className="bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.06] rounded-xl p-3 text-center relative overflow-hidden">
+                <div key={label} className="bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] rounded-xl p-3 text-center relative overflow-hidden">
                   <div
                     className="absolute bottom-0 left-0 right-0 rounded-b-xl opacity-30 transition-all duration-700"
                     style={{ height: `${pct}%`, background: color }}
@@ -2496,37 +2495,37 @@ export default function HomeScreen() {
         {isTodaySelected && (
           <div className="grid grid-cols-2 gap-3 mb-4">
             {/* Calories */}
-            <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5">
-              <p className="text-[11px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wide mb-1">Kalorier</p>
-              <p className={`text-2xl font-bold leading-none ${caloriesRemaining < 0 ? 'text-red-500' : 'text-slate-800 dark:text-white/90'}`}>
+            <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Kalorier</p>
+              <p className={`text-3xl font-bold leading-none ${caloriesRemaining < 0 ? 'text-red-500' : 'text-gray-900 dark:text-white/90'}`}>
                 {caloriesRemaining < 0 ? `+${Math.abs(Math.round(caloriesRemaining))}` : Math.round(caloriesRemaining)}
               </p>
-              <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{caloriesRemaining < 0 ? 'over mål' : 'kcal igjen'}</p>
-              <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-white/[0.08] overflow-hidden">
+              <p className="text-xs text-gray-400 mt-0.5">{caloriesRemaining < 0 ? 'over mål' : 'kcal igjen'}</p>
+              <div className="mt-2 h-1.5 rounded-full bg-gray-200 dark:bg-white/[0.08] overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${caloriesRemaining < 0 ? 'bg-red-400' : 'bg-orange-400'}`}
+                  className={`h-full rounded-full transition-all duration-500 ${caloriesRemaining < 0 ? 'bg-red-400' : 'bg-orange-500'}`}
                   style={{ width: `${Math.min(progressRatio * 100, 100)}%` }}
                 />
               </div>
             </div>
             {/* Protein */}
             {smartDietPlan.macros ? (
-              <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5">
-                <p className="text-[11px] font-semibold text-slate-400 dark:text-white/35 uppercase tracking-wide mb-1">Protein</p>
-                <p className={`text-2xl font-bold leading-none ${protein >= smartDietPlan.macros.proteinG ? 'text-emerald-500' : 'text-slate-800 dark:text-white/90'}`}>
-                  {protein >= smartDietPlan.macros.proteinG ? '✓' : `${Math.round(smartDietPlan.macros.proteinG - protein)}g`}
+              <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Protein</p>
+                <p className={`text-3xl font-bold leading-none ${protein >= smartDietPlan.macros.proteinG ? 'text-emerald-500' : 'text-gray-900 dark:text-white/90'}`}>
+                  {protein >= smartDietPlan.macros.proteinG ? Math.round(protein) : `${Math.round(smartDietPlan.macros.proteinG - protein)}`}
                 </p>
-                <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{protein >= smartDietPlan.macros.proteinG ? 'nådd!' : 'igjen'}</p>
-                <div className="mt-2 h-1.5 rounded-full bg-slate-200 dark:bg-white/[0.08] overflow-hidden">
+                <p className="text-xs text-gray-400 mt-0.5">{protein >= smartDietPlan.macros.proteinG ? 'g nådd!' : 'g igjen'}</p>
+                <div className="mt-2 h-1.5 rounded-full bg-gray-200 dark:bg-white/[0.08] overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${protein >= smartDietPlan.macros.proteinG ? 'bg-emerald-400' : 'bg-violet-400'}`}
+                    className={`h-full rounded-full transition-all duration-500 ${protein >= smartDietPlan.macros.proteinG ? 'bg-emerald-400' : 'bg-orange-500'}`}
                     style={{ width: `${Math.min((protein / smartDietPlan.macros.proteinG) * 100, 100)}%` }}
                   />
                 </div>
               </div>
             ) : (
-              <div className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] border border-slate-100 dark:border-white/[0.06] p-3.5 flex items-center justify-center">
-                <p className="text-xs text-slate-400 dark:text-white/30">—</p>
+              <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3 flex items-center justify-center">
+                <p className="text-xs text-gray-400 dark:text-white/30">—</p>
               </div>
             )}
           </div>
@@ -2818,160 +2817,103 @@ export default function HomeScreen() {
       )}
 
       <div className="card">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-2xl bg-orange-100 flex items-center justify-center">
-            <Dumbbell className="w-5 h-5 text-orange-400" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
+              <Dumbbell className="w-5 h-5 text-gray-600" />
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white/90">Trening</h3>
           </div>
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Trening</h3>
-        </div>
-        <div className="rounded-2xl border border-orange-500/20 bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 p-5 shadow-inner">
-          <div className="flex items-start gap-5">
-            <div className="shrink-0">
-              <div className="flex h-28 w-24 items-center justify-center rounded-2xl bg-white/60 shadow-md border border-orange-500/10">
-                <div className={`flex-arm-emoji ${isTrainingFlexing ? 'training-flex-active' : ''}`} aria-hidden="true" style={{ fontSize: '3.5rem' }}>💪</div>
-              </div>
-            </div>
-            <div className="min-w-0 flex-1 pt-1">
-              <p className="text-xs font-bold uppercase tracking-wide text-orange-800 mb-1">Dagens trening</p>
-              <p className="text-xl font-black text-orange-700 mb-2">
-                {hasTrainingLogged ? `${dayLog.trainingKcal} kcal forbrent` : '0 kcal logget'}
-              </p>
-              <p className="text-xs text-orange-700/70 font-medium leading-relaxed">
-                {hasTrainingLogged
-                  ? `${selectedDayWorkouts.length > 0 ? `${selectedDayWorkouts.length} økt${selectedDayWorkouts.length > 1 ? 'er' : ''} logget` : 'Trening registrert'} — bra jobba! 💪`
-                  : 'Armen hviler til du logger en økt.'}
-              </p>
-            </div>
+          <div className="text-right">
+            <p className={`text-2xl font-bold leading-none ${hasTrainingLogged ? 'text-gray-900 dark:text-white/90' : 'text-gray-400'}`}>
+              {dayLog.trainingKcal}
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">kcal forbrent</p>
           </div>
         </div>
+        {hasTrainingLogged && (
+          <p className="text-sm text-gray-600 dark:text-white/60 mb-4">
+            {selectedDayWorkouts.length > 0
+              ? `${selectedDayWorkouts.length} økt${selectedDayWorkouts.length > 1 ? 'er' : ''} logget`
+              : 'Trening registrert'}
+          </p>
+        )}
         <button
           type="button"
           onClick={openWorkoutModal}
           disabled={isPastSelectedDay}
-          className="mt-4 w-full rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm py-3 px-4 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm py-3 px-4 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Logg treningsøkt
         </button>
         {selectedDayWorkouts.length > 0 && (
-          <div className="mt-4 rounded-xl bg-slate-100 dark:bg-white/[0.06] border border-orange-500/10 p-3 shadow-sm">
-            <p className="text-xs font-bold text-orange-800 mb-2 uppercase tracking-wide">Dagens økter</p>
-            <div className="space-y-2">
-              {selectedDayWorkouts.map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  onClick={triggerTrainingFlex}
-                  className="w-full text-left text-sm text-orange-800 flex justify-between items-center gap-3 rounded-lg px-3 py-2 bg-orange-500/10 hover:bg-orange-100 transition-colors font-semibold"
-                >
-                  <span className="truncate">
-                    {session.exerciseName} ({session.durationMin} min)
-                  </span>
-                  <span className="font-bold">{session.caloriesBurned} kcal</span>
-                </button>
-              ))}
-            </div>
+          <div className="mt-3 space-y-1">
+            {selectedDayWorkouts.map((session) => (
+              <button
+                key={session.id}
+                type="button"
+                onClick={triggerTrainingFlex}
+                className="w-full text-left text-sm text-gray-700 dark:text-white/70 flex justify-between items-center gap-3 border-b border-gray-100 dark:border-white/[0.06] px-1 py-2 last:border-b-0"
+              >
+                <span className="truncate">{session.exerciseName} ({session.durationMin} min)</span>
+                <span className="font-semibold text-gray-900 dark:text-white/90 shrink-0">{session.caloriesBurned} kcal</span>
+              </button>
+            ))}
           </div>
         )}
       </div>
 
       <div id="water-section" className="card">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
-              <Droplets className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+            <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
+              <Droplets className="w-5 h-5 text-gray-600 dark:text-gray-400" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Vann</h3>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white/90">Vann</h3>
           </div>
           <div className="text-right">
-            <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{hydrationMl} / {WATER_GOAL_ML} ml</p>
-            <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
+            <p className="text-2xl font-bold leading-none text-gray-900 dark:text-white/90">{hydrationMl}</p>
+            <p className="text-xs text-gray-400 mt-0.5">/ {WATER_GOAL_ML} ml</p>
           </div>
         </div>
 
-        <div className="mt-4">
-          {/* 8 Water Bottle Icons */}
-            <div className="flex justify-center items-center gap-2 mb-4">
-              {Array.from({ length: MAX_WATER_CUPS }, (_, index) => {
-                const cupIndex = index + 1;
-                const cupsNeeded = Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
-                const isFilled = cupIndex <= cupsNeeded;
-                const isFirstUnfilled = cupIndex === cupsNeeded + 1;
-                const isAnimating = animatingWaterCups.includes(cupIndex);
-              
-              const isLastFilled = isFilled && cupIndex === Math.ceil(hydrationMl / WATER_CUP_SIZE_ML);
-              return (
-                <button
-                  key={cupIndex}
-                  type="button"
-                  onClick={() => {
-                    if (isPastSelectedDay) return;
-                    if (isFilled) {
-                      removeWater(WATER_CUP_SIZE_ML);
-                    } else {
-                      addWater(WATER_CUP_SIZE_ML, 'water:cup:tap');
-                    }
-                  }}
-                  title={isFilled ? 'Klikk for å fjerne 250 ml' : 'Klikk for å legge til 250 ml'}
-                  className={`relative h-14 w-9 transition-all duration-200 ${
-                    !isPastSelectedDay ? 'cursor-pointer active:scale-95' : 'cursor-default'
-                  }`}
-                  disabled={isPastSelectedDay}
-                >
-                  <div className={`water-bottle-shell ${isAnimating ? 'water-cup-shell-fill' : ''} ${isFilled ? 'water-bottle-shell-filled' : 'water-bottle-shell-empty'}`}>
-                    <div className="water-bottle-cap" />
-                    <div className="water-bottle-body">
-                      <div className={`water-bottle-liquid-layer ${isFilled ? 'water-bottle-liquid-filled' : ''} ${isAnimating ? 'water-cup-liquid-fill' : ''}`} />
-                      <div className="water-bottle-shine" />
-                    </div>
-                  </div>
+        <div className="h-2 rounded-full bg-gray-100 dark:bg-white/[0.08] overflow-hidden mb-4">
+          <div
+            className="h-full rounded-full bg-orange-500 transition-all duration-700"
+            style={{ width: `${Math.min(waterProgress * 100, 100)}%` }}
+          />
+        </div>
 
-                  {/* Minus overlay for last filled cup */}
-                  {isLastFilled && !isPastSelectedDay && (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
-                      <Minus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
-                    </div>
-                  )}
-                  {/* Plus overlay for first unfilled cup */}
-                  {isFirstUnfilled && !isPastSelectedDay && (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-[8px] flex items-center justify-center">
-                      <Plus className="w-4 h-4 text-cyan-700 dark:text-cyan-200" />
-                    </div>
-                  )}
+        {!isPastSelectedDay && (
+          <>
+            <button
+              type="button"
+              onClick={() => addWater(WATER_CUP_SIZE_ML, 'water:cup:tap')}
+              className="w-full rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm py-3 px-4 transition-colors duration-200 flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Legg til vann (+{WATER_CUP_SIZE_ML} ml)
+            </button>
+            <div className="flex gap-2 mt-2 justify-center">
+              {[500, 750].map((ml) => (
+                <button
+                  key={ml}
+                  type="button"
+                  onClick={() => addWater(ml, `water:quick:${ml}`)}
+                  className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-white/[0.06] text-gray-600 dark:text-white/60 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-white/[0.1] transition-colors"
+                >
+                  +{ml} ml
                 </button>
-              );
-            })}
-          </div>
-          
-            {/* Water progress text */}
-            <div className="text-center mb-3">
-              <p className="text-sm text-cyan-700 dark:text-cyan-300 font-medium">{hydrationMl} / {WATER_GOAL_ML} ml</p>
+              ))}
+              <button
+                type="button"
+                onClick={() => setShowCustomWater((v) => !v)}
+                className="px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-white/[0.06] text-gray-600 dark:text-white/60 text-xs font-semibold hover:bg-gray-200 dark:hover:bg-white/[0.1] transition-colors"
+              >
+                Egendefinert
+              </button>
             </div>
-
-            {/* Quick-add water buttons */}
-            {!isPastSelectedDay && (
-              <div className="flex gap-2 justify-center flex-wrap">
-                {[250, 500, 750].map((ml) => (
-                  <button
-                    key={ml}
-                    type="button"
-                    onClick={() => addWater(ml, `water:quick:${ml}`)}
-                    className="px-3 py-1.5 rounded-lg bg-cyan-100 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300 text-xs font-semibold hover:bg-cyan-200 dark:hover:bg-cyan-800/40 transition-colors"
-                  >
-                    +{ml} ml
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setShowCustomWater((v) => !v)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-white/[0.1] transition-colors"
-                >
-                  Egendefinert
-                </button>
-              </div>
-            )}
-
-            {/* Custom water amount input */}
-            {showCustomWater && !isPastSelectedDay && (
+            {showCustomWater && (
               <div className="flex gap-2 mt-2">
                 <input
                   type="number"
@@ -2979,7 +2921,7 @@ export default function HomeScreen() {
                   placeholder="ml"
                   value={customWaterInput}
                   onChange={(e) => setCustomWaterInput(e.target.value)}
-                  className="flex-1 rounded-lg border border-cyan-200 dark:border-cyan-800/40 bg-white dark:bg-white/[0.04] px-3 py-2 text-sm text-slate-900 dark:text-white/90"
+                  className="flex-1 rounded-lg border border-gray-200 dark:border-white/[0.1] bg-white dark:bg-white/[0.04] px-3 py-2 text-sm text-gray-900 dark:text-white/90"
                 />
                 <button
                   type="button"
@@ -2991,14 +2933,23 @@ export default function HomeScreen() {
                       setShowCustomWater(false);
                     }
                   }}
-                  className="px-4 py-2 rounded-lg bg-cyan-500 text-white text-sm font-semibold hover:bg-cyan-600 transition-colors"
+                  className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm font-semibold hover:bg-orange-600 transition-colors"
                 >
                   Legg til
                 </button>
               </div>
             )}
-          </div>
-
+            {hydrationMl > 0 && (
+              <button
+                type="button"
+                onClick={() => removeWater(WATER_CUP_SIZE_ML)}
+                className="mt-2 w-full text-xs text-gray-400 py-1"
+              >
+                Fjern {WATER_CUP_SIZE_ML} ml
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {/* Weight Graph Section */}

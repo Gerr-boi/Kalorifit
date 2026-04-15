@@ -14,28 +14,22 @@ label {
   touch-action: manipulation;
 }
 
-/* App Container — dark base */
+/* App Container */
 .app-container {
   min-height: 100vh;
   height: 100dvh;
-  background:
-    radial-gradient(circle at top left, rgba(251, 191, 36, 0.14) 0%, transparent 28%),
-    radial-gradient(circle at top right, rgba(56, 189, 248, 0.14) 0%, transparent 30%),
-    linear-gradient(180deg, #fffaf4 0%, #f8fafc 46%, #eef6ff 100%);
+  background: #f8fafc;
   display: flex;
   flex-direction: column;
   max-width: 430px;
   margin: 0 auto;
   position: relative;
   overflow: hidden;
-  box-shadow: 0 28px 70px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 0 60px rgba(15, 23, 42, 0.08);
 }
 
 .dark .app-container {
-  background:
-    radial-gradient(circle at top left, rgba(249, 115, 22, 0.14) 0%, transparent 32%),
-    radial-gradient(circle at top right, rgba(14, 165, 233, 0.12) 0%, transparent 28%),
-    linear-gradient(180deg, #050816 0%, #09090b 52%, #111827 100%);
+  background: #09090b;
 }
 
 /* Main Content */
@@ -218,16 +212,12 @@ label {
   min-height: 100%;
   width: 100%;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.76) 0%, transparent 34%),
-    linear-gradient(180deg, #fff9f1 0%, #f8fafc 44%, #f1f7ff 100%);
+  background: #f8fafc;
   color: #0f172a;
 }
 
 .dark .screen {
-  background:
-    radial-gradient(circle at top, rgba(249, 115, 22, 0.08) 0%, transparent 28%),
-    linear-gradient(180deg, #050816 0%, #09090b 54%, #111827 100%);
+  background: #09090b;
   color: #fafafa;
 }
 
@@ -474,68 +464,40 @@ label {
   display: flex;
   flex-direction: column;
   align-items: center;
-  background:
-    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.82) 0%, transparent 38%),
-    linear-gradient(155deg, rgba(251, 146, 60, 0.18) 0%, rgba(255, 255, 255, 0.96) 40%, rgba(224, 242, 254, 0.78) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.06);
   position: relative;
   overflow: hidden;
-  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.1);
-  transition: background 1.8s ease, border-color 1.8s ease, box-shadow 1.8s ease;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  transition: box-shadow 0.25s ease;
 }
 
 .dark .calorie-hero {
-  background:
-    radial-gradient(circle at 50% 18%, rgba(249, 115, 22, 0.12) 0%, transparent 36%),
-    linear-gradient(155deg, rgba(249, 115, 22, 0.16) 0%, rgba(10, 18, 35, 0.96) 48%, rgba(8, 47, 73, 0.72) 100%);
+  background: #18181b;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.26);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
-/* Identity mode variants for the hero card */
+/* Identity mode variants for the hero card — border accent only */
 .calorie-hero-locked-in {
-  background:
-    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.86) 0%, transparent 38%),
-    linear-gradient(155deg, rgba(245, 158, 11, 0.22) 0%, rgba(255, 253, 240, 0.97) 40%, rgba(254, 243, 199, 0.72) 100%);
-  border-color: rgba(245, 158, 11, 0.28);
-  box-shadow: 0 20px 48px rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.30);
 }
 .dark .calorie-hero-locked-in {
-  background:
-    radial-gradient(circle at 50% 18%, rgba(251, 191, 36, 0.16) 0%, transparent 36%),
-    linear-gradient(155deg, rgba(245, 158, 11, 0.22) 0%, rgba(14, 10, 3, 0.96) 48%, rgba(22, 14, 4, 0.72) 100%);
-  border-color: rgba(251, 191, 36, 0.14);
-  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.30), 0 0 40px rgba(251, 191, 36, 0.06);
+  border-color: rgba(251, 191, 36, 0.18);
 }
 
 .calorie-hero-steady {
-  background:
-    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.86) 0%, transparent 38%),
-    linear-gradient(155deg, rgba(56, 189, 248, 0.14) 0%, rgba(248, 252, 255, 0.97) 40%, rgba(219, 243, 255, 0.78) 100%);
-  border-color: rgba(56, 189, 248, 0.22);
-  box-shadow: 0 20px 44px rgba(56, 189, 248, 0.10);
+  border-color: rgba(56, 189, 248, 0.25);
 }
 .dark .calorie-hero-steady {
-  background:
-    radial-gradient(circle at 50% 18%, rgba(56, 189, 248, 0.12) 0%, transparent 36%),
-    linear-gradient(155deg, rgba(56, 189, 248, 0.14) 0%, rgba(4, 10, 20, 0.96) 48%, rgba(4, 20, 40, 0.72) 100%);
-  border-color: rgba(56, 189, 248, 0.10);
-  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.30), 0 0 40px rgba(56, 189, 248, 0.05);
+  border-color: rgba(56, 189, 248, 0.12);
 }
 
 .calorie-hero-rebuilding {
-  background:
-    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.86) 0%, transparent 38%),
-    linear-gradient(155deg, rgba(251, 146, 60, 0.24) 0%, rgba(255, 251, 244, 0.97) 40%, rgba(254, 235, 200, 0.78) 100%);
-  border-color: rgba(249, 115, 22, 0.26);
-  box-shadow: 0 20px 44px rgba(249, 115, 22, 0.12);
+  border-color: rgba(249, 115, 22, 0.28);
 }
 .dark .calorie-hero-rebuilding {
-  background:
-    radial-gradient(circle at 50% 18%, rgba(249, 115, 22, 0.16) 0%, transparent 36%),
-    linear-gradient(155deg, rgba(249, 115, 22, 0.22) 0%, rgba(16, 8, 2, 0.96) 48%, rgba(20, 10, 3, 0.72) 100%);
-  border-color: rgba(249, 115, 22, 0.12);
-  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.30), 0 0 40px rgba(249, 115, 22, 0.06);
+  border-color: rgba(249, 115, 22, 0.14);
 }
 
 .calorie-hero::before {
@@ -857,40 +819,24 @@ label {
    CARDS — dark glassmorphism
    ============================================ */
 .card {
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-radius: 24px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 20px;
   padding: 18px;
   margin: 12px 16px;
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, background 0.15s ease;
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.card:active {
-  transform: scale(0.985);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+  transition: box-shadow 0.2s ease;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
 }
 
 .dark .card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.16);
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: none;
 }
 
 .card-elevated {
   position: relative;
   overflow: hidden;
-}
-
-.card-elevated::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.34) 0%, transparent 42%);
-  pointer-events: none;
 }
 
 /* ============================================
@@ -900,26 +846,19 @@ label {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px;
-  background: rgba(255, 255, 255, 0.74);
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 24px;
-  margin: 10px 16px;
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, background 0.15s ease;
-  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.meal-item:active {
-  transform: scale(0.985);
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  padding: 16px 18px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 20px;
+  margin: 8px 16px;
+  transition: box-shadow 0.2s ease;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
 }
 
 .dark .meal-item {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: none;
 }
 
 .meal-info {
@@ -1384,8 +1323,8 @@ label {
 .dark .reaction-chip-active { background: rgba(249, 115, 22, 0.1); border-color: #fb923c; color: #fdba74; }
 
 /* ── Community Hub ───────────────────────────────────────────────────────── */
-.community-hub-card { background: #ffffff; border: 1px solid rgba(15,23,42,0.08); border-radius: 20px; padding: 16px; }
-.dark .community-hub-card { background: #18181b; border-color: rgba(255,255,255,0.06); }
+.community-hub-card { background: #ffffff; border: 1px solid rgba(15,23,42,0.07); border-radius: 20px; padding: 16px; box-shadow: 0 1px 4px rgba(15,23,42,0.04); }
+.dark .community-hub-card { background: #18181b; border-color: rgba(255,255,255,0.07); box-shadow: none; }
 
 .checkin-chip { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(15,23,42,0.08); background: #f8fafc; text-align: left; width: 100%; transition: all 0.15s; }
 .checkin-chip-active { background: rgba(249,115,22,0.08); border-color: rgba(249,115,22,0.25); }
@@ -1560,16 +1499,20 @@ label {
 .recipe-content { padding: 16px; }
 .recipe-tag { display: inline-block; padding: 4px 12px; background: rgba(249,115,22,0.12); color: #fb923c; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
 
-/* Profile — dark */
-.profile-header { background: linear-gradient(145deg, #ffffff 0%, #f8fafc 48%, #fed7aa 100%); color: #0f172a; padding: 40px 20px 60px; text-align: center; border-radius: 0 0 32px 32px; border-bottom: 1px solid rgba(15,23,42,0.08); }
-.dark .profile-header { background: linear-gradient(145deg, #18181b 0%, #09090b 48%, #f97316 100%); color: white; border-bottom-color: transparent; }
+/* Profile — clean white header (no gradient) */
+.profile-header { background: #ffffff; color: #0f172a; padding: 40px 20px 40px; text-align: center; border-bottom: 1px solid rgba(15,23,42,0.06); }
+.dark .profile-header { background: #18181b; color: white; border-bottom-color: rgba(255,255,255,0.06); }
 .profile-avatar { width: 100px; height: 100px; border-radius: 50%; border: 4px solid rgba(255,255,255,0.2); margin-bottom: 16px; }
-.stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: -30px; padding: 0 16px; }
-.stat-card { background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08); border-radius: 16px; padding: 16px; text-align: center; }
-.dark .stat-card { background: #18181b; border: 1px solid rgba(255,255,255,0.06); }
-.stat-value { font-size: 24px; font-weight: 700; color: #f97316; }
-.stat-label { font-size: 12px; color: #64748b; margin-top: 4px; }
-.dark .stat-label { color: #71717a; }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; margin: 16px 16px 0; background: #f8fafc; border-radius: 16px; border: 1px solid rgba(15,23,42,0.06); }
+.dark .stats-grid { background: #27272a; border-color: rgba(255,255,255,0.06); }
+.stat-card { background: transparent; border: none; border-right: 1px solid rgba(15,23,42,0.06); border-radius: 0; padding: 14px 8px; text-align: center; }
+.stat-card:last-child { border-right: none; }
+.dark .stat-card { background: transparent; border: none; border-right: 1px solid rgba(255,255,255,0.06); }
+.dark .stat-card:last-child { border-right: none; }
+.stat-value { font-size: 22px; font-weight: 700; color: #111827; }
+.dark .stat-value { color: #f9fafb; }
+.stat-label { font-size: 10px; color: #9ca3af; margin-top: 2px; font-weight: 500; }
+.dark .stat-label { color: #6b7280; }
 
 /* Scroll sections */
 .scroll-container { display: flex; gap: 12px; overflow-x: auto; padding: 0 16px 12px; scrollbar-width: none; -ms-overflow-style: none; }

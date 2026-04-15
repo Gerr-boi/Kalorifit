@@ -148,34 +148,9 @@ const DIET_EXPLORER_OPTIONS: Array<{
 
 export default function ProfileScreen() {
   const { currentUser, updateUserName } = useCurrentUser();
-  const { user, signOut, deleteAccount } = useSupabaseAuth();
+  const { signOut, deleteAccount } = useSupabaseAuth();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
-
-  const handleSignOut = async () => {
-    try { window.localStorage.removeItem('kalorifit:skippedAuth'); } catch {}
-    await signOut();
-    window.location.reload();
-  };
-
-  const exportData = () => {
-    const data: Record<string, unknown> = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key) {
-        try { data[key] = JSON.parse(localStorage.getItem(key) ?? ''); } catch { data[key] = localStorage.getItem(key); }
-      }
-    }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'kalorifit-data.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  };
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
   const [profile, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
@@ -237,8 +212,8 @@ export default function ProfileScreen() {
     return 'Fedme';
   };
 
-  const latestMeasurement = profile.bmiHistory?.[0] ?? null;
-  const previousMeasurement = profile.bmiHistory?.[1] ?? null;
+  const latestMeasurement = profile.bmiHistory[0] ?? null;
+  const previousMeasurement = profile.bmiHistory[1] ?? null;
   const weightDeltaFromLast =
     latestMeasurement && previousMeasurement
       ? Number((latestMeasurement.weightKg - previousMeasurement.weightKg).toFixed(1))
@@ -493,7 +468,7 @@ export default function ProfileScreen() {
       ...prev,
       heightCm: entry.heightCm,
       weightKg: entry.weightKg,
-      bmiHistory: [entry, ...(prev.bmiHistory ?? [])].slice(0, 20),
+      bmiHistory: [entry, ...prev.bmiHistory].slice(0, 20),
     }));
 
     setShowBmi(false);
@@ -508,7 +483,7 @@ export default function ProfileScreen() {
     { id: 'help', icon: HelpCircle, label: 'Hjelp og støtte', value: '' },
   ];
 
-  const initials = (profile.name ?? '')
+  const initials = profile.name
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
@@ -929,42 +904,42 @@ export default function ProfileScreen() {
             />
           </div>
           <div className="mt-4">
-            <h2 className="text-2xl font-bold mb-1">{profile.name}</h2>
-            <p className="text-white/70">Medlem siden {profile.memberSince}</p>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{profile.name}</h2>
+            <p className="text-sm text-gray-400 dark:text-white/50">Medlem siden {profile.memberSince}</p>
           </div>
         </div>
       </div>
 
       <div className="stats-grid">
         {stats.map((stat, index) => (
-          <div key={index} className="stat-card dark:bg-gray-800 dark:border-gray-700">
-            <p className={`stat-value ${stat.color}`}>{stat.value}</p>
-            <p className="stat-label dark:text-gray-300">{stat.label}</p>
+          <div key={index} className="stat-card">
+            <p className="stat-value">{stat.value}</p>
+            <p className="stat-label">{stat.label}</p>
           </div>
         ))}
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
+      <div className="card mt-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Smart diet profile</p>
-            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{goalStrategyLabel}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {dietStyleLabel} | {settingsTierLabel}
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Smart diet profil</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white/90">{goalStrategyLabel}</p>
+            <p className="text-xs text-gray-400 dark:text-white/40 mt-0.5">
+              {dietStyleLabel} · {settingsTierLabel}
             </p>
           </div>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setShowDietExplorer(true)}
-              className="text-xs rounded-lg bg-emerald-100 text-emerald-700 px-3 py-1.5"
+              className="text-xs rounded-lg bg-gray-100 dark:bg-white/[0.08] text-gray-600 dark:text-white/60 px-3 py-1.5 font-medium"
             >
-              Explore diets
+              Utforsk dietter
             </button>
             <button
               type="button"
               onClick={openPersonalSettings}
-              className="text-xs rounded-lg bg-orange-100 text-orange-700 px-3 py-1.5"
+              className="text-xs rounded-lg bg-orange-500 text-white px-3 py-1.5 font-medium"
             >
               Endre
             </button>
@@ -972,31 +947,31 @@ export default function ProfileScreen() {
         </div>
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
+      <div className="card mt-4">
         <button onClick={() => setShowIdentity(true)} className="w-full text-left">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Identity</p>
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{monthlyIdentity.primaryTitle}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Level {monthlyIdentity.level.value} - {monthlyIdentity.level.label}
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Identitet</p>
+              <h3 className="text-base font-bold text-gray-900 dark:text-white/90">{monthlyIdentity.primaryTitle}</h3>
+              <p className="text-xs text-gray-400 dark:text-white/40 mt-0.5">
+                Level {monthlyIdentity.level.value} · {monthlyIdentity.level.label}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-2xl font-bold text-amber-500">{monthlyIdentity.level.currentXp}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">/ {monthlyIdentity.level.nextLevelXp} XP</p>
+              <p className="text-3xl font-bold text-gray-900 dark:text-white/90">{monthlyIdentity.level.currentXp}</p>
+              <p className="text-xs text-gray-400 dark:text-white/40">/ {monthlyIdentity.level.nextLevelXp} XP</p>
             </div>
           </div>
-          <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full mt-3 overflow-hidden">
-            <div className="h-full bg-amber-500 rounded-full" style={{ width: `${monthlyIdentity.level.progressPct}%` }} />
+          <div className="h-1.5 bg-gray-100 dark:bg-white/[0.08] rounded-full mt-3 overflow-hidden">
+            <div className="h-full bg-orange-500 rounded-full" style={{ width: `${monthlyIdentity.level.progressPct}%` }} />
           </div>
         </button>
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
+      <div className="card mt-4">
         <div className="flex items-center gap-2 mb-3">
-          <Shield className="w-4 h-4 text-orange-500" />
-          <h3 className="font-semibold text-gray-800 dark:text-gray-200">Social safety controls</h3>
+          <Shield className="w-4 h-4 text-gray-400" />
+          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Personvern</h3>
         </div>
         <div className="privacy-grid">
           <button
@@ -1023,15 +998,15 @@ export default function ProfileScreen() {
         </div>
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-end justify-between gap-3 mb-4">
+      <div className="card mt-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
           <div>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">Daily Discipline Score</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Automatisk basert på dagens logging</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Daglig disiplinscore</p>
+            <p className="text-xs text-gray-400 dark:text-white/40">Automatisk basert på dagens logging</p>
           </div>
           <div className="text-right">
-            <p className="text-3xl font-bold text-orange-500">{dailyDiscipline.score}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{dailyDiscipline.grade}</p>
+            <p className="text-3xl font-bold text-gray-900 dark:text-white/90">{dailyDiscipline.score}</p>
+            <p className="text-xs text-gray-400 dark:text-white/40">{dailyDiscipline.grade}</p>
           </div>
         </div>
 
@@ -1039,13 +1014,13 @@ export default function ProfileScreen() {
           {dailyDiscipline.metrics.map((metric) => (
             <div key={metric.key}>
               <div className="flex justify-between mb-1">
-                <span className="text-sm text-gray-600 dark:text-gray-300">{metric.label}</span>
-                <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{metric.percent}%</span>
+                <span className="text-sm text-gray-600 dark:text-white/60">{metric.label}</span>
+                <span className="text-sm font-semibold text-gray-900 dark:text-white/90">{metric.percent}%</span>
               </div>
-              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-gray-100 dark:bg-white/[0.08] rounded-full overflow-hidden">
                 <div className="h-full bg-orange-500 rounded-full" style={{ width: `${metric.percent}%` }} />
               </div>
-              <div className="mt-1 flex justify-between text-[11px] text-gray-500 dark:text-gray-400">
+              <div className="mt-1 flex justify-between text-xs text-gray-400 dark:text-white/35">
                 <span>{metric.progressLabel}</span>
                 <span>{metric.targetLabel}</span>
               </div>
@@ -1082,50 +1057,50 @@ export default function ProfileScreen() {
         </div>
       </div>
 
-      <div className="card mt-4 dark:bg-gray-800 dark:border-gray-700">
-        <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="card mt-4">
+        <div className="flex items-center justify-between gap-3 mb-4">
           <div>
-            <h3 className="font-semibold text-gray-800 dark:text-gray-200">Weekly Performance Report</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Auto-genereres hver sondag</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Ukesrapport</p>
+            <p className="text-xs text-gray-400 dark:text-white/40">Auto-genereres hver søndag</p>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {latestWeeklyReport.weekStartKey} til {latestWeeklyReport.weekEndKey}
+          <p className="text-xs text-gray-400 dark:text-white/40">
+            {latestWeeklyReport.weekStartKey}–{latestWeeklyReport.weekEndKey}
           </p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-300">Avg discipline score</p>
-            <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{latestWeeklyReport.avgDisciplineScore}</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Gj.snitt score</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white/90">{latestWeeklyReport.avgDisciplineScore}</p>
           </div>
-          <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-            <p className="text-xs text-gray-500 dark:text-gray-300">Trend direction</p>
-            <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{trendLabel}</p>
+          <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Trend</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white/90">{trendLabel}</p>
           </div>
-          <div className="rounded-xl bg-green-50 dark:bg-green-900/20 p-3">
-            <p className="text-xs text-green-700 dark:text-green-300">Best day</p>
-            <p className="text-base font-semibold text-green-700 dark:text-green-100">
+          <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Beste dag</p>
+            <p className="text-sm font-semibold text-gray-700 dark:text-white/70">
               {formatDateKey(latestWeeklyReport.bestDay.dateKey)} ({latestWeeklyReport.bestDay.score})
             </p>
           </div>
-          <div className="rounded-xl bg-red-50 dark:bg-red-900/20 p-3">
-            <p className="text-xs text-red-700 dark:text-red-300">Worst day</p>
-            <p className="text-base font-semibold text-red-700 dark:text-red-100">
+          <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Svakeste dag</p>
+            <p className="text-sm font-semibold text-gray-700 dark:text-white/70">
               {formatDateKey(latestWeeklyReport.worstDay.dateKey)} ({latestWeeklyReport.worstDay.score})
             </p>
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-orange-50 dark:bg-orange-900/20 p-3">
-          <p className="text-xs text-orange-700 dark:text-orange-300">Streak status</p>
-          <p className="text-base font-semibold text-orange-700 dark:text-orange-100">{latestWeeklyReport.streakStatus}</p>
+        <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06]">
+          <p className="text-xs text-gray-400 dark:text-white/40">Streak:</p>
+          <p className="text-sm font-semibold text-gray-700 dark:text-white/70">{latestWeeklyReport.streakStatus}</p>
         </div>
 
-        <div className="mt-3 grid grid-cols-5 gap-1">
+        <div className="mt-3 grid grid-cols-7 gap-1">
           {latestWeeklyReport.days.map((day) => (
-            <div key={day.dateKey} className="rounded-lg bg-gray-100 dark:bg-gray-700 p-2 text-center">
-              <p className="text-[10px] text-gray-500 dark:text-gray-300">{formatDateKey(day.dateKey)}</p>
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-100">{day.score}</p>
+            <div key={day.dateKey} className="rounded-lg bg-gray-50 dark:bg-white/[0.04] p-1.5 text-center">
+              <p className="text-[9px] text-gray-400 dark:text-white/30">{formatDateKey(day.dateKey)}</p>
+              <p className="text-xs font-semibold text-gray-700 dark:text-white/70">{day.score}</p>
             </div>
           ))}
         </div>
@@ -1139,7 +1114,7 @@ export default function ProfileScreen() {
         </p>
       </div>
 
-      <div className="card mt-4 p-0 overflow-hidden dark:bg-gray-800 dark:border-gray-700">
+      <div className="card mt-4 p-0 overflow-hidden">
         {getMenuItems().map((item, index) => (
           <button
             key={index}
@@ -1151,67 +1126,33 @@ export default function ProfileScreen() {
               if (item.id === 'language') toggleLanguage();
               if (item.id === 'help') setShowHelp(true);
             }}
-            className="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors border-b last:border-b-0 dark:border-gray-600"
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06] last:border-b-0"
           >
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gray-100 dark:bg-gray-600 rounded-full flex items-center justify-center">
-                <item.icon className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-              </div>
-              <span className="font-medium text-gray-700 dark:text-gray-200">{item.label}</span>
+              <item.icon className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
+              <span className="text-sm font-medium text-gray-700 dark:text-white/80">{item.label}</span>
             </div>
             <div className="flex items-center gap-2">
               {item.value && (
-                <span className="text-sm text-gray-500 dark:text-gray-400">{item.value}</span>
+                <span className="text-sm text-gray-400 dark:text-white/40">{item.value}</span>
               )}
-              <ChevronRight className="w-5 h-5 text-gray-400 dark:text-gray-500" />
+              <ChevronRight className="w-4 h-4 text-gray-300 dark:text-white/20" />
             </div>
           </button>
         ))}
       </div>
 
-      {/* Account status banner */}
-      {user?.email ? (
-        <div className="mx-0 mt-4 rounded-2xl bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800/30 px-4 py-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">Innlogget konto</p>
-            <p className="text-sm text-gray-700 dark:text-zinc-300 truncate">{user.email}</p>
-          </div>
-          <button
-            onClick={exportData}
-            className="shrink-0 text-xs font-medium text-orange-600 dark:text-orange-400 border border-orange-300 dark:border-orange-700 rounded-lg px-3 py-1.5 hover:bg-orange-100 dark:hover:bg-orange-900/40 transition-colors"
-          >
-            Eksporter data
-          </button>
-        </div>
-      ) : (
-        <div className="mx-0 mt-4 rounded-2xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 px-4 py-3">
-          <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 mb-0.5">Ingen konto tilknyttet</p>
-          <p className="text-sm text-gray-600 dark:text-zinc-300 leading-snug">
-            Registrer deg med e-post for å sikkerhetskopiere og eksportere dataene dine.
-          </p>
-        </div>
-      )}
-
       {/* Logout */}
       <button
-        onClick={handleSignOut}
-        className="w-full flex items-center justify-center gap-2 p-4 mt-3 text-red-500 font-medium"
+        onClick={() => signOut()}
+        className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium"
       >
         <LogOut className="w-5 h-5" />
         Logg ut
       </button>
 
-      {/* Delete account */}
-      <button
-        onClick={() => { setDeleteStep(1); setDeleteConfirmText(''); setShowDeleteConfirm(true); }}
-        className="w-full flex items-center justify-center gap-2 p-3 mt-1 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
-      >
-        <Trash2 className="w-4 h-4" />
-        Slett konto og data
-      </button>
-
       {/* Legal links */}
-      <div className="flex justify-center gap-4 mt-2 mb-8 pb-2">
+      <div className="flex justify-center gap-4 mt-2 pb-1">
         <button
           onClick={() => setShowPrivacy(true)}
           className="text-xs text-gray-400 dark:text-zinc-500 underline underline-offset-2 hover:text-gray-600 dark:hover:text-zinc-300 transition-colors"
@@ -1226,84 +1167,53 @@ export default function ProfileScreen() {
         </button>
       </div>
 
-      {/* Delete account confirmation dialog — two steps */}
+      {/* Delete account */}
+      <button
+        onClick={() => setShowDeleteConfirm(true)}
+        className="w-full flex items-center justify-center gap-2 p-3 mt-1 mb-6 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
+      >
+        <Trash2 className="w-4 h-4" />
+        Slett konto og data
+      </button>
+
+      {/* Delete account confirmation dialog */}
       {showDeleteConfirm && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4">
           <div className="w-full sm:max-w-sm bg-white dark:bg-zinc-900 rounded-t-2xl sm:rounded-2xl shadow-2xl p-6">
-            {deleteStep === 1 ? (
-              <>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-5 h-5 text-red-500" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900 dark:text-white text-base">Slett konto og data</h3>
-                    <p className="text-xs text-gray-500 dark:text-zinc-400">Dette kan ikke angres</p>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-zinc-300 mb-6 leading-relaxed">
-                  All data slettes permanent: kostholdslogger, progresjon, merker og kontoopplysninger.
-                  I henhold til GDPR fjernes alle personopplysninger innen 30 dager.
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowDeleteConfirm(false)}
-                    className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
-                  >
-                    Nei, avbryt
-                  </button>
-                  <button
-                    onClick={() => setDeleteStep(2)}
-                    className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm transition-colors"
-                  >
-                    Fortsett →
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
-                    <AlertTriangle className="w-5 h-5 text-red-500" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900 dark:text-white text-base">Bekreft sletting</h3>
-                    <p className="text-xs text-gray-500 dark:text-zinc-400">Skriv for å bekrefte</p>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600 dark:text-zinc-300 mb-3 leading-relaxed">
-                  Skriv <span className="font-bold text-gray-900 dark:text-white">Kalorifit</span> i feltet nedenfor for å bekrefte at du vil slette alt permanent.
-                </p>
-                <input
-                  type="text"
-                  value={deleteConfirmText}
-                  onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  placeholder="Kalorifit"
-                  className="w-full border border-gray-200 dark:border-zinc-700 bg-gray-50 dark:bg-zinc-800 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 outline-none focus:border-red-400 dark:focus:border-red-500 mb-5"
-                />
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setDeleteStep(1)}
-                    className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
-                  >
-                    ← Tilbake
-                  </button>
-                  <button
-                    disabled={deleteLoading || deleteConfirmText !== 'Kalorifit'}
-                    onClick={async () => {
-                      setDeleteLoading(true);
-                      await deleteAccount();
-                      setDeleteLoading(false);
-                      setShowDeleteConfirm(false);
-                      window.location.reload();
-                    }}
-                    className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm disabled:opacity-40 transition-colors"
-                  >
-                    {deleteLoading ? 'Sletter...' : 'Slett alt'}
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 dark:text-white text-base">Slett konto og data</h3>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">Dette kan ikke angres</p>
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-zinc-300 mb-6 leading-relaxed">
+              All data slettes permanent: kostholdslogger, progresjon, merker og kontoopplysninger.
+              I henhold til GDPR fjernes alle personopplysninger innen 30 dager.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
+              >
+                Avbryt
+              </button>
+              <button
+                disabled={deleteLoading}
+                onClick={async () => {
+                  setDeleteLoading(true);
+                  await deleteAccount();
+                  setDeleteLoading(false);
+                  setShowDeleteConfirm(false);
+                  window.location.reload();
+                }}
+                className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm disabled:opacity-50 transition-colors"
+              >
+                {deleteLoading ? 'Sletter...' : 'Slett alt'}
+              </button>
+            </div>
           </div>
         </div>
       )}
