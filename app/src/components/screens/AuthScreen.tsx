@@ -144,7 +144,9 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
     if (!email.includes('@')) { setError('Skriv inn en gyldig e-postadresse'); return; }
     if (!supabase) { setError('Supabase ikke konfigurert'); return; }
     setForgotLoading(true);
-    const { error: err } = await supabase.auth.resetPasswordForEmail(email);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
     setForgotLoading(false);
     if (err) { setError(err.message); } else { setForgotSent(true); setError(''); }
   };
@@ -155,7 +157,7 @@ export default function AuthScreen({ onAuth, onSkip }: AuthScreenProps) {
     if (!email || !email.includes('@')) { setError('Skriv inn e-postadressen du registrerte deg med'); return; }
     if (!supabase) { setError('Supabase ikke konfigurert'); return; }
     setResendLoading(true);
-    const { error: err } = await supabase.auth.resend({ type: 'signup', email });
+    const { error: err } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo: window.location.origin } });
     setResendLoading(false);
     if (err) { setError(err.message); } else { setResendSent(true); setError(''); }
   };

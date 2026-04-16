@@ -44,6 +44,7 @@ export function useSupabaseAuth() {
       email,
       password,
       options: {
+        emailRedirectTo: window.location.origin,
         data: {
           username: (username ?? email.split('@')[0]).toLowerCase(),
           display_name: username ?? email.split('@')[0],
@@ -101,7 +102,9 @@ export function useSupabaseAuth() {
 
   const resetPassword = useCallback(async (email: string) => {
     if (!supabase) return { error: { message: 'Supabase ikke konfigurert' } };
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
     return { error };
   }, []);
 
