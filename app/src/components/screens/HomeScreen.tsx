@@ -29,6 +29,15 @@ import {
   TrendingUp,
   Microscope,
   Minus,
+  Pill,
+  Coffee,
+  Zap,
+  Fish,
+  Leaf,
+  Sun,
+  Heart,
+  FlaskConical,
+  Check,
 } from 'lucide-react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
@@ -164,6 +173,44 @@ type DayMicroLog = {
   kreatinG?: number;
 };
 
+type CustomIntake = {
+  id: string;
+  name: string;
+  icon: string;
+  unit: string;
+  goalPerDay: number;
+};
+// per-date log: { [dateKey]: { [intakeId]: amount } }
+type CustomIntakeLogs = Record<string, Record<string, number>>;
+
+const CUSTOM_INTAKE_ICONS: { key: string; label: string }[] = [
+  { key: 'pill',     label: 'Pille'     },
+  { key: 'coffee',   label: 'Kaffe'     },
+  { key: 'zap',      label: 'Energi'    },
+  { key: 'fish',     label: 'Fisk'      },
+  { key: 'leaf',     label: 'Urt'       },
+  { key: 'sun',      label: 'Vitamin D' },
+  { key: 'heart',    label: 'Hjerte'    },
+  { key: 'flask',    label: 'Tilskudd'  },
+  { key: 'droplet',  label: 'Drikke'    },
+  { key: 'apple',    label: 'Mat'       },
+  { key: 'dumbbell', label: 'Trening'   },
+];
+
+function CustomIntakeIcon({ iconKey, className }: { iconKey: string; className?: string }) {
+  if (iconKey === 'coffee')   return <Coffee className={className} />;
+  if (iconKey === 'zap')      return <Zap className={className} />;
+  if (iconKey === 'fish')     return <Fish className={className} />;
+  if (iconKey === 'leaf')     return <Leaf className={className} />;
+  if (iconKey === 'sun')      return <Sun className={className} />;
+  if (iconKey === 'heart')    return <Heart className={className} />;
+  if (iconKey === 'flask')    return <FlaskConical className={className} />;
+  if (iconKey === 'droplet')  return <Droplets className={className} />;
+  if (iconKey === 'apple')    return <Apple className={className} />;
+  if (iconKey === 'dumbbell') return <Dumbbell className={className} />;
+  return <Pill className={className} />;
+}
+
 const ALLERGY_KEYWORDS: Record<string, string[]> = {
   gluten: ['gluten', 'hvete', 'bygg', 'rug', 'spelt', 'brød', 'pasta', 'mel', 'kake', 'kjeks', 'havre'],
   milk: ['melk', 'milk', 'ost', 'cheese', 'yogurt', 'fløte', 'smør', 'butter', 'cream', 'dairy', 'kefir', 'skyr', 'rømme', 'kesam'],
@@ -188,6 +235,8 @@ const EMPTY_SAVED_MEAL_TEMPLATES: SavedMealTemplate[] = [];
 const EMPTY_MICRO_LOGS: Record<string, DayMicroLog> = {};
 const EMPTY_WORKOUT_SESSIONS: WorkoutSession[] = [];
 const EMPTY_DATE_FLAGS: Record<string, true> = {};
+const EMPTY_CUSTOM_INTAKES: CustomIntake[] = [];
+const EMPTY_CUSTOM_INTAKE_LOGS: CustomIntakeLogs = {};
 const CONSISTENCY_DROP_INSIGHT = 'Consistency dropped this week. Use a simpler logging mode temporarily.';
 const SCAN_TARGET_DATE_KEY_STORAGE_KEY = 'kalorifit.scanTargetDateKey.v1';
 
@@ -422,6 +471,11 @@ export default function HomeScreen() {
   const [microLogsByDate, setMicroLogsByDate] = useLocalStorageState<Record<string, DayMicroLog>>('home.microLogs.v1', EMPTY_MICRO_LOGS);
   const [microInputKey, setMicroInputKey] = useState<keyof DayMicroLog | null>(null);
   const [microInputValue, setMicroInputValue] = useState('');
+  const [customIntakes, setCustomIntakes] = useLocalStorageState<CustomIntake[]>('home.customIntakes.v1', EMPTY_CUSTOM_INTAKES);
+  const [customIntakeLogs, setCustomIntakeLogs] = useLocalStorageState<CustomIntakeLogs>('home.customIntakeLogs.v1', EMPTY_CUSTOM_INTAKE_LOGS);
+  const [showAddIntakeModal, setShowAddIntakeModal] = useState(false);
+  const [editingIntake, setEditingIntake] = useState<CustomIntake | null>(null);
+  const [intakeForm, setIntakeForm] = useState<{ name: string; icon: string; unit: string; goalPerDay: string }>({ name: '', icon: 'pill', unit: 'dose', goalPerDay: '1' });
   const [scanHint, setScanHint] = useState<string | null>(null);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate | null>(null);
@@ -437,7 +491,7 @@ export default function HomeScreen() {
   const [workoutType, setWorkoutType] = useState<WorkoutSession['workoutType']>('Run');
   const [workoutExerciseName, setWorkoutExerciseName] = useState('');
   const [workoutNotes, setWorkoutNotes] = useState('');
-  const [isTrainingFlexing, setIsTrainingFlexing] = useState(false);
+  const [_isTrainingFlexing, setIsTrainingFlexing] = useState(false);
   const [animatingWaterCups, setAnimatingWaterCups] = useState<number[]>([]);
   const [showWeightModal, setShowWeightModal] = useState(false);
   const [weightInput, setWeightInput] = useState('');
@@ -2989,6 +3043,124 @@ export default function HomeScreen() {
         </div>
       </div>
 
+      {/* Andre inntak — customizable */}
+      <div className="card">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white/90">Andre inntak</h3>
+            {!isPastSelectedDay && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingIntake(null);
+                  setIntakeForm({ name: '', icon: 'pill', unit: 'dose', goalPerDay: '1' });
+                  setShowAddIntakeModal(true);
+                }}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.07] flex items-center justify-center text-slate-500 dark:text-white/50 hover:bg-slate-200 dark:hover:bg-white/[0.12] transition-colors"
+                title="Legg til inntak"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+
+          {customIntakes.length === 0 ? (
+            /* Empty state */
+            <button
+              type="button"
+              onClick={() => {
+                setEditingIntake(null);
+                setIntakeForm({ name: '', icon: 'pill', unit: 'dose', goalPerDay: '1' });
+                setShowAddIntakeModal(true);
+              }}
+              className="w-full flex flex-col items-center gap-2 py-5 rounded-2xl border-2 border-dashed border-slate-200 dark:border-white/[0.08] text-slate-400 dark:text-white/30 hover:border-violet-300 dark:hover:border-violet-500/40 hover:text-violet-500 dark:hover:text-violet-400 transition-colors"
+            >
+              <Plus className="w-6 h-6" />
+              <span className="text-sm font-medium">Legg til kreatin, kaffe, vitaminer...</span>
+            </button>
+          ) : (
+            <div className="space-y-2">
+              {customIntakes.map((intake) => {
+                const taken = customIntakeLogs[selectedDateKey]?.[intake.id] ?? 0;
+                const done = taken >= intake.goalPerDay;
+                const pct = Math.min(100, (taken / Math.max(1, intake.goalPerDay)) * 100);
+                return (
+                  <div key={intake.id} className="flex items-center gap-3">
+                    {/* Icon */}
+                    <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 transition-colors ${done ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-violet-100 dark:bg-violet-900/20'}`}>
+                      {done
+                        ? <Check className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                        : <CustomIntakeIcon iconKey={intake.icon} className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                      }
+                    </div>
+                    {/* Name + progress */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-white/90 truncate">{intake.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <div className="flex-1 h-1 rounded-full bg-slate-100 dark:bg-white/[0.05] overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-400 ${done ? 'bg-emerald-400' : 'bg-violet-400'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className={`text-[11px] font-medium shrink-0 ${done ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-white/35'}`}>
+                          {taken}/{intake.goalPerDay} {intake.unit}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Controls */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {taken > 0 && !isPastSelectedDay && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomIntakeLogs(prev => {
+                            const cur = prev[selectedDateKey]?.[intake.id] ?? 0;
+                            const next = Math.max(0, cur - 1);
+                            return { ...prev, [selectedDateKey]: { ...(prev[selectedDateKey] ?? {}), [intake.id]: next } };
+                          })}
+                          className="w-7 h-7 rounded-full bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center text-slate-400 dark:text-white/30 hover:bg-slate-200 transition-colors"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                      )}
+                      {!isPastSelectedDay && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomIntakeLogs(prev => {
+                            const cur = prev[selectedDateKey]?.[intake.id] ?? 0;
+                            const next = cur + 1;
+                            return { ...prev, [selectedDateKey]: { ...(prev[selectedDateKey] ?? {}), [intake.id]: next } };
+                          })}
+                          className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${done ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-violet-100 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 hover:bg-violet-200 dark:hover:bg-violet-800/30'}`}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      )}
+                      {/* Edit button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingIntake(intake);
+                          setIntakeForm({
+                            name: intake.name,
+                            icon: intake.icon,
+                            unit: intake.unit,
+                            goalPerDay: String(intake.goalPerDay),
+                          });
+                          setShowAddIntakeModal(true);
+                        }}
+                        className="w-7 h-7 rounded-full bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center text-slate-400 dark:text-white/30 hover:bg-slate-200 transition-colors ml-0.5"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+      </div>
+
       {/* Weight Graph Section */}
       <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
         <div className="flex items-center justify-between mb-4">
@@ -3146,9 +3318,9 @@ export default function HomeScreen() {
         {/* Goal toggle */}
         <div className="grid grid-cols-2 gap-2 mb-4">
           {([
-            { key: 'fat_loss', label: 'Gå ned i vekt', emoji: '🔥', desc: 'Kaloriunderskudd' },
-            { key: 'muscle_gain', label: 'Øke i vekt', emoji: '💪', desc: 'Kalorioverskudd' },
-          ] as { key: HomeProfile['goalMode']; label: string; emoji: string; desc: string }[]).map(({ key, label, emoji, desc }) => {
+            { key: 'fat_loss', label: 'Gå ned i vekt', desc: 'Kaloriunderskudd' },
+            { key: 'muscle_gain', label: 'Øke i vekt', desc: 'Kalorioverskudd' },
+          ] as { key: HomeProfile['goalMode']; label: string; desc: string }[]).map(({ key, label, desc }) => {
             const isActive = (profilePrefs.goalMode ?? 'fat_loss') === key;
             return (
               <button
@@ -3161,7 +3333,6 @@ export default function HomeScreen() {
                     : 'border-slate-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.03] opacity-60'
                 }`}
               >
-                <div className="text-xl mb-1">{emoji}</div>
                 <p className={`text-sm font-semibold ${isActive ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-600 dark:text-white/60'}`}>{label}</p>
                 <p className={`text-xs ${isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-white/30'}`}>{desc}</p>
               </button>
@@ -3408,9 +3579,9 @@ export default function HomeScreen() {
       )}
 
       {manualAddMeal && createPortal(
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0">
-          <div className="w-full max-w-lg rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-white/[0.08] overflow-hidden shadow-2xl">
-            <div className="px-5 pt-5 pb-4 bg-gradient-to-br from-orange-500/10 to-amber-500/5">
+        <div className="fixed inset-0 flex items-end justify-center bg-black/50 p-0" style={{ zIndex: 1100 }}>
+          <div className="w-full max-w-lg rounded-t-3xl bg-white dark:bg-zinc-900 border-t border-slate-200 dark:border-white/[0.08] shadow-2xl flex flex-col" style={{ maxHeight: '90dvh' }}>
+            <div className="px-5 pt-5 pb-4 bg-gradient-to-br from-orange-500/10 to-amber-500/5 shrink-0">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2.5">
                   <div className="w-9 h-9 rounded-xl bg-orange-500/15 flex items-center justify-center">
@@ -3433,7 +3604,7 @@ export default function HomeScreen() {
               </div>
             </div>
 
-            <div className="px-5 pb-5 space-y-4">
+            <div className="px-5 space-y-4 overflow-y-auto" style={{ flex: 1, minHeight: 0, WebkitOverflowScrolling: 'touch', paddingBottom: 'calc(100px + env(safe-area-inset-bottom))' } as React.CSSProperties}>
               <div>
                 <label className="text-xs font-medium text-slate-500 dark:text-white/40 uppercase tracking-wide">Matvare</label>
                 <input
@@ -3665,6 +3836,127 @@ export default function HomeScreen() {
           </button>
         </div>,
         document.body
+      )}
+
+      {/* ===== ADD / EDIT CUSTOM INTAKE MODAL ===== */}
+      {showAddIntakeModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          {/* backdrop — visual only, close on tap */}
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setShowAddIntakeModal(false)} />
+          <div style={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: 430, background: 'white', borderRadius: '24px 24px 0 0', maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }} className="dark:bg-zinc-950 shadow-2xl">
+            {/* Handle + header — sticky */}
+            <div className="pt-3 pb-2 px-5 border-b border-slate-100 dark:border-white/[0.06] shrink-0">
+              <div className="w-10 h-1 bg-slate-200 dark:bg-white/20 rounded-full mx-auto mb-3" />
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                  {editingIntake ? 'Rediger inntak' : 'Nytt inntak'}
+                </h2>
+                <button type="button" onClick={() => setShowAddIntakeModal(false)} className="w-9 h-9 rounded-full bg-slate-100 dark:bg-white/[0.08] flex items-center justify-center">
+                  <X className="w-4 h-4 text-slate-600 dark:text-white/60" />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '20px 20px 0', paddingBottom: 'calc(100px + env(safe-area-inset-bottom))' }} className="space-y-5">
+              {/* Icon picker */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-2">Ikon</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {CUSTOM_INTAKE_ICONS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setIntakeForm(f => ({ ...f, icon: key }))}
+                      title={label}
+                      className={`flex flex-col items-center gap-1 p-2 rounded-xl border-2 transition-colors ${intakeForm.icon === key ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/30' : 'border-transparent bg-slate-100 dark:bg-white/[0.05] hover:bg-slate-200 dark:hover:bg-white/[0.09]'}`}
+                    >
+                      <CustomIntakeIcon iconKey={key} className={`w-5 h-5 ${intakeForm.icon === key ? 'text-violet-600 dark:text-violet-400' : 'text-slate-500 dark:text-white/50'}`} />
+                      <span className={`text-[9px] font-medium leading-none ${intakeForm.icon === key ? 'text-violet-600 dark:text-violet-400' : 'text-slate-400 dark:text-white/30'}`}>{label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Name */}
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-2">Navn</p>
+                <input
+                  type="text"
+                  placeholder="f.eks. Kreatin, Kaffe, Vitamin D..."
+                  value={intakeForm.name}
+                  onChange={e => setIntakeForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 dark:border-white/[0.1] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-violet-400"
+                />
+              </div>
+
+              {/* Unit + Goal row */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-2">Enhet</p>
+                  <input
+                    type="text"
+                    placeholder="g, mg, dose, kops..."
+                    value={intakeForm.unit}
+                    onChange={e => setIntakeForm(f => ({ ...f, unit: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 dark:border-white/[0.1] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-violet-400"
+                  />
+                </div>
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-white/40 mb-2">Dagsmål</p>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0.1"
+                    step="any"
+                    placeholder="1"
+                    value={intakeForm.goalPerDay}
+                    onChange={e => setIntakeForm(f => ({ ...f, goalPerDay: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 dark:border-white/[0.1] bg-slate-50 dark:bg-white/[0.04] px-4 py-3 text-sm text-slate-900 dark:text-white/90 placeholder-slate-400 dark:placeholder-white/25 focus:outline-none focus:ring-2 focus:ring-violet-400"
+                  />
+                </div>
+              </div>
+
+              {/* Save / Delete */}
+              <div className="flex gap-2 pt-1">
+                {editingIntake && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomIntakes(prev => prev.filter(i => i.id !== editingIntake.id));
+                      setShowAddIntakeModal(false);
+                    }}
+                    className="flex-none px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 text-sm font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                  >
+                    Slett
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = intakeForm.name.trim();
+                    if (!name) return;
+                    const goal = parseFloat(intakeForm.goalPerDay.replace(',', '.')) || 1;
+                    const unit = intakeForm.unit.trim() || 'dose';
+                    if (editingIntake) {
+                      setCustomIntakes(prev => prev.map(i => i.id === editingIntake.id
+                        ? { ...i, name, icon: intakeForm.icon, unit, goalPerDay: goal }
+                        : i
+                      ));
+                    } else {
+                      const newIntake: CustomIntake = { id: `ci_${Date.now()}`, name, icon: intakeForm.icon, unit, goalPerDay: goal };
+                      setCustomIntakes(prev => [...prev, newIntake]);
+                    }
+                    setShowAddIntakeModal(false);
+                  }}
+                  className="flex-1 py-3 rounded-xl bg-violet-500 text-white text-sm font-bold hover:bg-violet-600 transition-colors disabled:opacity-40"
+                  disabled={!intakeForm.name.trim()}
+                >
+                  {editingIntake ? 'Lagre endringer' : 'Legg til'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ===== NUTRIENT DETAIL MODAL ===== */}
