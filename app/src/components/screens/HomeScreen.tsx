@@ -38,9 +38,14 @@ import {
   Heart,
   FlaskConical,
   Check,
+  Pin,
+  Bookmark,
 } from 'lucide-react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
+import { notifyXP } from '../../lib/xpNotifier';
+import { rollVariableReward } from '../../lib/variableRewardEngine';
+import { haptics } from '../../lib/haptics';
 import {
   PROTEIN_GOAL_G,
   WATER_GOAL_ML,
@@ -76,6 +81,8 @@ import {
 import { generateCoachMessage, computeAdaptiveComplexity } from '../../lib/coachEngine';
 import CoachCard from '../coach/CoachCard';
 import TrajectoryChart from '../trajectory/TrajectoryChart';
+import GoalCelebrationOverlay from '../ui/GoalCelebrationOverlay';
+import RollingNumber from '../ui/RollingNumber';
 
 type MealTemplate = {
   id: MealId;
@@ -100,6 +107,7 @@ type SavedMealTemplate = {
   name: string;
   items: FoodEntry[];
   usageCount: number;
+  imageUrl?: string;
 };
 
 type UndoAction = {
@@ -225,6 +233,7 @@ const ALLERGY_LABELS: Record<string, string> = { gluten: 'Gluten', milk: 'Melk',
 
 const RING_RADIUS = 90;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+const RING_NOTCH = RING_CIRCUMFERENCE * 0.055; // gap reserved until protein + water are also hit
 const SWIPE_THRESHOLD = 45;
 const WATER_CUP_SIZE_ML = 250;
 const MAX_WATER_CUPS = 8;
@@ -449,6 +458,8 @@ export default function HomeScreen() {
   const [lastLoggedFood, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
   const [logEvents, setLogEvents] = useLocalStorageState<LogEvent[]>('home.logEvents.v1', EMPTY_LOG_EVENTS);
   const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', EMPTY_SAVED_MEAL_TEMPLATES);
+  const [savedMealsModalMealId, setSavedMealsModalMealId] = useState<MealId | null>(null);
+  const [templatePortions, setTemplatePortions] = useState<Record<string, number>>({});
   const [workoutSessions, setWorkoutSessions] = useLocalStorageState<WorkoutSession[]>('home.workoutSessions.v1', EMPTY_WORKOUT_SESSIONS);
   const [goalPopupDismissedByDate, setGoalPopupDismissedByDate] = useLocalStorageState<Record<string, true>>(
     'home.goalPopupDismissedByDate.v1',
@@ -457,6 +468,11 @@ export default function HomeScreen() {
   const [goalPopupShownByDate, setGoalPopupShownByDate] = useLocalStorageState<Record<string, true>>(
     'home.goalPopupShownByDate.v1',
     EMPTY_DATE_FLAGS,
+  );
+  type StreakFreezeState = { available: number; monthKey: string; frozenDays: string[] };
+  const [streakFreeze, setStreakFreeze] = useLocalStorageState<StreakFreezeState>(
+    'home.streakFreeze.v1',
+    { available: 1, monthKey: '', frozenDays: [] },
   );
   const [today, setToday] = useState<Date>(() => startOfDay(new Date()));
   const [dayOffset, setDayOffset] = useState(0);
@@ -478,6 +494,7 @@ export default function HomeScreen() {
   const [intakeForm, setIntakeForm] = useState<{ name: string; icon: string; unit: string; goalPerDay: string }>({ name: '', icon: 'pill', unit: 'dose', goalPerDay: '1' });
   const [scanHint, setScanHint] = useState<string | null>(null);
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
+  const [pendingInspirationRef, setPendingInspirationRef] = useState<{ postId: string; title: string; authorName: string; timestamp: number } | null>(null);
   const [pendingTemplate, setPendingTemplate] = useState<PendingTemplate | null>(null);
   const [smartPrompt, setSmartPrompt] = useState<string | null>(null);
   const [heroMessageIndex, setHeroMessageIndex] = useState(0);
@@ -506,6 +523,7 @@ export default function HomeScreen() {
   const [animatedConsumed, setAnimatedConsumed] = useState(0);
   const [animatedGoal, setAnimatedGoal] = useState(0);
   const [animatedTraining, setAnimatedTraining] = useState(0);
+  const [animatedProtein, setAnimatedProtein] = useState(0);
   const [flashedStat, setFlashedStat] = useState<'consumed' | 'goal' | 'training' | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ mealId: MealId; entryId: string; name: string } | null>(null);
   const [editingFood, setEditingFood] = useState<{
@@ -525,6 +543,36 @@ export default function HomeScreen() {
   const [manualFat, setManualFat] = useState('');
   const [headerMomentFlash, setHeaderMomentFlash] = useState(false);
   const [waterPourActive, setWaterPourActive] = useState(false);
+  const [pinnedSections, setPinnedSections] = useLocalStorageState<string[]>('home.pinnedSections.v1', []);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
+    try {
+      const pinned = JSON.parse(localStorage.getItem('home.pinnedSections.v1') || '[]') as string[];
+      return {
+        trening: pinned.includes('trening'),
+        vann: pinned.includes('vann'),
+        andre: pinned.includes('andre'),
+        kroppsvekt: pinned.includes('kroppsvekt'),
+        kosthold: pinned.includes('kosthold'),
+      };
+    } catch {
+      return { trening: false, vann: false, andre: false, kroppsvekt: false, kosthold: false };
+    }
+  });
+  const [speedDialOpen, setSpeedDialOpen] = useState(false);
+  const [showProteinCelebration, setShowProteinCelebration] = useState(false);
+  const [personalBests, setPersonalBests] = useLocalStorageState<{ highestProteinG: number; longestStreak: number }>(
+    'home.personalBests.v1',
+    { highestProteinG: 0, longestStreak: 0 },
+  );
+  const [personalBestBanner, setPersonalBestBanner] = useState<string | null>(null);
+  const [personalBestLeaving, setPersonalBestLeaving] = useState(false);
+  type Morgenbrev = { forDateKey: string; kcal: number; protein: number; readDateKey: string | null };
+  const [morgenbrev, setMorgenbrev] = useLocalStorageState<Morgenbrev | null>('home.morgenbrev.v1', null);
+  const [tomorrowForecastDismissed, setTomorrowForecastDismissed] = useLocalStorageState<string | null>('home.tomorrowForecastDismissed.v1', null);
+  const prevProteinRef = useRef<number>(0);
+  const pbShownRef = useRef<{ protein: boolean; streak: boolean }>({ protein: false, streak: false });
+  const halfwayHapticKeyRef = useRef<string>('');
+  const perfectRingHapticKeyRef = useRef<string>('');
   const swipeStartXRef = useRef<number | null>(null);
   const ringLastTapAtRef = useRef(0);
   const trainingFlexTimeoutRef = useRef<number | null>(null);
@@ -536,6 +584,7 @@ export default function HomeScreen() {
   const animatedConsumedRef = useRef(0);
   const animatedGoalRef = useRef(0);
   const animatedTrainingRef = useRef(0);
+  const animatedProteinRef = useRef(0);
   const statAnimationFrameRef = useRef<number | null>(null);
   const flashTimerRef = useRef<number | null>(null);
   const headerMomentTimerRef = useRef<number | null>(null);
@@ -693,7 +742,36 @@ export default function HomeScreen() {
   const progressDetailText = caloriesRemaining < 0
     ? `${kcalNumberFormat.format(consumed - netGoal)} kcal over dagens netto mal`
     : `${kcalNumberFormat.format(netGoal)} kcal netto mal i dag`;
-  const animatedStrokeDashoffset = RING_CIRCUMFERENCE - animatedProgressRatio * RING_CIRCUMFERENCE;
+  const proteinHit = protein >= PROTEIN_GOAL_G;
+  const waterHit = waterProgress >= 1;
+  const calorieHit = progressRatio >= 1;
+
+  // Direction-aware ±100 kcal "in range" — what counts as hitting the goal depends on goal mode
+  const _goalMode = profilePrefs.goalMode ?? 'maintenance';
+  const inCalorieRange = consumed > 0 && (
+    _goalMode === 'muscle_gain'
+      ? consumed >= netGoal - 100                          // gaining: not more than 100 under
+      : _goalMode === 'fat_loss'
+      ? consumed >= netGoal * 0.5 && consumed <= netGoal + 100  // losing: in range, not over by 100
+      : Math.abs(caloriesRemaining) <= 100                 // maintenance/recomp: ±100
+  );
+  const legendaryRing = proteinHit && waterHit && inCalorieRange; // replaces perfectRing for visual gold
+  const perfectRing = proteinHit && waterHit && calorieHit;       // kept for haptics / near-perfect logic
+
+  // Proximity to goal — drives side ring animations
+  const _kcalToGoal = _goalMode === 'muscle_gain'
+    ? Math.max(0, netGoal - consumed)   // how many kcal still needed to reach bulk target
+    : Math.max(0, caloriesRemaining);   // how many kcal remaining for fat_loss / maintenance
+  const goalProximity: 'cold' | 'warm' | 'hot' | 'burning' | 'perfect' | 'legendary' =
+    consumed === 0 ? 'cold' :
+    legendaryRing ? 'legendary' :
+    inCalorieRange ? 'perfect' :
+    _kcalToGoal < 50  ? 'burning' :
+    _kcalToGoal < 150 ? 'hot' :
+    _kcalToGoal < 300 ? 'warm' : 'cold';
+
+  const rawDashoffset = RING_CIRCUMFERENCE - animatedProgressRatio * RING_CIRCUMFERENCE;
+  const animatedStrokeDashoffset = (perfectRing || legendaryRing) ? rawDashoffset : Math.max(rawDashoffset, RING_NOTCH);
   const consistencyDropInsight = useMemo(
     () => smartDietPlan.behaviorInsights.find((insight) => insight === CONSISTENCY_DROP_INSIGHT) ?? null,
     [smartDietPlan.behaviorInsights],
@@ -838,11 +916,50 @@ export default function HomeScreen() {
     for (let i = 0; i < 365; i += 1) {
       const key = toDateKey(addDays(today, -i));
       const log = logsByDate[key];
-      if (!log || !isWithinCalorieRange(log, optimizedTargetKcal)) break;
+      const frozen = streakFreeze.frozenDays.includes(key);
+      if (!frozen && (!log || !isWithinCalorieRange(log, optimizedTargetKcal))) break;
       days += 1;
     }
     return days;
-  }, [logsByDate, today, optimizedTargetKcal]);
+  }, [logsByDate, today, optimizedTargetKcal, streakFreeze.frozenDays]);
+
+  // Month-reset: restore 1 freeze on the 1st of each new month
+  useEffect(() => {
+    const currentMonthKey = toDateKey(today).slice(0, 7);
+    if (streakFreeze.monthKey !== currentMonthKey) {
+      setStreakFreeze((prev) => ({ ...prev, available: 1, monthKey: currentMonthKey }));
+    }
+  }, [today]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Urgency signals — drive the flickering flame + loss counter
+  const todayHasNoLogs = isTodaySelected && Object.values(dayLog.meals).every((items) => items.length === 0);
+  const currentHour = new Date().getHours();
+  const flameAtRisk = todayHasNoLogs && streak > 0 && currentHour >= 20;
+  const showLossCounter = todayHasNoLogs && streak > 0 && currentHour >= 21;
+  const xpAtRisk = Math.max(30, Math.min(120, streak * 8));
+  const todayFrozen = streakFreeze.frozenDays.includes(todayKey);
+
+  // #8 — "Nesten perfekt dag" — 2/3 goals hit after 21:00
+  const goalsHitCount = [calorieHit, proteinHit, waterHit].filter(Boolean).length;
+  const nearPerfect = isTodaySelected && !perfectRing && goalsHitCount === 2 && currentHour >= 21;
+  const missingGoalLabel = !calorieHit ? 'kalorimålet' : !proteinHit ? 'proteinmålet' : 'vannmålet';
+
+
+  // #22 — Tomorrow forecast
+  const showTomorrowForecast = isTodaySelected && currentHour >= 20 && consumed > 0 && tomorrowForecastDismissed !== todayKey;
+
+  // Morgenbrev — write tonight's letter, reveal tomorrow morning
+  useEffect(() => {
+    if (!isTodaySelected || consumed <= 0 || currentHour < 20) return;
+    if (morgenbrev?.forDateKey === todayKey) return; // already written for today
+    setMorgenbrev({ forDateKey: todayKey, kcal: Math.round(consumed), protein: Math.round(protein), readDateKey: null });
+  }, [isTodaySelected, consumed, currentHour, todayKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const yesterdayKey = useMemo(() => toDateKey(addDays(today, -1)), [today]);
+  const showMorgenbrev = morgenbrev?.forDateKey === yesterdayKey
+    && morgenbrev.readDateKey !== todayKey
+    && currentHour >= 5 && currentHour < 11;
+
 
   const weeklyConsistencyScore = useMemo(() => {
     const passes = weeklyData.filter((day) => {
@@ -1000,6 +1117,7 @@ export default function HomeScreen() {
   useEffect(() => { animatedConsumedRef.current = animatedConsumed; }, [animatedConsumed]);
   useEffect(() => { animatedGoalRef.current = animatedGoal; }, [animatedGoal]);
   useEffect(() => { animatedTrainingRef.current = animatedTraining; }, [animatedTraining]);
+  useEffect(() => { animatedProteinRef.current = animatedProtein; }, [animatedProtein]);
 
   // Count-up animation for stat pills (Mål / Spist / Trening)
   useEffect(() => {
@@ -1012,12 +1130,14 @@ export default function HomeScreen() {
       setAnimatedConsumed(consumed);
       setAnimatedGoal(optimizedTargetKcal);
       setAnimatedTraining(dayLog.trainingKcal);
+      setAnimatedProtein(protein);
       return undefined;
     }
 
     const consumedStart = animatedConsumedRef.current;
     const goalStart = animatedGoalRef.current;
     const trainingStart = animatedTrainingRef.current;
+    const proteinStart = animatedProteinRef.current;
     const durationMs = 800;
     const startedAt = performance.now();
 
@@ -1033,6 +1153,7 @@ export default function HomeScreen() {
       setAnimatedConsumed(Math.round(consumedStart + (consumed - consumedStart) * eased));
       setAnimatedGoal(Math.round(goalStart + (optimizedTargetKcal - goalStart) * eased));
       setAnimatedTraining(Math.round(trainingStart + (dayLog.trainingKcal - trainingStart) * eased));
+      setAnimatedProtein(Math.round(proteinStart + (protein - proteinStart) * eased));
       if (t < 1) {
         statAnimationFrameRef.current = window.requestAnimationFrame(tick);
       } else {
@@ -1048,7 +1169,7 @@ export default function HomeScreen() {
         statAnimationFrameRef.current = null;
       }
     };
-  }, [consumed, optimizedTargetKcal, dayLog.trainingKcal, selectedDateKey]);
+  }, [consumed, optimizedTargetKcal, dayLog.trainingKcal, protein, selectedDateKey]);
 
   const historicalMealStats = useMemo(() => {
     const mealIds: MealId[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
@@ -1242,6 +1363,70 @@ export default function HomeScreen() {
     };
   }, []);
 
+  // Protein goal celebration — fires once per session when protein crosses the goal
+  useEffect(() => {
+    const proteinGoal = smartDietPlan.macros?.proteinG;
+    if (!proteinGoal || !isTodaySelected) { prevProteinRef.current = protein; return; }
+    const prev = prevProteinRef.current;
+    if (prev < proteinGoal && protein >= proteinGoal) {
+      setShowProteinCelebration(true);
+    }
+    prevProteinRef.current = protein;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [protein]);
+
+  const showPersonalBest = (msg: string) => {
+    setPersonalBestLeaving(false);
+    setPersonalBestBanner(msg);
+    // after 3s pulse, trigger exit animation then clear
+    setTimeout(() => setPersonalBestLeaving(true), 3000);
+    setTimeout(() => { setPersonalBestBanner(null); setPersonalBestLeaving(false); }, 3500);
+  };
+
+  // Personal best detection — protein record
+  useEffect(() => {
+    if (!isTodaySelected || protein <= 0) return;
+    if (!pbShownRef.current.protein && protein > personalBests.highestProteinG) {
+      pbShownRef.current.protein = true;
+      setPersonalBests((prev) => ({ ...prev, highestProteinG: Math.round(protein) }));
+      showPersonalBest(`Ny proteinrekord! ${Math.round(protein)}g i dag`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [protein]);
+
+  // Personal best detection — streak record
+  useEffect(() => {
+    if (!isTodaySelected || streak <= 1) return;
+    if (!pbShownRef.current.streak && streak > personalBests.longestStreak) {
+      pbShownRef.current.streak = true;
+      setPersonalBests((prev) => ({ ...prev, longestStreak: streak }));
+      showPersonalBest(`Ny strekrekord! ${streak} dager på rad`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streak]);
+
+  // ── Haptic milestone: 50% calorie goal ──────────────────────────────────────
+  useEffect(() => {
+    if (!isTodaySelected) return;
+    const key = `${selectedDateKey}:halfway`;
+    if (progressRatio >= 0.5 && halfwayHapticKeyRef.current !== key) {
+      halfwayHapticKeyRef.current = key;
+      haptics.medium();
+    }
+    // reset if user drops below (e.g. edits a meal)
+    if (progressRatio < 0.45) halfwayHapticKeyRef.current = '';
+  }, [progressRatio, isTodaySelected, selectedDateKey]);
+
+  // ── Haptic milestone: perfect ring (calorie + protein + water) ───────────────
+  useEffect(() => {
+    if (!isTodaySelected || !perfectRing) return;
+    const key = `${selectedDateKey}:perfect`;
+    if (perfectRingHapticKeyRef.current !== key) {
+      perfectRingHapticKeyRef.current = key;
+      haptics.strong();
+    }
+  }, [perfectRing, isTodaySelected, selectedDateKey]);
+
   useEffect(() => {
     const syncToday = () => setToday(startOfDay(new Date()));
     const onVisibilityChange = () => {
@@ -1412,9 +1597,7 @@ export default function HomeScreen() {
     });
   };
 
-  const reward = () => {
-    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(12);
-  };
+  const reward = () => haptics.light();
 
   const recordEvent = (event: Omit<LogEvent, 'id' | 'timestampIso'>) => {
     setLogEvents((prev) =>
@@ -1474,6 +1657,9 @@ export default function HomeScreen() {
     );
     maybeSuggestTemplate(mealId, nextMealItems);
     reward();
+    notifyXP(10, '+10 XP');
+    const bonus = rollVariableReward({ food, mealId, dayLog });
+    if (bonus) setTimeout(() => notifyXP(bonus.xp, bonus.label), 380);
     // Allergy check — warn but still log the food
     const userAllergies = profilePrefs.allergies ?? [];
     if (userAllergies.length > 0) {
@@ -1494,6 +1680,17 @@ export default function HomeScreen() {
     if (ringPumpTimerRef.current !== null) window.clearTimeout(ringPumpTimerRef.current);
     setRingPumping(true);
     ringPumpTimerRef.current = window.setTimeout(() => setRingPumping(false), 520);
+
+    // Feature #21 — check if user was recently inspired by a community recipe (within 90 minutes)
+    const lastViewed = localStorage.getItem('community.lastViewedRecipe.v1');
+    if (lastViewed) {
+      try {
+        const ref = JSON.parse(lastViewed) as { postId: string; title: string; authorName: string; timestamp: number };
+        if (Date.now() - ref.timestamp < 90 * 60 * 1000) {
+          setPendingInspirationRef(ref);
+        }
+      } catch {}
+    }
   };
 
   const openScanTab = (mode: 'photo' | 'barcode') => {
@@ -1927,6 +2124,19 @@ export default function HomeScreen() {
       .sort((a, b) => b.score - a.score || (a.id === 'kcal-adaptive' ? -1 : 1));
   }, [actionUsage, adaptiveLunchKcal, frequentProteinShake]);
 
+  const toggleSection = (id: string) =>
+    setExpandedSections((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const togglePin = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPinnedSections((prev) => {
+      if (prev.includes(id)) return prev.filter((s) => s !== id);
+      if (prev.length >= 3) return prev;
+      return [...prev, id];
+    });
+    setExpandedSections((prev) => ({ ...prev, [id]: true }));
+  };
+
   return (
     <div className="screen relative pb-32 overflow-x-hidden">
       {createPortal(
@@ -2221,6 +2431,28 @@ export default function HomeScreen() {
         document.body
       )}
 
+      {/* ===== MORGENBREV — revealed next morning ===== */}
+      {showMorgenbrev && morgenbrev && (
+        <button
+          type="button"
+          onClick={() => setMorgenbrev((prev) => prev ? { ...prev, readDateKey: todayKey } : null)}
+          className="mx-4 mt-3 mb-0 text-left rounded-2xl w-[calc(100%-32px)] morgenbrev-card"
+        >
+          <div className="flex items-start gap-3 p-4">
+            <span className="text-2xl shrink-0 mt-0.5">✉️</span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest mb-1">Morgenbrev</p>
+              <p className="text-[13px] font-semibold text-slate-800 dark:text-white/90 leading-snug">
+                I går: {kcalNumberFormat.format(morgenbrev.kcal)} kcal · {morgenbrev.protein}g protein
+              </p>
+              <p className="text-[12px] text-slate-500 dark:text-white/50 mt-1 leading-snug">
+                Klarer du å slå det i dag? Dagen er din.
+              </p>
+            </div>
+          </div>
+        </button>
+      )}
+
       {/* ===== COMPACT TOP BAR ===== */}
       <div className={`screen-header${identityHeaderModifier ? ` ${identityHeaderModifier}` : ''}${headerMomentFlash ? ' screen-header-moment-flash' : ''}`}>
         {/* Persistent header bottom wave */}
@@ -2282,9 +2514,48 @@ export default function HomeScreen() {
                   <span className="text-[11px] text-slate-400 dark:text-white/35 leading-tight truncate">{identityCaption}</span>
                   <span className="text-slate-300 dark:text-white/15 text-[10px] shrink-0">·</span>
                   <span className="flex items-center gap-0.5 text-[11px] text-slate-500 dark:text-white/40 font-medium shrink-0">
-                    <Flame className="h-3 w-3 text-orange-400" />
+                    <Flame className={`h-3 w-3 ${flameAtRisk ? 'flame-at-risk' : 'text-orange-400'}`} />
                     {streak > 0 ? `${streak}d` : 'Start!'}
+                    {todayFrozen && <span className="text-sky-400 ml-0.5">❄</span>}
                   </span>
+                  {showLossCounter && (
+                    <span className="flex items-center gap-0.5 text-[11px] font-bold text-red-500 dark:text-red-400 shrink-0 animate-pulse">
+                      –{xpAtRisk} XP
+                    </span>
+                  )}
+                  {isTodaySelected && flameAtRisk && !todayFrozen && streakFreeze.available > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStreakFreeze((prev) => ({
+                          ...prev,
+                          available: prev.available - 1,
+                          frozenDays: [...prev.frozenDays, todayKey],
+                        }));
+                      }}
+                      className="flex items-center gap-0.5 text-[10px] font-semibold text-sky-500 dark:text-sky-400 bg-sky-50 dark:bg-sky-500/10 rounded-full px-1.5 py-0.5 shrink-0"
+                      title="Bruk streak freeze"
+                    >
+                      ❄ Frys
+                    </button>
+                  )}
+                  {isTodaySelected && discipline.score > 0 && (
+                    <>
+                      <span className="text-slate-300 dark:text-white/15 text-[10px] shrink-0">·</span>
+                      <button
+                        type="button"
+                        onClick={() => { setShowSidebar(true); setSidebarView('menu'); }}
+                        className={`flex items-center gap-0.5 text-[11px] font-semibold shrink-0 rounded-full px-1.5 py-0.5 transition-colors ${
+                          discipline.score >= 80 ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10' :
+                          discipline.score >= 50 ? 'text-orange-500 dark:text-orange-400 bg-orange-50 dark:bg-orange-500/10' :
+                          'text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-500/10'
+                        }`}
+                        title="Disiplinpoeng"
+                      >
+                        {discipline.score} / 100
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -2346,10 +2617,21 @@ export default function HomeScreen() {
             ))}
           </div>
         )}
+        <div className="ring-proximity-wrapper">
+          {goalProximity !== 'cold' && (
+            <>
+              <span className={`ring-aura ring-aura-1 ring-aura-${goalProximity}`} aria-hidden="true" />
+              <span className={`ring-aura ring-aura-2 ring-aura-${goalProximity}`} aria-hidden="true" />
+              {(goalProximity === 'burning' || goalProximity === 'legendary') && (
+                <span className={`ring-aura ring-aura-3 ring-aura-${goalProximity}`} aria-hidden="true" />
+              )}
+            </>
+          )}
+
         <button
           type="button"
           onClick={onRingTap}
-          className={`progress-circle ${ringAnimating ? 'progress-circle-animating' : ''} ${ringPumping ? 'progress-circle-pumping' : ''}`}
+          className={`progress-circle ${ringAnimating ? 'progress-circle-animating' : ''} ${ringPumping ? 'progress-circle-pumping' : ''} ${legendaryRing ? 'progress-circle-perfect' : inCalorieRange ? 'progress-circle-green' : ''}`}
           title="Vis kaloridetaljer"
         >
           <svg width="220" height="220" viewBox="0 0 200 200">
@@ -2358,27 +2640,53 @@ export default function HomeScreen() {
                 <stop offset="0%" stopColor={ringColor} />
                 <stop offset="100%" stopColor={ringColor} stopOpacity="0.5" />
               </linearGradient>
+              <linearGradient id="ringGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#fbbf24" />
+                <stop offset="50%" stopColor="#f59e0b" />
+                <stop offset="100%" stopColor="#d97706" />
+              </linearGradient>
+              <linearGradient id="ringGreenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#4ade80" />
+                <stop offset="50%" stopColor="#22c55e" />
+                <stop offset="100%" stopColor="#16a34a" />
+              </linearGradient>
               <filter id="ringGlow">
                 <feGaussianBlur stdDeviation="4" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <filter id="ringGoldGlow">
+                <feGaussianBlur stdDeviation="6" result="blur"/>
+                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+              <filter id="ringGreenGlow">
+                <feGaussianBlur stdDeviation="5" result="blur"/>
                 <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
               </filter>
             </defs>
             <circle className="progress-circle-bg" cx="100" cy="100" r={RING_RADIUS} />
             <circle
               cx="100" cy="100" r={RING_RADIUS}
-              fill="none" stroke="url(#ringGrad)" strokeWidth="10" strokeLinecap="round"
-              strokeDasharray={RING_CIRCUMFERENCE} strokeDashoffset={animatedStrokeDashoffset}
-              filter="url(#ringGlow)"
+              fill="none"
+              stroke={legendaryRing ? 'url(#ringGoldGrad)' : inCalorieRange ? 'url(#ringGreenGrad)' : 'url(#ringGrad)'}
+              strokeWidth={legendaryRing ? 11 : inCalorieRange ? 10.5 : 10}
+              strokeLinecap="round"
+              strokeDasharray={RING_CIRCUMFERENCE}
+              strokeDashoffset={animatedStrokeDashoffset}
+              filter={legendaryRing ? 'url(#ringGoldGlow)' : inCalorieRange ? 'url(#ringGreenGlow)' : 'url(#ringGlow)'}
               className="progress-circle-meter"
-              style={{ transition: 'stroke 300ms ease' }}
+              style={{ transition: 'stroke 500ms ease, stroke-dashoffset 650ms cubic-bezier(0.34, 1.56, 0.64, 1), stroke-width 300ms ease' }}
             />
           </svg>
           <div className="progress-text">
-            <p className="progress-value">{kcalNumberFormat.format(animatedProgressValue)}</p>
+            <p className="progress-value">
+              <RollingNumber value={animatedProgressValue} format={kcalNumberFormat.format.bind(kcalNumberFormat)} />
+            </p>
             <p className="progress-label">{progressText}</p>
             <p className="progress-detail">{progressDetailText}</p>
           </div>
         </button>
+
+        </div>
 
         {/* Stats row */}
         <div className="hero-stats-row">
@@ -2388,7 +2696,9 @@ export default function HomeScreen() {
           </div>
           <div className="hero-stat-divider" />
           <div className={`hero-stat-pill hero-stat-pill-eaten text-center${flashedStat === 'consumed' ? ' hero-stat-flash' : ''}`}>
-            <p className="hero-stat-value text-orange-500 dark:text-orange-300">{kcalNumberFormat.format(animatedConsumed)}</p>
+            <p className="hero-stat-value text-orange-500 dark:text-orange-300">
+              <RollingNumber value={animatedConsumed} format={kcalNumberFormat.format.bind(kcalNumberFormat)} />
+            </p>
             <p className="hero-stat-label">Spist</p>
           </div>
           <div className="hero-stat-divider" />
@@ -2397,6 +2707,21 @@ export default function HomeScreen() {
             <p className="hero-stat-label">Trening</p>
           </div>
         </div>
+
+        {/* Calorie pacing indicator */}
+        {isTodaySelected && (() => {
+          const now = new Date();
+          const dayMinutes = now.getHours() * 60 + now.getMinutes();
+          const dayPct = Math.round((dayMinutes / 1440) * 100);
+          const kcalPct = Math.round(progressRatio * 100);
+          const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+          const isPacing = kcalPct <= dayPct + 10;
+          return (
+            <p className={`text-[11px] mt-3 text-center leading-snug ${isPacing ? 'text-slate-400 dark:text-white/30' : 'text-orange-500 dark:text-orange-400'}`}>
+              {timeStr} — {kcalPct}% av kalorier brukt på {dayPct}% av dagen
+            </p>
+          );
+        })()}
 
         {/* Macro row when expanded — tap to open nutrient detail */}
         {ringExpanded && (
@@ -2407,7 +2732,7 @@ export default function HomeScreen() {
             title="Se næringsstoffoversikt"
           >
             {[
-              { label: 'Protein', value: Math.round(protein), unit: 'g', target: smartDietPlan.macros?.proteinG ?? 120, color: '#3b82f6' },
+              { label: 'Protein', value: animatedProtein, unit: 'g', target: smartDietPlan.macros?.proteinG ?? 120, color: '#3b82f6' },
               { label: 'Karbo', value: Math.round(carbs), unit: 'g', target: smartDietPlan.macros?.carbsG ?? 200, color: '#f97316' },
               { label: 'Fett', value: Math.round(fat), unit: 'g', target: smartDietPlan.macros?.fatG ?? 70, color: '#a855f7' },
               { label: 'Snitt/uke', value: weeklyAverage, unit: '', target: optimizedTargetKcal, color: '#22c55e' },
@@ -2419,7 +2744,10 @@ export default function HomeScreen() {
                     className="absolute bottom-0 left-0 right-0 rounded-b-xl opacity-30 transition-all duration-700"
                     style={{ height: `${pct}%`, background: color }}
                   />
-                  <p className="relative text-lg font-bold text-slate-900 dark:text-white">{value}<span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">{unit}</span></p>
+                  <p className="relative text-lg font-bold text-slate-900 dark:text-white">
+                    <RollingNumber value={value} format={(n) => String(Math.round(n))} />
+                    <span className="text-xs text-slate-500 dark:text-white/40 ml-0.5">{unit}</span>
+                  </p>
                   <p className="relative text-[10px] text-slate-500 dark:text-white/35 mt-0.5">{label}</p>
                 </div>
               );
@@ -2430,6 +2758,80 @@ export default function HomeScreen() {
           </button>
         )}
       </div>
+
+      {/* ===== #8 — NESTEN PERFEKT DAG ===== */}
+      {nearPerfect && (
+        <div className="mx-4 mb-0 rounded-2xl overflow-hidden near-perfect-banner">
+          <div className="flex items-center gap-3 p-4">
+            <div className="near-perfect-ring-icon shrink-0">
+              <svg width="40" height="40" viewBox="0 0 40 40">
+                <circle cx="20" cy="20" r="16" fill="none" stroke="rgba(251,191,36,0.15)" strokeWidth="3" />
+                <circle
+                  cx="20" cy="20" r="16"
+                  fill="none" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 16}`}
+                  strokeDashoffset={`${2 * Math.PI * 16 * 0.055 + 2 * Math.PI * 16 * (1 / 3)}`}
+                  style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%' }}
+                />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-amber-700 dark:text-amber-300 leading-tight">Du er 1 steg unna en perfekt dag</p>
+              <p className="text-[11px] text-amber-600/80 dark:text-amber-400/70 mt-0.5 leading-tight">Logger du <span className="font-semibold">{missingGoalLabel}</span> nå, lukker ringen seg.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== #22 — TOMORROW FORECAST ===== */}
+      {showTomorrowForecast && (
+        <button
+          type="button"
+          onClick={() => setTomorrowForecastDismissed(todayKey)}
+          className="mx-4 mb-0 text-left rounded-2xl w-[calc(100%-32px)] tomorrow-forecast-card"
+        >
+          <div className="flex items-center justify-between p-4">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold text-slate-400 dark:text-white/30 uppercase tracking-widest mb-1">I morgen</p>
+              <p className="text-[13px] font-semibold text-slate-800 dark:text-white/90 leading-snug">
+                Du starter på 0. Klarer du å slå i dag?
+              </p>
+              <p className="text-[11px] text-slate-400 dark:text-white/35 mt-1">
+                I dag: {kcalNumberFormat.format(Math.round(consumed))} kcal · {Math.round(protein)}g protein
+              </p>
+            </div>
+            <span className="text-2xl shrink-0 ml-3">🌅</span>
+          </div>
+        </button>
+      )}
+
+      {/* ===== SUNDAY WEEKLY TEASER ===== */}
+      {isTodaySelected && today.getDay() === 0 && new Date().getHours() >= 18 && (() => {
+        const loggedDays = weeklyData.filter((d) => d.consumed > 0).length;
+        const bestDay = weeklyData
+          .filter((d) => d.consumed > 0)
+          .reduce(
+            (b, d) => (d.consumed > b.consumed ? d : b),
+            { label: '—', consumed: 0 } as (typeof weeklyData)[0],
+          );
+        return (
+          <button
+            type="button"
+            onClick={() => { setShowSidebar(true); setSidebarView('logg'); }}
+            className="mx-4 mb-0 text-left rounded-2xl bg-gradient-to-r from-indigo-50 to-violet-50 dark:from-indigo-500/[0.09] dark:to-violet-500/[0.09] border border-indigo-100 dark:border-indigo-400/20 p-4 w-[calc(100%-32px)]"
+          >
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest">Ukesoppsummering</p>
+              <ChevronDown className="w-3.5 h-3.5 text-indigo-400 dark:text-indigo-500 -rotate-90" />
+            </div>
+            <p className="text-sm font-semibold text-slate-800 dark:text-white/85 leading-snug">
+              {loggedDays}/7 dager logget · Snitt {weeklyAverage} kcal
+              {bestDay.consumed > 0 ? ` · Best ${bestDay.label}` : ''}
+            </p>
+            <p className="text-[11px] text-slate-400 dark:text-white/30 mt-1">Trykk for full uksoversikt</p>
+          </button>
+        );
+      })()}
 
       {/* ===== WEEKLY BAR CHART ===== */}
       <div className="weekly-card">
@@ -2529,10 +2931,15 @@ export default function HomeScreen() {
           <button
             type="button"
             onClick={() => handleQuickAdd('repeat-last')}
-            className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed flex flex-col items-center gap-0.5"
             disabled={isPastSelectedDay || !lastLoggedFood}
           >
-            Gjenta sist
+            <span>Gjenta sist</span>
+            {lastLoggedFood && (
+              <span className="text-[10px] font-normal text-slate-400 dark:text-white/30 truncate max-w-full leading-tight">
+                {lastLoggedFood.name} {lastLoggedFood.kcal} kcal · {lastLoggedFood.protein}g P
+              </span>
+            )}
           </button>
           <button
             type="button"
@@ -2566,16 +2973,19 @@ export default function HomeScreen() {
             </div>
             {/* Protein */}
             {smartDietPlan.macros ? (
-              <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Protein</p>
+              <div className="rounded-xl bg-blue-50/60 dark:bg-blue-500/[0.07] border border-blue-100 dark:border-blue-400/[0.15] p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-semibold text-blue-500 dark:text-blue-400 uppercase tracking-wider">Protein</p>
+                  <p className="text-[10px] text-blue-400/70 dark:text-blue-300/40 font-medium">{Math.round(protein)} / {smartDietPlan.macros.proteinG}g</p>
+                </div>
                 <p className={`text-3xl font-bold leading-none ${protein >= smartDietPlan.macros.proteinG ? 'text-emerald-500' : 'text-gray-900 dark:text-white/90'}`}>
                   {protein >= smartDietPlan.macros.proteinG ? Math.round(protein) : `${Math.round(smartDietPlan.macros.proteinG - protein)}`}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">{protein >= smartDietPlan.macros.proteinG ? 'g nådd!' : 'g igjen'}</p>
-                <div className="mt-2 h-1.5 rounded-full bg-gray-200 dark:bg-white/[0.08] overflow-hidden">
+                <div className="mt-2 h-2.5 rounded-full bg-blue-100 dark:bg-blue-500/[0.12] overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${protein >= smartDietPlan.macros.proteinG ? 'bg-emerald-400' : 'bg-orange-500'}`}
-                    style={{ width: `${Math.min((protein / smartDietPlan.macros.proteinG) * 100, 100)}%` }}
+                    className={`h-full rounded-full transition-all duration-700 ${protein >= smartDietPlan.macros.proteinG ? 'bg-emerald-400' : 'bg-blue-500'}`}
+                    style={{ width: `${Math.min((protein / smartDietPlan.macros.proteinG) * 100, 100)}%`, boxShadow: protein > 0 ? '0 0 8px rgba(59,130,246,0.4)' : 'none' }}
                   />
                 </div>
               </div>
@@ -2643,7 +3053,7 @@ export default function HomeScreen() {
           const isExpanded = expandedMeals[meal.id];
           const MealIcon = meal.icon;
           const mealHistory = historicalMealStats[meal.id];
-          const mealTemplatesForSlot = savedMealTemplates.filter((template) => template.mealId === meal.id).slice(0, 2);
+          const mealTemplatesForSlot = savedMealTemplates.filter((template) => template.mealId === meal.id).slice(0, 3);
           const suggestedKcal = mealHistory.avgKcal > 0 ? mealHistory.avgKcal : meal.recommended;
           const groupedItems = groupFoodsByName(items);
           const previewItems = groupedItems.slice(0, 2);
@@ -2670,17 +3080,18 @@ export default function HomeScreen() {
                   </div>
                   <div className="text-left min-w-0">
                     <h3 className="font-semibold text-slate-900 dark:text-white/90">{meal.id === 'breakfast' ? t('home.meals.breakfast') : meal.id === 'lunch' ? t('home.meals.lunch') : meal.id === 'dinner' ? t('home.meals.dinner') : t('home.meals.snacks')}</h3>
-                    <p className="text-sm text-slate-500 dark:text-white/40">{items.length ? `${totals.kcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}</p>
-                    {mealHistory.avgKcal > 0 && (
-                      <p className="text-[11px] text-slate-400 dark:text-white/30">Vanlig: ~{mealHistory.avgKcal} kcal</p>
-                    )}
                     {items.length > 0 ? (
-                      <p className="text-xs text-slate-500 dark:text-white/40 mt-1 truncate">
-                        {previewItems.map((item) => `${item.name}${item.count > 1 ? ` x${item.count}` : ''}`).join(' + ')}
-                        {extraPreviewCount > 0 ? ` + ${extraPreviewCount} til` : ''}
-                      </p>
+                      <>
+                        <p className="text-sm text-slate-500 dark:text-white/40">{totals.kcal} kcal</p>
+                        <p className="text-xs text-slate-400 dark:text-white/30 mt-0.5 truncate">
+                          {previewItems.map((item) => `${item.name}${item.count > 1 ? ` x${item.count}` : ''}`).join(' + ')}
+                          {extraPreviewCount > 0 ? ` + ${extraPreviewCount} til` : ''}
+                        </p>
+                      </>
                     ) : (
-                      <p className="text-xs text-slate-400 dark:text-white/30 mt-1">Trykk for å legge til mat</p>
+                      <p className="text-sm text-slate-400 dark:text-white/30">
+                        {mealHistory.avgKcal > 0 ? `Vanlig: ~${mealHistory.avgKcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -2689,13 +3100,20 @@ export default function HomeScreen() {
 
               {isExpanded && (
                 <div className="mt-3 pt-3 border-t border-slate-200 dark:border-white/[0.06]">
-                  {mealHistory.lastThree.length > 0 && (
-                    <p className="text-[11px] text-slate-500 dark:text-white/40 mb-2">
-                      Last 3: {mealHistory.lastThree.join(' / ')} kcal
-                    </p>
+                  {/* Kcal progress bar — only when items logged */}
+                  {items.length > 0 && (
+                    <div className="mb-3">
+                      <div className="h-1 w-full rounded-full bg-slate-100 dark:bg-white/[0.06] overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${totals.kcal > meal.recommended ? 'bg-orange-400' : 'bg-emerald-400'}`}
+                          style={{ width: `${Math.min(100, Math.round((totals.kcal / meal.recommended) * 100))}%` }}
+                        />
+                      </div>
+                    </div>
                   )}
 
-                  {!items.length && (
+                  {/* Auto-prefill — only when nothing logged yet and we have history */}
+                  {!items.length && mealHistory.avgKcal > 0 && (
                     <button
                       type="button"
                       onClick={() =>
@@ -2712,52 +3130,54 @@ export default function HomeScreen() {
                           `predictive:${meal.id}`,
                         )
                       }
-                      className="mb-3 w-full text-left text-xs px-3 py-2 rounded-lg bg-blue-500/10 text-blue-400"
+                      className="mb-3 w-full text-left bg-orange-500/[0.06] border border-orange-500/15 text-orange-500 text-xs rounded-xl px-3 py-2.5 flex items-center justify-between gap-2"
                       disabled={isPastSelectedDay}
                     >
-                      Du pleier ca {suggestedKcal} kcal her. Trykk for auto prefill.
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm leading-none">✨</span>
+                        <span>Fyll inn vanlig mengde · ~{suggestedKcal} kcal</span>
+                      </div>
+                      {mealHistory.lastThree.length > 0 && (
+                        <div className="flex gap-1">
+                          {mealHistory.lastThree.map((k, i) => (
+                            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/10 text-orange-400">{k}</span>
+                          ))}
+                        </div>
+                      )}
                     </button>
                   )}
 
-                  {items.length === 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {quickSuggestions.map((quick) => (
-                        <button
-                          key={quick.id}
-                          type="button"
-                          onClick={() => addFoodToMeal(meal.id, quick)}
-                          className="text-xs px-3 py-1.5 rounded-full bg-orange-500/10 text-orange-400"
-                          disabled={isPastSelectedDay}
-                        >
-                          + {quick.name}
-                        </button>
-                      ))}
-                      {mealTemplatesForSlot.map((template) => (
-                        <button
-                          key={template.id}
-                          type="button"
-                          onClick={() => {
-                            template.items.forEach((item) => addFoodToMeal(meal.id, { ...item, id: createFoodId() }, `template:${template.id}`));
-                            setSavedMealTemplates((prev) =>
-                              prev.map((entry) => (
-                                entry.id === template.id
-                                  ? { ...entry, usageCount: (entry.usageCount ?? 0) + 1 }
-                                  : entry
-                              )),
-                            );
-                          }}
-                          className="text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400"
-                          disabled={isPastSelectedDay}
-                        >
-                          + {template.name}
-                        </button>
-                      ))}
-                      {quickSuggestions.length === 0 && mealTemplatesForSlot.length === 0 && (
-                        <p className="text-xs text-slate-400 dark:text-white/30">Ingen forslag enda. Logg første matvare for å bygge forslag.</p>
-                      )}
-                    </div>
-                  )}
+                  {/* Lagrede måltider trigger — always visible */}
+                  {(() => {
+                    const slotTemplates = savedMealTemplates.filter(t => t.mealId === meal.id);
+                    const hasTemplates = slotTemplates.length > 0;
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSavedMealsModalMealId(meal.id);
+                          setTemplatePortions({});
+                        }}
+                        className={`mb-3 w-full flex items-center justify-between rounded-xl border px-3 py-2.5 text-left transition-colors ${hasTemplates ? 'border-slate-200 dark:border-white/[0.06]' : 'border-dashed border-slate-200 dark:border-white/[0.06] opacity-60'}`}
+                        disabled={isPastSelectedDay}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${hasTemplates ? 'bg-emerald-500/10' : 'bg-slate-100 dark:bg-white/[0.04]'}`}>
+                            <Bookmark className={`w-3.5 h-3.5 ${hasTemplates ? 'text-emerald-500' : 'text-slate-400 dark:text-white/30'}`} />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800 dark:text-white/80">Lagrede måltider</p>
+                            <p className="text-xs text-slate-400 dark:text-white/30">
+                              {hasTemplates ? `${slotTemplates.length} lagret` : 'Ingen lagret ennå'}
+                            </p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 dark:text-white/30" />
+                      </button>
+                    );
+                  })()}
 
+                  {/* Logged items */}
                   {items.length > 0 && (
                     <div>
                       <div className="mb-2 flex flex-wrap gap-1.5 text-[11px]">
@@ -2780,19 +3200,23 @@ export default function HomeScreen() {
                     </div>
                   )}
 
+                  {/* Action buttons — improved hierarchy */}
                   <div className="mt-3 grid grid-cols-2 gap-2">
+                    {/* Hurtigfoto — full width, primary */}
                     <button
                       type="button"
                       onClick={() => addFoodToMeal(meal.id, createQuickPhotoEntry(meal.id, suggestedKcal))}
-                      className="rounded-lg bg-orange-500/100 text-white text-xs px-3 py-2 font-medium"
+                      className="col-span-2 rounded-xl bg-orange-500 text-white text-sm px-4 py-2.5 font-semibold w-full flex items-center justify-center gap-2"
                       title="Hurtigfoto"
                       disabled={isPastSelectedDay}
                     >
-                      + Hurtigfoto ({roundToNearest(suggestedKcal, 10)})
+                      <Camera className="w-4 h-4" />
+                      Hurtigfoto ({roundToNearest(suggestedKcal, 10)})
                     </button>
+                    {/* Kamera + Strekkode side by side */}
                     <button
                       type="button"
-                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      className="rounded-xl border border-slate-200 dark:border-white/[0.06] text-slate-500 dark:text-white/40 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
                       onClick={() => setScanHint('AI food recognition blir hovedmodus her.')}
                       title="AI matgjenkjenning"
                       disabled={isPastSelectedDay}
@@ -2802,7 +3226,7 @@ export default function HomeScreen() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      className="rounded-xl border border-slate-200 dark:border-white/[0.06] text-slate-500 dark:text-white/40 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
                       onClick={() => setScanHint('Strekkodeskanner klar for rask logging.')}
                       title="Strekkodeskanner"
                       disabled={isPastSelectedDay}
@@ -2810,9 +3234,10 @@ export default function HomeScreen() {
                       <ScanLine className="w-3.5 h-3.5" />
                       Strekkode
                     </button>
+                    {/* Manuell — full width ghost */}
                     <button
                       type="button"
-                      className="rounded-lg border border-orange-500/20 text-orange-400 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
+                      className="col-span-2 rounded-xl border border-slate-200 dark:border-white/[0.06] text-slate-500 dark:text-white/40 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
                       onClick={() => {
                         setManualAddMeal(meal.id);
                         setManualName('');
@@ -2834,6 +3259,151 @@ export default function HomeScreen() {
           );
         })}
       </div>
+
+      {savedMealsModalMealId !== null && createPortal((() => {
+        const modalTemplates = savedMealTemplates.filter(t => t.mealId === savedMealsModalMealId);
+        const mealLabel = savedMealsModalMealId === 'breakfast' ? 'Frokost' : savedMealsModalMealId === 'lunch' ? 'Lunsj' : savedMealsModalMealId === 'dinner' ? 'Middag' : 'Snacks';
+        return (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end" style={{ background: 'rgba(0,0,0,0.45)' }} onClick={() => setSavedMealsModalMealId(null)}>
+            <div
+              className="bg-white dark:bg-[#1a1a1a] rounded-t-3xl max-h-[80vh] flex flex-col overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-9 h-1 rounded-full bg-slate-200 dark:bg-white/10" />
+              </div>
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-white/[0.06]">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900 dark:text-white/90">Lagrede måltider</h2>
+                  <p className="text-xs text-slate-400 dark:text-white/30">{mealLabel} · {modalTemplates.length} lagret</p>
+                </div>
+                <button type="button" onClick={() => setSavedMealsModalMealId(null)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center">
+                  <X className="w-4 h-4 text-slate-500 dark:text-white/40" />
+                </button>
+              </div>
+
+              {/* Scrollable list */}
+              <div className="overflow-y-auto flex-1 px-4 py-3 space-y-3">
+                {modalTemplates.map(template => {
+                  const portion = templatePortions[template.id] ?? 100;
+                  const multiplier = portion / 100;
+                  const templateKcal = Math.round(template.items.reduce((s, i) => s + (i.kcal ?? 0), 0) * multiplier);
+                  const templateProtein = Math.round(template.items.reduce((s, i) => s + (i.protein ?? 0), 0) * multiplier);
+                  const templateCarbs = Math.round(template.items.reduce((s, i) => s + (i.carbs ?? 0), 0) * multiplier);
+                  const templateFat = Math.round(template.items.reduce((s, i) => s + (i.fat ?? 0), 0) * multiplier);
+
+                  return (
+                    <div key={template.id} className="rounded-2xl border border-slate-200 dark:border-white/[0.06] overflow-hidden">
+                      {/* Photo placeholder */}
+                      {template.imageUrl ? (
+                        <img src={template.imageUrl} alt={template.name} className="w-full h-32 object-cover" />
+                      ) : (
+                        <div className="w-full h-28 bg-gradient-to-br from-orange-50 to-amber-100 dark:from-orange-900/20 dark:to-amber-900/10 flex items-center justify-center">
+                          <span className="text-5xl select-none">
+                            {savedMealsModalMealId === 'breakfast' ? '🍳' : savedMealsModalMealId === 'lunch' ? '🥗' : savedMealsModalMealId === 'dinner' ? '🍽️' : '🍎'}
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Info + controls */}
+                      <div className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <p className="font-semibold text-slate-900 dark:text-white/90">{template.name}</p>
+                            <div className="flex gap-2 mt-0.5">
+                              <span className="text-xs text-slate-500 dark:text-white/40">{templateKcal} kcal</span>
+                              <span className="text-xs text-slate-400 dark:text-white/30">·</span>
+                              <span className="text-xs text-slate-500 dark:text-white/40">{templateProtein}g P</span>
+                              <span className="text-xs text-slate-400 dark:text-white/30">·</span>
+                              <span className="text-xs text-slate-500 dark:text-white/40">{templateCarbs}g K</span>
+                              <span className="text-xs text-slate-400 dark:text-white/30">·</span>
+                              <span className="text-xs text-slate-500 dark:text-white/40">{templateFat}g F</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Portion adjuster */}
+                        <div className="flex items-center gap-3 mb-3">
+                          <p className="text-xs text-slate-500 dark:text-white/40 flex-shrink-0">Mengde</p>
+                          <div className="flex items-center gap-1 bg-slate-100 dark:bg-white/[0.06] rounded-xl p-0.5 flex-1">
+                            <button
+                              type="button"
+                              onClick={() => setTemplatePortions(prev => ({ ...prev, [template.id]: Math.max(25, (prev[template.id] ?? 100) - 25) }))}
+                              className="w-8 h-8 rounded-lg bg-white dark:bg-white/[0.08] shadow-sm text-slate-700 dark:text-white/70 font-bold text-lg flex items-center justify-center flex-shrink-0"
+                            >
+                              −
+                            </button>
+                            <div className="flex-1 text-center">
+                              <input
+                                type="number"
+                                min={10}
+                                max={400}
+                                value={portion}
+                                onChange={e => setTemplatePortions(prev => ({ ...prev, [template.id]: Math.max(10, Math.min(400, Number(e.target.value) || 100)) }))}
+                                className="w-16 text-center text-sm font-semibold text-slate-900 dark:text-white/90 bg-transparent focus:outline-none"
+                              />
+                              <span className="text-xs text-slate-400 dark:text-white/30 block -mt-0.5">gram / %</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setTemplatePortions(prev => ({ ...prev, [template.id]: Math.min(400, (prev[template.id] ?? 100) + 25) }))}
+                              className="w-8 h-8 rounded-lg bg-white dark:bg-white/[0.08] shadow-sm text-slate-700 dark:text-white/70 font-bold text-lg flex items-center justify-center flex-shrink-0"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Quick portion chips */}
+                        <div className="flex gap-1.5 mb-3">
+                          {[50, 75, 100, 150, 200].map(p => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setTemplatePortions(prev => ({ ...prev, [template.id]: p }))}
+                              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${portion === p ? 'bg-orange-500 border-orange-500 text-white' : 'border-slate-200 dark:border-white/[0.08] text-slate-500 dark:text-white/40'}`}
+                            >
+                              {p}%
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Add button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            template.items.forEach(item =>
+                              addFoodToMeal(savedMealsModalMealId, {
+                                ...item,
+                                id: createFoodId(),
+                                kcal: Math.round((item.kcal ?? 0) * multiplier),
+                                protein: Math.round((item.protein ?? 0) * multiplier),
+                                carbs: Math.round((item.carbs ?? 0) * multiplier),
+                                fat: Math.round((item.fat ?? 0) * multiplier),
+                              }, `template:${template.id}`)
+                            );
+                            setSavedMealTemplates(prev =>
+                              prev.map(e => e.id === template.id ? { ...e, usageCount: (e.usageCount ?? 0) + 1 } : e)
+                            );
+                            setSavedMealsModalMealId(null);
+                            setTemplatePortions({});
+                          }}
+                          className="w-full rounded-xl bg-orange-500 text-white text-sm font-semibold py-2.5"
+                        >
+                          Legg til {templateKcal} kcal
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body)}
 
       {pendingTemplate && (
         <div className="mx-4 mb-3 rounded-xl bg-emerald-500/10 p-3">
@@ -2873,67 +3443,105 @@ export default function HomeScreen() {
       )}
 
       <div className="card">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
-              <Dumbbell className="w-5 h-5 text-gray-600" />
+        <div className={`flex items-center gap-1 ${expandedSections.trening ? 'mb-4' : ''}`}>
+          <button
+            type="button"
+            onClick={() => toggleSection('trening')}
+            className="flex-1 flex items-center justify-between min-w-0"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-gray-100 flex items-center justify-center">
+                <Dumbbell className="w-5 h-5 text-gray-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white/90">Trening</h3>
             </div>
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white/90">Trening</h3>
-          </div>
-          <div className="text-right">
-            <p className={`text-2xl font-bold leading-none ${hasTrainingLogged ? 'text-gray-900 dark:text-white/90' : 'text-gray-400'}`}>
-              {dayLog.trainingKcal}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">kcal forbrent</p>
-          </div>
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <p className={`text-2xl font-bold leading-none ${hasTrainingLogged ? 'text-gray-900 dark:text-white/90' : 'text-gray-400'}`}>
+                  {dayLog.trainingKcal}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">kcal forbrent</p>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.trening ? '' : '-rotate-90'}`} />
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => togglePin('trening', e)}
+            className={`p-1.5 rounded-lg transition-colors shrink-0 ${pinnedSections.includes('trening') ? 'text-orange-500' : 'text-slate-300 dark:text-white/20'}`}
+            title={pinnedSections.includes('trening') ? 'Fjern festing' : pinnedSections.length >= 3 ? 'Maks 3 festet' : 'Fest seksjon'}
+          >
+            <Pin className="w-3.5 h-3.5" />
+          </button>
         </div>
-        {hasTrainingLogged && (
+        {expandedSections.trening && hasTrainingLogged && (
           <p className="text-sm text-gray-600 dark:text-white/60 mb-4">
             {selectedDayWorkouts.length > 0
               ? `${selectedDayWorkouts.length} økt${selectedDayWorkouts.length > 1 ? 'er' : ''} logget`
               : 'Trening registrert'}
           </p>
         )}
-        <button
-          type="button"
-          onClick={openWorkoutModal}
-          disabled={isPastSelectedDay}
-          className="w-full rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm py-3 px-4 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Logg treningsøkt
-        </button>
-        {selectedDayWorkouts.length > 0 && (
-          <div className="mt-3 space-y-1">
-            {selectedDayWorkouts.map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                onClick={triggerTrainingFlex}
-                className="w-full text-left text-sm text-gray-700 dark:text-white/70 flex justify-between items-center gap-3 border-b border-gray-100 dark:border-white/[0.06] px-1 py-2 last:border-b-0"
-              >
-                <span className="truncate">{session.exerciseName} ({session.durationMin} min)</span>
-                <span className="font-semibold text-gray-900 dark:text-white/90 shrink-0">{session.caloriesBurned} kcal</span>
-              </button>
-            ))}
-          </div>
+        {expandedSections.trening && (
+          <>
+            <button
+              type="button"
+              onClick={openWorkoutModal}
+              disabled={isPastSelectedDay}
+              className="w-full rounded-xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-bold text-sm py-3 px-4 transition-colors duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Logg treningsøkt
+            </button>
+            {selectedDayWorkouts.length > 0 && (
+              <div className="mt-3 space-y-1">
+                {selectedDayWorkouts.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={triggerTrainingFlex}
+                    className="w-full text-left text-sm text-gray-700 dark:text-white/70 flex justify-between items-center gap-3 border-b border-gray-100 dark:border-white/[0.06] px-1 py-2 last:border-b-0"
+                  >
+                    <span className="truncate">{session.exerciseName} ({session.durationMin} min)</span>
+                    <span className="font-semibold text-gray-900 dark:text-white/90 shrink-0">{session.caloriesBurned} kcal</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
       <div id="water-section" className="card">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
-              <Droplets className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+        <div className={`flex items-center gap-1 ${expandedSections.vann ? 'mb-2' : ''}`}>
+          <button
+            type="button"
+            onClick={() => toggleSection('vann')}
+            className="flex-1 flex items-center justify-between min-w-0"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-cyan-100 flex items-center justify-center">
+                <Droplets className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Vann</h3>
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Vann</h3>
-          </div>
-          <div className="text-right">
-            <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{hydrationMl} / {WATER_GOAL_ML} ml</p>
-            <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
-          </div>
+            <div className="flex items-center gap-2">
+              <div className="text-right">
+                <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{hydrationMl} / {WATER_GOAL_ML} ml</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
+              </div>
+              <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.vann ? '' : '-rotate-90'}`} />
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => togglePin('vann', e)}
+            className={`p-1.5 rounded-lg transition-colors shrink-0 ${pinnedSections.includes('vann') ? 'text-cyan-500' : 'text-slate-300 dark:text-white/20'}`}
+            title={pinnedSections.includes('vann') ? 'Fjern festing' : pinnedSections.length >= 3 ? 'Maks 3 festet' : 'Fest seksjon'}
+          >
+            <Pin className="w-3.5 h-3.5" />
+          </button>
         </div>
 
-        <div className="mt-4">
+        {expandedSections.vann && <div className="mt-4">
           {/* 8 Water Bottle Icons */}
           <div className="flex justify-center items-center gap-2 mb-4">
             {Array.from({ length: MAX_WATER_CUPS }, (_, index) => {
@@ -3040,15 +3648,44 @@ export default function HomeScreen() {
               </button>
             </div>
           )}
-        </div>
+        </div>}
       </div>
 
       {/* Andre inntak — customizable */}
       <div className="card">
           {/* Header */}
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-bold text-slate-900 dark:text-white/90">Andre inntak</h3>
-            {!isPastSelectedDay && (
+          <div className={`flex items-center gap-1 ${expandedSections.andre ? 'mb-3' : ''}`}>
+            <button
+              type="button"
+              onClick={() => toggleSection('andre')}
+              className="flex-1 flex items-center justify-between min-w-0"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-white/[0.07] flex items-center justify-center">
+                  <Pill className="w-5 h-5 text-slate-500 dark:text-white/50" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white/90">Andre inntak</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                {customIntakes.length > 0 && (
+                  <span className="text-xs text-slate-400 dark:text-white/30 font-medium">{customIntakes.length} stk</span>
+                )}
+                <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.andre ? '' : '-rotate-90'}`} />
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => togglePin('andre', e)}
+              className={`p-1.5 rounded-lg transition-colors shrink-0 ${pinnedSections.includes('andre') ? 'text-slate-600 dark:text-white/60' : 'text-slate-300 dark:text-white/20'}`}
+              title={pinnedSections.includes('andre') ? 'Fjern festing' : pinnedSections.length >= 3 ? 'Maks 3 festet' : 'Fest seksjon'}
+            >
+              <Pin className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {expandedSections.andre && <>
+          {!isPastSelectedDay && (
+            <div className="flex justify-end mb-2">
               <button
                 type="button"
                 onClick={() => {
@@ -3061,9 +3698,8 @@ export default function HomeScreen() {
               >
                 <Plus className="w-4 h-4" />
               </button>
-            )}
-          </div>
-
+            </div>
+          )}
           {customIntakes.length === 0 ? (
             /* Empty state */
             <button
@@ -3159,39 +3795,58 @@ export default function HomeScreen() {
               })}
             </div>
           )}
+          </>}
       </div>
 
       {/* Weight Graph Section */}
       <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
-              <Scale className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+        <div className={`flex items-center gap-1 ${expandedSections.kroppsvekt ? 'mb-4' : ''}`}>
+          <button
+            type="button"
+            onClick={() => toggleSection('kroppsvekt')}
+            className="flex-1 flex items-center justify-between min-w-0"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
+                <Scale className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kroppsvekt</h3>
+                {journeyWeightSeries.length >= 2 && (() => {
+                  const first = journeyWeightSeries[0].value;
+                  const last = journeyWeightSeries[journeyWeightSeries.length - 1].value;
+                  const delta = last - first;
+                  return (
+                    <p className={`text-xs font-medium ${delta < 0 ? 'text-green-600 dark:text-green-400' : delta > 0 ? 'text-red-500' : 'text-slate-500 dark:text-white/40'}`}>
+                      {delta > 0 ? '+' : ''}{delta.toFixed(1)} kg totalt
+                    </p>
+                  );
+                })()}
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kroppsvekt</h3>
-              {journeyWeightSeries.length >= 2 && (() => {
-                const first = journeyWeightSeries[0].value;
-                const last = journeyWeightSeries[journeyWeightSeries.length - 1].value;
-                const delta = last - first;
-                return (
-                  <p className={`text-xs font-medium ${delta < 0 ? 'text-green-600 dark:text-green-400' : delta > 0 ? 'text-red-500' : 'text-slate-500 dark:text-white/40'}`}>
-                    {delta > 0 ? '+' : ''}{delta.toFixed(1)} kg totalt
+            <div className="flex items-center gap-2">
+              {journeyWeightSeries.length > 0 && (
+                <div className="text-right">
+                  <p className="text-xl font-bold text-slate-900 dark:text-white/90">
+                    {journeyWeightSeries[journeyWeightSeries.length - 1].value.toFixed(1)} kg
                   </p>
-                );
-              })()}
+                  <p className="text-xs text-slate-500 dark:text-white/40">Siste måling</p>
+                </div>
+              )}
+              <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.kroppsvekt ? '' : '-rotate-90'}`} />
             </div>
-          </div>
-          {journeyWeightSeries.length > 0 && (
-            <div className="text-right">
-              <p className="text-xl font-bold text-slate-900 dark:text-white/90">
-                {journeyWeightSeries[journeyWeightSeries.length - 1].value.toFixed(1)} kg
-              </p>
-              <p className="text-xs text-slate-500 dark:text-white/40">Siste måling</p>
-            </div>
-          )}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => togglePin('kroppsvekt', e)}
+            className={`p-1.5 rounded-lg transition-colors shrink-0 ${pinnedSections.includes('kroppsvekt') ? 'text-orange-500' : 'text-slate-300 dark:text-white/20'}`}
+            title={pinnedSections.includes('kroppsvekt') ? 'Fjern festing' : pinnedSections.length >= 3 ? 'Maks 3 festet' : 'Fest seksjon'}
+          >
+            <Pin className="w-3.5 h-3.5" />
+          </button>
         </div>
 
+        {expandedSections.kroppsvekt && <>
         {/* Improved Weight Chart */}
         {journeyWeightSeries.length > 0 ? (() => {
           const values = journeyWeightSeries.map((p) => p.value);
@@ -3304,17 +3959,39 @@ export default function HomeScreen() {
           <Scale className="w-4 h-4" />
           Logg vekt
         </button>
+        </>}
       </div>
 
       {/* Diet / Goal Section */}
       <div className="card bg-slate-100/70 dark:bg-white/[0.03] border-slate-200 dark:border-white/[0.06]">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center">
-            <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-          </div>
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kosthold & Mål</h3>
+        <div className={`flex items-center gap-1 ${expandedSections.kosthold ? 'mb-4' : ''}`}>
+          <button
+            type="button"
+            onClick={() => toggleSection('kosthold')}
+            className="flex-1 flex items-center justify-between min-w-0"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kosthold & Mål</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 dark:text-white/30">{netGoal} kcal</span>
+              <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.kosthold ? '' : '-rotate-90'}`} />
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => togglePin('kosthold', e)}
+            className={`p-1.5 rounded-lg transition-colors shrink-0 ${pinnedSections.includes('kosthold') ? 'text-emerald-500' : 'text-slate-300 dark:text-white/20'}`}
+            title={pinnedSections.includes('kosthold') ? 'Fjern festing' : pinnedSections.length >= 3 ? 'Maks 3 festet' : 'Fest seksjon'}
+          >
+            <Pin className="w-3.5 h-3.5" />
+          </button>
         </div>
 
+        {expandedSections.kosthold && <>
         {/* Goal toggle */}
         <div className="grid grid-cols-2 gap-2 mb-4">
           {([
@@ -3378,6 +4055,7 @@ export default function HomeScreen() {
             );
           })()}
         </div>
+        </>}
       </div>
 
       {/* ===== NUTRITION TWIN / TRAJECTORY ===== */}
@@ -4260,6 +4938,134 @@ export default function HomeScreen() {
           animation: flexArmEmoji 1.15s ease-in-out infinite;
         }
 
+        /* ── Morgenbrev ──────────────────────────────── */
+        .morgenbrev-card {
+          background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.06) 100%);
+          border: 1px solid rgba(99,102,241,0.20);
+          animation: morgenbrevGlow 4s ease-in-out infinite;
+        }
+        .dark .morgenbrev-card {
+          background: linear-gradient(135deg, rgba(99,102,241,0.10) 0%, rgba(139,92,246,0.07) 100%);
+          border-color: rgba(99,102,241,0.18);
+        }
+        @keyframes morgenbrevGlow {
+          0%,100% { box-shadow: 0 2px 12px rgba(99,102,241,0.08); }
+          50%      { box-shadow: 0 2px 20px rgba(99,102,241,0.18); }
+        }
+
+        /* ── Tomorrow forecast ────────────────────────── */
+        .tomorrow-forecast-card {
+          background: rgba(15,23,42,0.03);
+          border: 1px solid rgba(15,23,42,0.08);
+          transition: background 200ms ease;
+        }
+        .tomorrow-forecast-card:active { background: rgba(15,23,42,0.07); }
+        .dark .tomorrow-forecast-card {
+          background: rgba(255,255,255,0.03);
+          border-color: rgba(255,255,255,0.07);
+        }
+        .dark .tomorrow-forecast-card:active { background: rgba(255,255,255,0.07); }
+
+        /* ── Near-perfect banner ─────────────────────── */
+        .near-perfect-banner {
+          background: linear-gradient(135deg, rgba(251,191,36,0.12) 0%, rgba(245,158,11,0.08) 100%);
+          border: 1px solid rgba(251,191,36,0.30);
+          animation: nearPerfectPulse 3s ease-in-out infinite;
+        }
+        .dark .near-perfect-banner {
+          background: linear-gradient(135deg, rgba(251,191,36,0.10) 0%, rgba(245,158,11,0.06) 100%);
+          border-color: rgba(251,191,36,0.20);
+        }
+        @keyframes nearPerfectPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+          50%       { box-shadow: 0 0 16px 2px rgba(251,191,36,0.18); }
+        }
+
+        /* ── Perfect ring — gold glow ────────────────── */
+        @keyframes perfectRingPulse {
+          0%, 100% { filter: drop-shadow(0 0 12px rgba(251,191,36,0.55)); }
+          50%       { filter: drop-shadow(0 0 28px rgba(245,158,11,0.80)); }
+        }
+        .progress-circle-perfect {
+          animation: perfectRingPulse 2.4s ease-in-out infinite;
+        }
+        .progress-circle-perfect.progress-circle-pumping {
+          animation: ringPump 500ms cubic-bezier(0.34, 1.56, 0.64, 1) both,
+                     perfectRingPulse 2.4s ease-in-out 500ms infinite;
+        }
+
+        @keyframes greenRingPulse {
+          0%, 100% { filter: drop-shadow(0 0 8px rgba(34,197,94,0.45)); }
+          50%       { filter: drop-shadow(0 0 20px rgba(34,197,94,0.70)); }
+        }
+        .progress-circle-green {
+          animation: greenRingPulse 2.8s ease-in-out infinite;
+        }
+
+        /* ── Ring proximity aura pulses ─────────────────────── */
+        .ring-proximity-wrapper {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .ring-aura {
+          position: absolute;
+          width: 220px;
+          height: 220px;
+          border-radius: 50%;
+          pointer-events: none;
+          border: 2px solid transparent;
+        }
+
+        @keyframes ringAuraPulse {
+          0%   { transform: scale(0.96); opacity: 0.7; }
+          100% { transform: scale(1.38); opacity: 0; }
+        }
+
+        /* warm — slow, blue-grey */
+        .ring-aura-warm { border-color: rgba(148,163,184,0.5); }
+        .ring-aura-warm.ring-aura-1 { animation: ringAuraPulse 2.8s ease-out infinite; }
+        .ring-aura-warm.ring-aura-2 { animation: ringAuraPulse 2.8s ease-out 1.4s infinite; }
+
+        /* hot — medium, orange */
+        .ring-aura-hot { border-color: rgba(249,115,22,0.55); }
+        .ring-aura-hot.ring-aura-1 { animation: ringAuraPulse 1.8s ease-out infinite; }
+        .ring-aura-hot.ring-aura-2 { animation: ringAuraPulse 1.8s ease-out 0.9s infinite; }
+
+        /* burning — fast, red-orange, thicker */
+        .ring-aura-burning { border-color: rgba(239,68,68,0.65); border-width: 3px; }
+        .ring-aura-burning.ring-aura-1 { animation: ringAuraPulse 1.1s ease-out infinite; }
+        .ring-aura-burning.ring-aura-2 { animation: ringAuraPulse 1.1s ease-out 0.37s infinite; }
+        .ring-aura-burning.ring-aura-3 { animation: ringAuraPulse 1.1s ease-out 0.74s infinite; }
+
+        /* perfect — soft green */
+        .ring-aura-perfect { border-color: rgba(34,197,94,0.55); }
+        .ring-aura-perfect.ring-aura-1 { animation: ringAuraPulse 2.2s ease-out infinite; }
+        .ring-aura-perfect.ring-aura-2 { animation: ringAuraPulse 2.2s ease-out 1.1s infinite; }
+
+        /* legendary — gold, wider travel */
+        @keyframes ringAuraLegendary {
+          0%   { transform: scale(0.96); opacity: 0.85; }
+          100% { transform: scale(1.55); opacity: 0; }
+        }
+        .ring-aura-legendary { border-color: rgba(251,191,36,0.70); border-width: 2.5px; }
+        .ring-aura-legendary.ring-aura-1 { animation: ringAuraLegendary 2s ease-out infinite; }
+        .ring-aura-legendary.ring-aura-2 { animation: ringAuraLegendary 2s ease-out 0.67s infinite; }
+        .ring-aura-legendary.ring-aura-3 { animation: ringAuraLegendary 2s ease-out 1.34s infinite; }
+
+        /* ── Flame at risk ───────────────────────────── */
+        @keyframes flameFlicker {
+          0%,100% { opacity: 1;   color: #fb923c; filter: drop-shadow(0 0 3px #f97316); }
+          18%     { opacity: 0.35; color: #dc2626; filter: none; }
+          36%     { opacity: 0.85; color: #ef4444; filter: drop-shadow(0 0 2px #dc2626); }
+          54%     { opacity: 0.25; color: #b91c1c; filter: none; }
+          72%     { opacity: 0.7;  color: #f97316; filter: drop-shadow(0 0 4px #f97316); }
+        }
+        .flame-at-risk {
+          animation: flameFlicker 1.4s ease-in-out infinite;
+        }
+
         /* ── Ring pump ───────────────────────────────── */
         @keyframes ringPump {
           0%   { transform: scale(1); }
@@ -4590,6 +5396,136 @@ export default function HomeScreen() {
       )}
 
       {/* Delete confirmation sheet */}
+      {/* ===== FLOATING SPEED DIAL ===== */}
+      {isTodaySelected && !isPastSelectedDay && createPortal(
+        <>
+          {speedDialOpen && (
+            <div
+              className="fixed inset-0 z-[3900]"
+              onClick={() => setSpeedDialOpen(false)}
+              aria-hidden="true"
+            />
+          )}
+          <div className="fixed bottom-20 right-4 z-[4000] flex flex-col items-end gap-2">
+            {speedDialOpen && (
+              <div className="flex flex-col items-end gap-2 mb-1">
+                {lastLoggedFood && (
+                  <div className="flex items-center gap-2">
+                    <div className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-white/80 leading-tight">{lastLoggedFood.name}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-white/40">{lastLoggedFood.kcal} kcal · {lastLoggedFood.protein}g P</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { handleQuickAdd('repeat-last'); setSpeedDialOpen(false); }}
+                      className="w-11 h-11 rounded-full bg-slate-700 dark:bg-slate-600 text-white shadow-lg flex items-center justify-center"
+                      title="Gjenta sist"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <span className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-white/80">Manuelt</span>
+                  <button
+                    type="button"
+                    onClick={() => { setManualAddMeal('snacks'); setSpeedDialOpen(false); }}
+                    className="w-11 h-11 rounded-full bg-slate-500 dark:bg-slate-600 text-white shadow-lg flex items-center justify-center"
+                    title="Manuelt"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-white/80">Strekkode</span>
+                  <button
+                    type="button"
+                    onClick={() => { openScanTab('barcode'); setSpeedDialOpen(false); }}
+                    className="w-11 h-11 rounded-full bg-orange-400 dark:bg-orange-500 text-white shadow-lg flex items-center justify-center"
+                    title="Strekkode"
+                  >
+                    <ScanLine className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-white/80">Ta bilde</span>
+                  <button
+                    type="button"
+                    onClick={() => { openScanTab('photo'); setSpeedDialOpen(false); }}
+                    className="w-11 h-11 rounded-full bg-orange-500 dark:bg-orange-500 text-white shadow-lg flex items-center justify-center"
+                    title="Ta bilde"
+                  >
+                    <Camera className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setSpeedDialOpen((o) => !o)}
+              className={`w-14 h-14 rounded-full shadow-xl flex items-center justify-center transition-all duration-200 ${speedDialOpen ? 'bg-slate-700 dark:bg-slate-600 rotate-45' : 'bg-orange-500 hover:bg-orange-600'}`}
+              title={speedDialOpen ? 'Lukk' : 'Logg mat'}
+              aria-label="Logg mat"
+            >
+              <Plus className="w-6 h-6 text-white" />
+            </button>
+          </div>
+        </>,
+        document.body,
+      )}
+
+      {showProteinCelebration && createPortal(
+        <GoalCelebrationOverlay
+          emoji="💪"
+          title="Proteinmål nådd!"
+          subtitle={`${Math.round(protein)}g protein i dag`}
+          onDismiss={() => setShowProteinCelebration(false)}
+        />,
+        document.body,
+      )}
+
+      {personalBestBanner && createPortal(
+        <div className="fixed top-0 left-0 right-0 z-[8000] flex justify-center pointer-events-none">
+          <div
+            className="m-3 rounded-2xl bg-amber-400 dark:bg-amber-500 text-amber-950 text-sm font-bold px-5 py-3 flex items-center gap-2 shadow-xl"
+            style={{ animation: personalBestLeaving
+              ? 'pbBannerOut 0.5s cubic-bezier(0.4,0,1,1) both'
+              : 'pbBannerIn 0.45s cubic-bezier(0.34,1.56,0.64,1) both, pbBannerPulse 1.2s ease-in-out 0.45s 2'
+            }}
+          >
+            <span role="img" aria-label="trophy">🏆</span>
+            <span>{personalBestBanner}</span>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Feature #21 — inspired-by bottom sheet */}
+      {pendingInspirationRef && createPortal(
+        <div className="inspiration-sheet-overlay" onClick={() => setPendingInspirationRef(null)}>
+          <div className="inspiration-sheet" onClick={(e) => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">Ble du inspirert?</p>
+            <p className="text-xs text-gray-500 mt-1">"{pendingInspirationRef.title}" av {pendingInspirationRef.authorName}</p>
+            <div className="flex gap-2 mt-4">
+              <button
+                className="inspiration-yes-btn"
+                onClick={() => {
+                  const counts = JSON.parse(localStorage.getItem('community.inspiredCounts.v1') ?? '{}') as Record<string, number>;
+                  counts[pendingInspirationRef.postId] = (counts[pendingInspirationRef.postId] ?? 0) + 1;
+                  localStorage.setItem('community.inspiredCounts.v1', JSON.stringify(counts));
+                  localStorage.removeItem('community.lastViewedRecipe.v1');
+                  setPendingInspirationRef(null);
+                }}
+              >
+                Ja, gi dem +1 🙏
+              </button>
+              <button className="inspiration-no-btn" onClick={() => setPendingInspirationRef(null)}>Nei</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
       {pendingDelete && createPortal(
         <div className="fixed inset-0 z-[2000] flex items-end justify-center bg-black/40 p-4" onClick={() => setPendingDelete(null)}>
           <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>

@@ -1,4 +1,4 @@
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import React, { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   AlertCircle,
@@ -18,6 +18,9 @@ import {
   Users,
   X,
   Zap,
+  Dumbbell,
+  Beef,
+  Moon,
 } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
@@ -34,6 +37,8 @@ import {
   startOfWeekMonday,
   toDateKey,
   type DayLog,
+  type FoodEntry,
+  type MealId,
 } from '../../lib/disciplineEngine';
 import { getBadgeStyleById } from '../../lib/trophySystem';
 import { useT } from '../../lib/i18n';
@@ -108,6 +113,14 @@ type DailyCheckIn = {
 type JoinedChallenge = {
   challengeId: ChallengeId;
   joinedAt: number;
+};
+
+type SavedMealTemplate = {
+  id: string;
+  mealId: MealId;
+  name: string;
+  items: FoodEntry[];
+  usageCount: number;
 };
 
 type FloatingFabPosition = {
@@ -322,6 +335,11 @@ export default function CommunityScreen() {
   const [savedPostIds, setSavedPostIds] = useLocalStorageState<string[]>('community.savedPosts.v1', EMPTY_SAVED_POSTS);
   const [triedPostIds, setTriedPostIds] = useLocalStorageState<string[]>('community.triedPosts.v1', EMPTY_TRIED_POSTS);
   const [joinedChallenges, setJoinedChallenges] = useLocalStorageState<JoinedChallenge[]>('community.challenges.v1', EMPTY_JOINED_CHALLENGES);
+  const [todaysChallengeCompleted, setTodaysChallengeCompleted] = useLocalStorageState<boolean>(`community.todaysChallenge.${toDateKey(startOfDay(new Date()))}.v1`, false);
+  const [savedMealTemplates, setSavedMealTemplates] = useLocalStorageState<SavedMealTemplate[]>('home.savedMealTemplates.v1', []);
+
+  const [importToast, setImportToast] = useState<string | null>(null);
+  const importToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [fabPortalEl, setFabPortalEl] = useState<Element | null>(null);
 
@@ -350,6 +368,14 @@ export default function CommunityScreen() {
   // Reaction / save animation tracking — stores "postId-reactionKey" or "save-postId"
   const [animatingKey, setAnimatingKey] = useState<string | null>(null);
 
+  // Feature #8 — flying emoji on reaction
+  const [flyingEmoji, setFlyingEmoji] = useState<{ postId: string; token: string; id: number } | null>(null);
+  const flyingEmojiTimerRef = useRef<number | null>(null);
+
+  // Feature #10 — long-press tooltip on reaction buttons
+  const [reactionTooltip, setReactionTooltip] = useState<{ postId: string; key: ReactionKey; x: number; y: number } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const fabOpenTimerRef = useRef<number | null>(null);
   const fabSuppressClickRef = useRef(false);
@@ -361,6 +387,32 @@ export default function CommunityScreen() {
     originY: number;
     moved: boolean;
   } | null>(null);
+
+  const [checkInAnimKeys, setCheckInAnimKeys] = useState<Record<CheckInType, number>>({ trained: 0, hit_protein: 0, in_calories: 0, slept_7h: 0 });
+
+  // Feature #13 — animated progress bars
+  const [barsAnimated, setBarsAnimated] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setBarsAnimated(true), 100);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  // Feature #19 — pod shame opt-in
+  const [podShameOptIn, setPodShameOptIn] = useLocalStorageState<boolean>('community.podShameOptIn.v1', false);
+  const [podShameDismissed, setPodShameDismissed] = useState(false);
+  const [showPodShameBanner, setShowPodShameBanner] = useState(false);
+
+  // Feature #20 — contribution score
+  const [contributionScore, setContributionScore] = useLocalStorageState<number>('community.contributionScore.v1', 0);
+
+  // Feature #21 — inspired-by counts
+  const [inspiredCounts, setInspiredCounts] = useLocalStorageState<Record<string, number>>('community.inspiredCounts.v1', {});
+
+  // Feature #22 — weekly pod story
+  const thisWeekStoryKey = `community.storyShown.${toDateKey(startOfWeekMonday(new Date()))}.v1`;
+  const [storyShown, setStoryShown] = useLocalStorageState<boolean>(thisWeekStoryKey, false);
+  const [showStory, setShowStory] = useState(false);
+  const [storyScreen, setStoryScreen] = useState(0);
 
   const displayName = profile.name?.trim() || 'You';
   const todayKey = useMemo(() => toDateKey(startOfDay(new Date())), []);
@@ -422,7 +474,36 @@ export default function CommunityScreen() {
     if (toastTimerRef.current !== null && typeof window !== 'undefined') {
       window.clearTimeout(toastTimerRef.current);
     }
+    if (flyingEmojiTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(flyingEmojiTimerRef.current);
+    }
+    if (longPressTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(longPressTimerRef.current);
+    }
   }, []);
+
+
+  // Feature #22 — story trigger on Sunday evening
+  useEffect(() => {
+    const now = new Date();
+    if (now.getDay() === 0 && now.getHours() >= 18 && !storyShown) {
+      setShowStory(true);
+    }
+  }, [storyShown]);
+
+  // Feature #22 — story auto-advance
+  useEffect(() => {
+    if (!showStory) return undefined;
+    const id = window.setTimeout(() => {
+      if (storyScreen < 2) {
+        setStoryScreen((s) => s + 1);
+      } else {
+        setShowStory(false);
+        setStoryShown(true);
+      }
+    }, 3000);
+    return () => window.clearTimeout(id);
+  }, [showStory, storyScreen, setStoryShown]);
 
   // ─── Toast helper ─────────────────────────────────────────────────────────────
 
@@ -565,6 +646,36 @@ export default function CommunityScreen() {
     return new Set([...autoDetected, ...todayCheckIn.types]);
   }, [autoDetected, todayCheckIn.types]);
 
+  // Feature #19 — pod shame interval check (must be after activeCheckIns is defined)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (
+        podShameOptIn &&
+        new Date().getHours() >= 21 &&
+        activeCheckIns.size === 0 &&
+        !podShameDismissed &&
+        podMemberIds.size > 0
+      ) {
+        setShowPodShameBanner(true);
+      }
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [podShameOptIn, activeCheckIns, podShameDismissed, podMemberIds]);
+
+  const prevActiveCheckInsRef = useRef<Set<CheckInType>>(new Set());
+  useEffect(() => {
+    const prev = prevActiveCheckInsRef.current;
+    const newlyAdded = ([...activeCheckIns] as CheckInType[]).filter(k => !prev.has(k));
+    if (newlyAdded.length > 0) {
+      setCheckInAnimKeys(cur => {
+        const next = { ...cur };
+        newlyAdded.forEach(k => { next[k] = (next[k] || 0) + 1; });
+        return next;
+      });
+    }
+    prevActiveCheckInsRef.current = new Set(activeCheckIns);
+  }, [activeCheckIns]);
+
   function toggleCheckIn(type: CheckInType) {
     // Auto-detected ones are read-only; manual ones can be toggled
     if (autoDetected.has(type)) return;
@@ -639,6 +750,18 @@ export default function CommunityScreen() {
     return { daysLogged, daysWorkout, avgScore, streak: currentStreak };
   }, [logsByDate, workoutSessions, currentStreak]);
 
+  // Feature #22 — weekly pod stats for story
+  const weeklyPodStats = useMemo(() => {
+    const weekStart = startOfWeekMonday(new Date());
+    const totalMembers = podMemberIds.size + 1;
+    let totalDays = 0;
+    for (let i = 0; i < 7; i++) {
+      const key = toDateKey(addDays(weekStart, i));
+      if (logsByDate[key] && Object.values(logsByDate[key].meals).some((m) => m.length > 0)) totalDays++;
+    }
+    return { totalDays, totalMembers, targetDays: totalMembers * 7 };
+  }, [logsByDate, podMemberIds]);
+
   // ─── Derived: challenge progress ────────────────────────────────────────────
 
   const challengeProgress = useMemo((): Record<ChallengeId, number> => {
@@ -692,6 +815,30 @@ export default function CommunityScreen() {
       recipe_share: Math.min(myRecipes, 3),
     };
   }, [logsByDate, workoutSessions, posts, activeUserId]);
+
+  // ─── Social proof: live logger count + local rank ───────────────────────────
+
+  const liveLoggerCount = useMemo(() => {
+    const now = new Date();
+    const hour = now.getHours();
+    const bucket = Math.floor(hour * 4 + now.getMinutes() / 15);
+    const seed = (bucket * 2654435761 + now.getDay() * 1234567) >>> 0;
+    const noise = seed % 29;
+    const base =
+      hour >= 7  && hour < 9  ? 55 :
+      hour >= 12 && hour < 14 ? 72 :
+      hour >= 17 && hour < 20 ? 63 :
+      hour >= 20 && hour < 22 ? 41 :
+      18;
+    return base + noise;
+  }, []);
+
+  const localRank = useMemo(() => {
+    const weekSeed = (Math.floor(Date.now() / (7 * 24 * 3600 * 1000)) * 1000003) >>> 0;
+    const jitter = weekSeed % 4;
+    const base = currentStreak >= 14 ? 1 : currentStreak >= 7 ? 3 : currentStreak >= 3 ? 6 : 11;
+    return base + jitter;
+  }, [currentStreak]);
 
   // ─── Derived: leaderboard ───────────────────────────────────────────────────
 
@@ -750,6 +897,57 @@ export default function CommunityScreen() {
   const latestTodayWorkout = useMemo(() => {
     return workoutSessions.filter((s) => s.dateKey === todayKey).sort((a, b) => b.durationMin - a.durationMin)[0] ?? null;
   }, [todayKey, workoutSessions]);
+
+  // ─── Feature #7 — auto-generated activity cards ──────────────────────────────
+
+  type ActivityCard = { id: string; kind: 'activity'; text: string; icon: string };
+
+  const activityCards = useMemo((): ActivityCard[] => {
+    const cards: ActivityCard[] = [];
+
+    // Streak card
+    if (currentStreak >= 2) {
+      cards.push({
+        id: 'activity-streak',
+        kind: 'activity',
+        text: `${profile.name?.trim() || 'Du'} logget ${currentStreak} dager på rad 🔥`,
+        icon: '🔥',
+      });
+    }
+
+    // Active pod challenge card
+    const activePodChallenge = joinedChallenges.length > 0
+      ? CHALLENGE_DEFS.find((def) => joinedChallenges.some((jc) => jc.challengeId === def.id))
+      : null;
+    if (activePodChallenge) {
+      cards.push({
+        id: `activity-challenge-${activePodChallenge.id}`,
+        kind: 'activity',
+        text: `Pod-utfordringen '${activePodChallenge.title}' resetter mandag`,
+        icon: '🏆',
+      });
+    }
+
+    // Protein days this week
+    const weekStart = startOfWeekMonday(new Date());
+    let proteinDays = 0;
+    for (let i = 0; i < 7; i++) {
+      const key = toDateKey(addDays(weekStart, i));
+      const log = logsByDate[key];
+      if (log && getDailyProtein(log) >= PROTEIN_GOAL_G) proteinDays += 1;
+    }
+    if (proteinDays > 0) {
+      cards.push({
+        id: 'activity-protein',
+        kind: 'activity',
+        text: `${proteinDays} brukere nådde proteinmålet denne uken`,
+        icon: '💪',
+      });
+    }
+
+    return cards.slice(0, 3);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStreak, profile.name, joinedChallenges, logsByDate]);
 
   // ─── Post modal handlers ─────────────────────────────────────────────────────
 
@@ -900,6 +1098,7 @@ export default function CommunityScreen() {
         const exists = prev.some((p) => p.id === result.data.id);
         return exists ? prev : [result.data, ...prev];
       });
+      setContributionScore((s) => s + 5);
       closeAddPostModal();
       showToast('Innlegg publisert! 🎉');
       // Switch to feed and scroll to top so user sees their new post
@@ -930,6 +1129,15 @@ export default function CommunityScreen() {
       const key = `react-${postId}-${reaction}`;
       setAnimatingKey(key);
       window.setTimeout(() => setAnimatingKey(null), 320);
+
+      // Feature #8 — fly animation
+      const token = reactionConfig.find((r) => r.key === reaction)?.token ?? reaction;
+      if (flyingEmojiTimerRef.current !== null) window.clearTimeout(flyingEmojiTimerRef.current);
+      setFlyingEmoji({ postId, token, id: Date.now() });
+      flyingEmojiTimerRef.current = window.setTimeout(() => {
+        setFlyingEmoji(null);
+        flyingEmojiTimerRef.current = null;
+      }, 600);
     }
     // Optimistic update
     setPosts((prev) =>
@@ -942,6 +1150,7 @@ export default function CommunityScreen() {
       }),
     );
     setMyReactions((prev) => ({ ...prev, [postId]: isToggleOff ? undefined : reaction }));
+    if (!isToggleOff) setContributionScore((s) => s + 1);
     await communityService.setReaction(postId, activeUserId, isToggleOff ? null : reaction);
   }
 
@@ -956,15 +1165,41 @@ export default function CommunityScreen() {
     // Optimistic update
     setSavedPostIds((prev) => alreadySaved ? prev.filter((id) => id !== postId) : [...prev, postId]);
     setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, saves: Math.max(0, (p.saves ?? 0) + (alreadySaved ? -1 : 1)) } : p));
+    if (!alreadySaved) setContributionScore((s) => s + 2);
     await communityService.toggleSave(postId, activeUserId);
   }
 
   async function toggleTry(postId: string) {
     const alreadyTried = triedPostIds.includes(postId);
-    // Optimistic update
     setTriedPostIds((prev) => alreadyTried ? prev.filter((id) => id !== postId) : [...prev, postId]);
     setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, tries: Math.max(0, (p.tries ?? 0) + (alreadyTried ? -1 : 1)) } : p));
-    // ← DB_HOOK
+
+    if (!alreadyTried) {
+      const post = posts.find((p) => p.id === postId);
+      if (post && (post.kind === 'recipe' || post.kind === 'meal_win') && post.recipeTitle) {
+        const templateId = `community-${postId}`;
+        const alreadyImported = savedMealTemplates.some((t) => t.id === templateId);
+        if (!alreadyImported) {
+          const items: FoodEntry[] = (post.recipeIngredients ?? []).map((ing, i) => ({
+            id: `${templateId}-ing-${i}`,
+            name: ing,
+            kcal: 0, protein: 0, carbs: 0, fat: 0,
+          }));
+          const template: SavedMealTemplate = {
+            id: templateId,
+            mealId: 'lunch',
+            name: post.recipeTitle,
+            items,
+            usageCount: 0,
+          };
+          setSavedMealTemplates((prev) => [template, ...prev]);
+          if (importToastTimerRef.current) clearTimeout(importToastTimerRef.current);
+          setImportToast(`"${post.recipeTitle}" lagt til i Måltider`);
+          importToastTimerRef.current = setTimeout(() => setImportToast(null), 3000);
+        }
+      }
+    }
+
     await communityService.toggleTry(postId, activeUserId);
   }
 
@@ -1000,12 +1235,62 @@ export default function CommunityScreen() {
 
   // ─── Hub Tab ─────────────────────────────────────────────────────────────────
 
+  const CHECK_IN_ICON: Record<CheckInType, React.ReactNode> = {
+    trained: <Dumbbell className="w-4 h-4" />,
+    hit_protein: <Beef className="w-4 h-4" />,
+    in_calories: <Target className="w-4 h-4" />,
+    slept_7h: <Moon className="w-4 h-4" />,
+  };
+  const CHECK_IN_ANIM_CLASS: Record<CheckInType, string> = {
+    trained: 'checkin-anim-flex', hit_protein: 'checkin-anim-bounce',
+    in_calories: 'checkin-anim-spin', slept_7h: 'checkin-anim-bloom',
+  };
+
+  function getDailyTaskText(challenge: string): string {
+    const c = challenge.toLowerCase();
+    if (c.includes('log') || c.includes('meal')) return 'Logg alle 4 måltider i dag';
+    if (c.includes('protein')) return 'Nå proteinmålet ditt i dag';
+    if (c.includes('workout') || c.includes('strength') || c.includes('session') || c.includes('train')) return 'Fullfør en treningsøkt i dag';
+    if (c.includes('streak') || c.includes('stay') || c.includes('calorie')) return 'Hold streaken levende i dag';
+    return 'Logg et måltid i dag';
+  }
+
   function renderHubTab() {
     const podCount = podMemberIds.size + 1;
-    const podCheckedIn = podTrainedToday.size + (activeCheckIns.has('trained') ? 1 : 0);
+
+    const podTotalPossible = Math.max(1, podCount * 4);
+    const othersContrib = podTrainedToday.size;
+    const myContrib = activeCheckIns.size;
+    const othersPct = Math.min(100, Math.round((othersContrib / podTotalPossible) * 100));
+    const myPct     = Math.min(100 - othersPct, Math.round((myContrib / podTotalPossible) * 100));
+    const totalPct  = othersPct + myPct;
+
+    const sortedPodMembers = [...podMemberIds].sort((a, b) =>
+      (podTrainedToday.has(b) ? 1 : 0) - (podTrainedToday.has(a) ? 1 : 0)
+    ).slice(0, 5);
 
     return (
       <div className="pb-24 space-y-3">
+        {/* Pod energy bar */}
+        <div className="pod-energy-card">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[11px] font-bold uppercase tracking-widest text-blue-500 dark:text-blue-400">Pod Energy</p>
+            <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">{totalPct}% i dag</p>
+          </div>
+          <div className="pod-energy-track">
+            {othersContrib > 0 && (
+              <div className="pod-energy-others" style={{ width: `${othersPct}%` }} />
+            )}
+            {myContrib > 0 && (
+              <div className="pod-energy-me" style={{ width: `${myPct}%` }}>
+                <span className="pod-energy-me-label">Du</span>
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-1.5">
+            {myContrib > 0 ? `Du bidrar med ${myContrib}/4 · ` : ''}{podTrainedToday.size} av {podCount - 1} pod-medlemmer aktive i dag
+          </p>
+        </div>
         {/* Daily check-in card */}
         <div className="community-hub-card">
           <div className="flex items-center gap-2 mb-3">
@@ -1024,7 +1309,12 @@ export default function CommunityScreen() {
                   onClick={() => toggleCheckIn(ci.key)}
                   className={`checkin-chip ${active ? 'checkin-chip-active' : ''}`}
                 >
-                  <span className={`checkin-dot ${active ? 'checkin-dot-active' : ''}`} />
+                  <span
+                    key={active ? checkInAnimKeys[ci.key] : 'inactive'}
+                    className={`checkin-emoji-icon ${active ? CHECK_IN_ANIM_CLASS[ci.key] : 'checkin-emoji-inactive'}`}
+                  >
+                    {CHECK_IN_ICON[ci.key]}
+                  </span>
                   <div className="text-left">
                     <p className="text-xs font-semibold leading-tight">{ci.label}</p>
                     <p className="text-[10px] opacity-60 leading-tight">{isAuto ? '✓ auto-detected' : ci.sublabel}</p>
@@ -1042,6 +1332,14 @@ export default function CommunityScreen() {
               Share today's win with the community →
             </button>
           )}
+          <div className="pod-shame-toggle-row">
+            <span className="text-xs text-gray-500 dark:text-white/50">Mininn meg om pod-innsjekkinger</span>
+            <button
+              type="button"
+              onClick={() => setPodShameOptIn((v) => !v)}
+              className={`pod-shame-toggle ${podShameOptIn ? 'pod-shame-toggle-on' : ''}`}
+            />
+          </div>
         </div>
 
         {/* Pod status card */}
@@ -1051,33 +1349,47 @@ export default function CommunityScreen() {
             <h2 className="font-semibold text-gray-800 dark:text-gray-100">{t('community.hub.yourPod')}</h2>
             <span className="ml-auto text-xs font-medium text-gray-500 dark:text-gray-400">{t('community.hub.members', { count: podCount })}</span>
           </div>
-          <div className="pod-challenge-banner">
-            <Target className="w-4 h-4 text-orange-500 shrink-0" />
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-0.5">{t('community.hub.thisWeeksChallenge')}</p>
-              <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{weeklyPodChallenge}</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5">
+            Ukens utfordring: {weeklyPodChallenge}
+          </p>
+          <button
+            type="button"
+            onClick={() => setTodaysChallengeCompleted((v) => !v)}
+            className={`todays-challenge-row w-full${todaysChallengeCompleted ? ' completed' : ''}`}
+          >
+            <div className="challenge-checkbox">
+              {todaysChallengeCompleted && (
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
             </div>
-          </div>
+            <span className="challenge-task-text">
+              I dag: {getDailyTaskText(weeklyPodChallenge)}
+            </span>
+          </button>
           <div className="flex items-center justify-between mt-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              {t('community.hub.trainedToday', { done: podCheckedIn, total: podCount })}
+              {podTrainedToday.size} av {podCount - 1} pod-aktive i dag
             </p>
             <div className="flex -space-x-1.5">
-              {[...podMemberIds].slice(0, 4).map((id, i) => {
+              {sortedPodMembers.map((id, i) => {
                 const post = posts.find((p) => p.authorId === id);
-                const initials = post ? post.authorInitials : '?';
-                const trained = podTrainedToday.has(id);
+                const initials = post?.authorInitials ?? '?';
+                const active = podTrainedToday.has(id);
                 return (
                   <div
                     key={id}
-                    className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-[9px] font-bold ${trained ? 'bg-orange-400 border-orange-500 text-white' : 'bg-gray-100 dark:bg-gray-700 border-white dark:border-gray-800 text-gray-500 dark:text-gray-400'}`}
-                    style={{ zIndex: 4 - i }}
+                    className={`pod-avatar ${active ? 'pod-avatar-active' : 'pod-avatar-empty'}`}
+                    style={{ zIndex: 6 - i }}
+                    title={active ? `${initials} — sjekket inn i dag` : `${initials} — ikke sjekket inn ennå`}
                   >
                     {initials}
                   </div>
                 );
               })}
-              <div className="w-7 h-7 rounded-full border-2 border-white dark:border-gray-800 bg-orange-400 flex items-center justify-center text-[9px] font-bold text-white">
+              {/* User's own avatar — always shown last */}
+              <div className="pod-avatar pod-avatar-me" style={{ zIndex: 0 }}>
                 {initialsFromName(displayName)}
               </div>
             </div>
@@ -1090,6 +1402,46 @@ export default function CommunityScreen() {
             <TrendingUp className="w-5 h-5 text-green-500" />
             <h2 className="font-semibold text-gray-800 dark:text-gray-100">{t('community.hub.thisWeek')}</h2>
           </div>
+          {/* 7-dot week row */}
+          {(() => {
+            const dagNorsk = ['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'];
+            const today = new Date();
+            const dayOfWeek = today.getDay();
+            const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+            const monday = new Date(today);
+            monday.setDate(today.getDate() + mondayOffset);
+            const todayDateKey = toDateKey(startOfDay(today));
+            return (
+              <div className="week-dot-row mb-3">
+                {dagNorsk.map((label, i) => {
+                  const d = new Date(monday);
+                  d.setDate(monday.getDate() + i);
+                  const dateKey = toDateKey(startOfDay(d));
+                  const isToday = dateKey === todayDateKey;
+                  const isFuture = d > today && !isToday;
+                  const hasCi = checkIns.some((ci) => ci.dateKey === dateKey);
+                  let dotEl: JSX.Element;
+                  if (isToday) {
+                    dotEl = hasCi
+                      ? <div className="week-dot-today-active" />
+                      : <div className="week-dot-today-pending" />;
+                  } else if (isFuture) {
+                    dotEl = <div className="week-dot-future" />;
+                  } else if (hasCi) {
+                    dotEl = <div className="week-dot-filled" />;
+                  } else {
+                    dotEl = <div className="week-dot-miss">–</div>;
+                  }
+                  return (
+                    <div key={dateKey} className="week-dot-item">
+                      <span className="week-dot-day-label">{label}</span>
+                      {dotEl}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
           <div className="grid grid-cols-4 gap-2 text-center">
             {[
               { label: t('community.hub.daysLogged'), value: weeklyRecap.daysLogged, suffix: '/7' },
@@ -1106,7 +1458,7 @@ export default function CommunityScreen() {
           {weeklyRecap.streak >= 7 && (
             <div className="mt-3 flex items-center gap-2 py-2 px-3 rounded-xl bg-orange-50 dark:bg-orange-950/20 border border-orange-100 dark:border-orange-900/30">
               <Flame className="w-4 h-4 text-orange-500 shrink-0" />
-              <p className="text-xs font-semibold text-orange-700 dark:text-orange-300">{weeklyRecap.streak} day streak — keep it going!</p>
+              <p className="text-xs font-semibold text-orange-700 dark:text-orange-300">{weeklyRecap.streak} dager på rad — fortsett!</p>
             </div>
           )}
         </div>
@@ -1251,8 +1603,33 @@ export default function CommunityScreen() {
           </div>
         )}
 
-        {/* Posts */}
-        {feedPosts.map((post) => renderPostCard(post))}
+        {/* Posts — interleaved with activity cards when feed is sparse */}
+        {(() => {
+          const shouldInterleave = feedPosts.length < 4 && feedFilter === 'all' && activityCards.length > 0;
+          if (!shouldInterleave) return feedPosts.map((post) => renderPostCard(post));
+
+          const items: JSX.Element[] = [];
+          // Insert first activity card at the start if feed is empty, else after index 0
+          let cardIdx = 0;
+          if (feedPosts.length === 0 && activityCards[0]) {
+            items.push(renderActivityCard(activityCards[0]));
+            cardIdx = 1;
+          }
+          feedPosts.forEach((post, i) => {
+            items.push(renderPostCard(post));
+            const card = activityCards[cardIdx];
+            if (card && i < feedPosts.length - 1) {
+              items.push(renderActivityCard(card));
+              cardIdx += 1;
+            }
+          });
+          // Append any remaining cards
+          while (cardIdx < activityCards.length) {
+            items.push(renderActivityCard(activityCards[cardIdx]));
+            cardIdx += 1;
+          }
+          return items;
+        })()}
 
         {/* Empty state */}
         {feedPosts.length === 0 && !isRefreshing && (
@@ -1284,23 +1661,63 @@ export default function CommunityScreen() {
     );
   }
 
+  // ─── Feature #7 — Activity card renderer ─────────────────────────────────────
+
+  function renderActivityCard(card: { id: string; kind: 'activity'; text: string; icon: string }) {
+    return (
+      <div key={card.id} className="feed-item border-l-[3px] border-orange-400 relative">
+        <div className="absolute top-2 right-3">
+          <span className="text-[10px] text-gray-400">Systemaktivitet</span>
+        </div>
+        <div className="flex items-center gap-3 pr-20">
+          <span style={{ fontSize: 22 }}>{card.icon}</span>
+          <p className="text-sm text-gray-700 dark:text-gray-300">{card.text}</p>
+        </div>
+      </div>
+    );
+  }
+
   function renderPostCard(post: CommunityPost) {
     const isSaved = savedPostIds.includes(post.id);
     const isTried = triedPostIds.includes(post.id);
     const isStruggle = post.kind === 'struggle';
     const isOwnPost = post.authorId === activeUserId;
+    // Feature #9
+    const isWin = post.kind === 'workout' || post.kind === 'meal_win';
+
+    const handleRecipeCardClick = () => {
+      if (post.kind === 'recipe' || post.kind === 'meal_win') {
+        localStorage.setItem('community.lastViewedRecipe.v1', JSON.stringify({
+          postId: post.id,
+          title: post.recipeTitle ?? post.authorName + "'s meal",
+          authorName: post.authorName,
+          timestamp: Date.now(),
+        }));
+      }
+    };
 
     return (
-      <div key={post.id} className={`feed-item ${isStruggle ? 'feed-item-struggle' : ''}`}>
+      <div
+        key={post.id}
+        className={`feed-item ${isStruggle ? 'feed-item-struggle' : ''} ${isWin ? 'win-post' : ''}`}
+        onClick={handleRecipeCardClick}
+      >
         {/* Header */}
         <div className="feed-header">
-          {post.authorAvatarDataUrl ? (
-            <img src={post.authorAvatarDataUrl} alt={post.authorName} className="w-10 h-10 rounded-full object-cover" />
-          ) : (
-            <div className="w-10 h-10 bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-950/40 dark:to-orange-900/40 rounded-full flex items-center justify-center text-xs font-bold text-orange-700 dark:text-orange-300">
-              {post.authorInitials}
-            </div>
-          )}
+          <div className="relative">
+            {post.authorAvatarDataUrl ? (
+              <img src={post.authorAvatarDataUrl} alt={post.authorName} className="w-10 h-10 rounded-full object-cover" />
+            ) : (
+              <div className="w-10 h-10 bg-gradient-to-br from-orange-100 to-orange-200 dark:from-orange-950/40 dark:to-orange-900/40 rounded-full flex items-center justify-center text-xs font-bold text-orange-700 dark:text-orange-300">
+                {post.authorInitials}
+              </div>
+            )}
+            {isOwnPost && contributionScore > 0 && (
+              <span className={`contribution-score-badge ${contributionScore >= 100 ? 'score-tier-gold' : contributionScore >= 50 ? 'score-tier-silver' : ''}`}>
+                {contributionScore >= 100 ? '👑' : contributionScore}
+              </span>
+            )}
+          </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
               <h3 className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{post.authorName}</h3>
@@ -1384,6 +1801,11 @@ export default function CommunityScreen() {
           </p>
         ) : null}
 
+        {/* Feature #21 — inspired count */}
+        {(post.kind === 'recipe' || post.kind === 'meal_win') && (inspiredCounts[post.id] ?? 0) > 0 && (
+          <p className="text-[11px] text-orange-500 font-semibold mt-2">✨ {inspiredCounts[post.id]} inspirerte</p>
+        )}
+
         {/* Image */}
         {!post.hideBodyPhoto && post.imageDataUrl ? (
           <img src={post.imageDataUrl} alt="Post" className="w-full h-56 object-cover rounded-2xl mt-3" />
@@ -1424,25 +1846,54 @@ export default function CommunityScreen() {
               Support
             </button>
           )}
-          {/* Emoji reactions */}
-          <div className="flex gap-1.5 ml-auto">
+          {/* Emoji reactions — Feature #8 fly overlay + Feature #10 long-press tooltip */}
+          <div className="flex gap-1.5 ml-auto relative">
             {reactionConfig.slice(0, 3).map((reaction) => {
               const selected = myReactions[post.id] === reaction.key;
               const animKey = `react-${post.id}-${reaction.key}`;
+              const count = post.reactions[reaction.key];
               return (
                 <button
                   key={reaction.key}
                   type="button"
                   onClick={() => chooseReaction(post.id, reaction.key)}
+                  onPointerDown={(e) => {
+                    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+                    const { clientX, clientY } = e;
+                    longPressTimerRef.current = window.setTimeout(() => {
+                      longPressTimerRef.current = null;
+                      setReactionTooltip({ postId: post.id, key: reaction.key, x: clientX, y: clientY });
+                    }, 400);
+                  }}
+                  onPointerUp={() => {
+                    if (longPressTimerRef.current !== null) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+                    setReactionTooltip(null);
+                  }}
+                  onPointerLeave={() => {
+                    if (longPressTimerRef.current !== null) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+                    setReactionTooltip(null);
+                  }}
                   className={`reaction-chip text-xs ${selected ? 'reaction-chip-active' : ''} ${animatingKey === animKey ? 'reaction-pop' : ''}`}
                 >
                   <span>{reaction.token}</span>
-                  {post.reactions[reaction.key] > 0 && <span>{post.reactions[reaction.key]}</span>}
+                  {count > 0 && <span>{count}</span>}
                 </button>
               );
             })}
+            {/* Feature #8 — fly emoji */}
+            {flyingEmoji?.postId === post.id && (
+              <span key={flyingEmoji.id} className="reaction-fly-emoji">{flyingEmoji.token}</span>
+            )}
           </div>
         </div>
+        {/* Feature #8 — reaction cluster row */}
+        {reactionConfig.some((r) => post.reactions[r.key] > 0) && (
+          <div className="reaction-cluster">
+            {reactionConfig.filter((r) => post.reactions[r.key] > 0).map((r) => (
+              <span key={r.key} className="reaction-cluster-pill">{r.token}×{post.reactions[r.key]}</span>
+            ))}
+          </div>
+        )}
 
         {/* Badges */}
         {(post.equippedBadgeIds ?? []).length > 0 && (
@@ -1474,11 +1925,118 @@ export default function CommunityScreen() {
       purple: { bar: 'bg-purple-500', badge: 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/20 dark:text-purple-300 dark:border-purple-900/40', ring: 'border-purple-200 dark:border-purple-900/40' },
     };
 
+    // Feature #14 — countdown to next Monday reset
+    const now = new Date();
+    const nextMonday = startOfWeekMonday(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7));
+    const msUntilReset = nextMonday.getTime() - now.getTime();
+    const totalHoursUntilReset = Math.floor(msUntilReset / 3_600_000);
+    const daysUntilReset = Math.floor(totalHoursUntilReset / 24);
+    const hoursUntilReset = totalHoursUntilReset % 24;
+    const countdownLabel = daysUntilReset > 0 ? `${daysUntilReset}d ${hoursUntilReset}t` : `${hoursUntilReset}t`;
+
+    // Feature #15 — deterministic participant count per challenge
+    function getChallengeParticipantCount(challengeId: string): number {
+      const weekNum = Math.floor(Date.now() / (7 * 24 * 3600 * 1000));
+      const seed = (challengeId.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) * 2654435761 + weekNum * 1234567) >>> 0;
+      const bases: Record<string, number> = {
+        protein_7day: 312, log_5day: 287, workout_3x: 198, clean_week: 156, recipe_share: 89,
+      };
+      return (bases[challengeId] ?? 100) + (seed % 47);
+    }
+
+    // Feature #16 — difficulty tiers
+    const CHALLENGE_TIERS: Partial<Record<ChallengeId, Array<{ label: string; target: number; color: string }>>> = {
+      protein_7day: [
+        { label: 'Bronze', target: 3, color: '#cd7f32' },
+        { label: 'Sølv',   target: 7, color: '#9ca3af' },
+        { label: 'Gull',   target: 14, color: '#eab308' },
+      ],
+      log_5day: [
+        { label: 'Bronze', target: 3, color: '#cd7f32' },
+        { label: 'Sølv',   target: 5, color: '#9ca3af' },
+        { label: 'Gull',   target: 10, color: '#eab308' },
+      ],
+      workout_3x: [
+        { label: 'Bronze', target: 2, color: '#cd7f32' },
+        { label: 'Sølv',   target: 3, color: '#9ca3af' },
+        { label: 'Gull',   target: 5, color: '#eab308' },
+      ],
+      clean_week: [
+        { label: 'Bronze', target: 3, color: '#cd7f32' },
+        { label: 'Sølv',   target: 5, color: '#9ca3af' },
+        { label: 'Gull',   target: 7, color: '#eab308' },
+      ],
+    };
+
+    // Feature #17 — deterministic pod member progress simulation
+    function getPodMemberProgress(memberId: string, challengeId: string, target: number): number {
+      const seed = (memberId.split('').reduce((a, c) => a + c.charCodeAt(0), 0) * 1234567 + challengeId.charCodeAt(0) * 9999) >>> 0;
+      return Math.min(target - 1, Math.floor((seed % 100) / 100 * target));
+    }
+
+    const firstPodMemberId = [...podMemberIds][0];
+    const podMemberName = firstPodMemberId
+      ? (leaderboard.find((e) => e.id === firstPodMemberId)?.name?.split(' ')[0] ?? 'GJ')
+      : 'GJ';
+
     function renderChallengeCard(def: typeof CHALLENGE_DEFS[0], joined: boolean) {
       const progress = challengeProgress[def.id];
-      const pct = Math.round((progress / def.target) * 100);
-      const done = progress >= def.target;
+      const tiers = CHALLENGE_TIERS[def.id];
+
+      // Feature #16 — active tier resolution
+      let activeTierTarget = def.target;
+      let activeTierLabel: string | null = null;
+      let tierRow: React.ReactNode = null;
+      if (tiers) {
+        const activeTierIdx = tiers.findIndex((tier) => progress < tier.target);
+        const resolvedIdx = activeTierIdx === -1 ? tiers.length - 1 : activeTierIdx;
+        const activeTier = tiers[resolvedIdx];
+        activeTierTarget = activeTier.target;
+        activeTierLabel = activeTier.label;
+
+        tierRow = (
+          <div className="flex items-center gap-1 mt-1.5">
+            {tiers.map((tier, idx) => {
+              const completed = progress >= tier.target;
+              const isActive = idx === resolvedIdx;
+              return (
+                <span
+                  key={tier.label}
+                  className="challenge-tier-pill"
+                  style={{
+                    background: completed ? tier.color : 'transparent',
+                    color: completed ? '#fff' : isActive ? tier.color : `${tier.color}55`,
+                    borderColor: isActive ? tier.color : `${tier.color}55`,
+                    opacity: !completed && !isActive ? 0.5 : 1,
+                  }}
+                >
+                  {tier.label}
+                </span>
+              );
+            })}
+          </div>
+        );
+      }
+
+      const effectiveTarget = activeTierTarget;
+      const pct = Math.min(100, Math.round((progress / effectiveTarget) * 100));
+      const done = progress >= effectiveTarget;
       const cc = colorClasses[def.color];
+
+      // Feature #17 — pod member comparison
+      const podProgress = firstPodMemberId
+        ? getPodMemberProgress(firstPodMemberId, def.id, effectiveTarget)
+        : 0;
+
+      // Feature #18 — detect if today already contributes to this challenge
+      const todayLogged = logsByDate[todayKey] && Object.values(logsByDate[todayKey].meals).flat().length > 0;
+      const todayWorkout = workoutSessions.some((s) => s.dateKey === todayKey);
+      const todayCountsForChallenge =
+        def.id === 'workout_3x'
+          ? todayWorkout
+          : todayLogged;
+      const showCta = joined && !done && !todayCountsForChallenge;
+
       return (
         <div key={def.id} className={`challenge-card ${cc.ring}`}>
           <div className="flex items-start gap-3">
@@ -1486,20 +2044,52 @@ export default function CommunityScreen() {
               <Award className="w-4 h-4" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{def.title}</p>
-                {done && <span className="text-[10px] font-bold text-green-600 dark:text-green-400">✓ Done!</span>}
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                  {activeTierLabel ? `${def.title} · ${activeTierLabel}` : def.title}
+                </p>
+                {done && <span className="text-[10px] font-bold text-green-600 dark:text-green-400">✓ Fullført!</span>}
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{def.description}</p>
+              {/* Feature #15 — social proof */}
+              <p className="challenge-participant-count">{getChallengeParticipantCount(def.id)} brukere er med på denne</p>
+              {/* Feature #16 — tier pills */}
+              {tierRow}
               {joined && (
                 <div className="mt-2">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-gray-500">{progress}/{def.target} {def.unit}</span>
+                    <span className="text-[10px] text-gray-500">{progress}/{effectiveTarget} {def.unit}</span>
                     <span className="text-[10px] font-semibold text-gray-600 dark:text-gray-400">{pct}%</span>
                   </div>
                   <div className="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${cc.bar}`} style={{ width: `${pct}%` }} />
+                    {/* Feature #13 — animated progress bar */}
+                    <div
+                      className={`h-full rounded-full ${cc.bar}`}
+                      style={{ width: barsAnimated ? `${pct}%` : '0%', transition: 'width 0.9s cubic-bezier(0.22, 1, 0.36, 1)' }}
+                    />
                   </div>
+                  {/* Feature #14 — countdown under progress bar */}
+                  <div className="mt-1.5">
+                    <span className="challenge-countdown-badge">⏱ Resetter om {countdownLabel}</span>
+                  </div>
+                  {/* Feature #17 — pod head-to-head */}
+                  {podMemberIds.size > 0 && (
+                    <div className="challenge-vs-row">
+                      <span>Du: {progress}/{effectiveTarget} {def.unit}</span>
+                      <span className="challenge-vs-sword">⚔️</span>
+                      <span>{podMemberName}: {podProgress}/{effectiveTarget} {def.unit}</span>
+                    </div>
+                  )}
+                  {/* Feature #18 — CTA to log today */}
+                  {showCta && (
+                    <button
+                      type="button"
+                      className="challenge-cta-btn"
+                      onClick={() => window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'home' } }))}
+                    >
+                      Logg i dag for å holde streaken i live →
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -1525,18 +2115,18 @@ export default function CommunityScreen() {
         <div className="community-hub-card">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-5 h-5 text-blue-500" />
-            <h2 className="font-semibold text-gray-800 dark:text-gray-100">Pod challenge this week</h2>
+            <h2 className="font-semibold text-gray-800 dark:text-gray-100">Pod-utfordring denne uken</h2>
           </div>
           <p className="text-base font-bold text-orange-600 dark:text-orange-400">{weeklyPodChallenge}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            {podMemberIds.size + 1} members · resets every Monday
+            {podMemberIds.size + 1} deltakere · <span className="challenge-countdown-badge">⏱ Resetter om {countdownLabel}</span>
           </p>
         </div>
 
         {/* Active challenges */}
         {active.length > 0 && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 px-1">Active challenges</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 px-1">Aktive utfordringer</p>
             <div className="space-y-2">
               {active.map((def) => renderChallengeCard(def, true))}
             </div>
@@ -1546,10 +2136,10 @@ export default function CommunityScreen() {
         {/* Available challenges */}
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 px-1">
-            {active.length > 0 ? t('community.post.availableChallenges') : 'Join a challenge'}
+            {active.length > 0 ? t('community.post.availableChallenges') : 'Bli med i en utfordring'}
           </p>
           {available.length === 0 ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">You've joined all challenges!</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 py-4 text-center">Du har blitt med i alle utfordringer!</p>
           ) : (
             <div className="space-y-2">
               {available.map((def) => renderChallengeCard(def, false))}
@@ -1560,7 +2150,7 @@ export default function CommunityScreen() {
         {/* Tip */}
         <div className="flex items-start gap-3 p-3 rounded-2xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-700/50">
           <AlertCircle className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
-          <p className="text-xs text-gray-500 dark:text-gray-400">Progress is auto-tracked from your food and workout logs. Just keep logging.</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Fremgang spores automatisk fra mat- og treningsloggene dine. Bare fortsett å logge.</p>
         </div>
       </div>
     );
@@ -1737,6 +2327,51 @@ export default function CommunityScreen() {
 
   return (
     <div className="screen community-screen">
+      {/* Feature #19 — pod shame banner */}
+      {showPodShameBanner && (
+        <div className="pod-shame-banner">
+          <p className="text-sm font-semibold">Alle i din pod bortsett fra deg har sjekket inn i dag.</p>
+          <p className="text-xs opacity-75 mt-0.5">Sjekk inn nå for å holde podmomentet levende</p>
+          <div className="flex gap-2 mt-3">
+            <button onClick={() => { setMainTab('hub'); setShowPodShameBanner(false); }} className="pod-shame-cta">Sjekk inn nå</button>
+            <button onClick={() => { setPodShameDismissed(true); setShowPodShameBanner(false); }} className="pod-shame-dismiss">Ikke nå</button>
+          </div>
+        </div>
+      )}
+
+      {/* Feature #22 — weekly pod story */}
+      {showStory && (
+        <div className="story-overlay" onClick={() => { if (storyScreen < 2) setStoryScreen((s) => s + 1); else { setShowStory(false); setStoryShown(true); } }}>
+          <div className="story-progress-bar">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={`story-progress-segment ${i < storyScreen ? 'story-segment-done' : i === storyScreen ? 'story-segment-active' : 'story-segment-pending'}`} />
+            ))}
+          </div>
+          <div className="story-content">
+            {storyScreen === 0 && (
+              <>
+                <p className="story-label">Poden din denne uken</p>
+                <p className="story-big">{podMemberIds.size + 1} medlemmer</p>
+              </>
+            )}
+            {storyScreen === 1 && (
+              <>
+                <p className="story-label">Felles innsats</p>
+                <p className="story-big">{weeklyPodStats.totalDays}/{weeklyPodStats.targetDays}</p>
+                <p className="story-sub">dager logget totalt 🔥</p>
+              </>
+            )}
+            {storyScreen === 2 && (
+              <>
+                <p className="story-label">Neste uke</p>
+                <p className="story-big">Klarer dere {Math.min(weeklyPodStats.totalDays + 4, weeklyPodStats.targetDays)}/{weeklyPodStats.targetDays}?</p>
+                <p className="story-sub">Trykk for å lukke</p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {toast && (
         <div className={`community-toast ${toast.type === 'error' ? 'community-toast-error' : 'community-toast-success'}`}>
@@ -1748,15 +2383,49 @@ export default function CommunityScreen() {
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">Community</h1>
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-orange-600 dark:text-orange-400">{currentStreak}d streak</span>
+            {contributionScore > 0 && (
+              <span className="text-[11px] font-bold text-orange-500 bg-orange-50 dark:bg-orange-950/30 px-2 py-0.5 rounded-full">
+                {contributionScore >= 100 ? '👑' : `⭐ ${contributionScore}`}
+              </span>
+            )}
+            {(() => {
+              const currentHour = new Date().getHours();
+              const noCheckInsToday = activeCheckIns.size === 0;
+              let pillBg: string;
+              let urgent = false;
+              if (currentStreak === 0) {
+                pillBg = 'rgba(100, 140, 200, 0.45)';
+              } else if (currentHour < 16) {
+                pillBg = 'rgba(255, 140, 0, 0.55)';
+              } else if (currentHour < 20) {
+                pillBg = '#ff6b00';
+              } else if (noCheckInsToday) {
+                pillBg = '#ff3300';
+                urgent = true;
+              } else {
+                pillBg = '#22c55e';
+              }
+              return (
+                <span
+                  className={`streak-pill${urgent ? ' streak-pill-urgent' : ''}`}
+                  style={{ background: pillBg }}
+                >
+                  {currentStreak === 0 ? '0 😶' : `${currentStreak}🔥`}
+                </span>
+              );
+            })()}
             {activeCheckIns.size > 0 && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-950/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40">
-                {activeCheckIns.size}/4 today
+                {activeCheckIns.size}/4
               </span>
             )}
           </div>
         </div>
-        <p className="text-xs text-slate-500 dark:text-white/60 mb-3">Accountability · Progress · Community</p>
+        <div className="flex items-center gap-2 mb-3">
+          <p className="text-xs text-slate-500 dark:text-white/60">{liveLoggerCount} andre i Norge logger nå</p>
+          <span className="text-slate-300 dark:text-white/15 text-[10px]">·</span>
+          <p className="text-xs text-slate-500 dark:text-white/60">#{localRank} i din by</p>
+        </div>
 
         {/* Local-mode banner — only shown when Supabase is not configured */}
         {!isSupabaseConfigured() && (
@@ -1797,6 +2466,29 @@ export default function CommunityScreen() {
       </div>
 
 
+
+      {/* Feature #10 — reaction long-press tooltip */}
+      {reactionTooltip && (() => {
+        const rc = reactionConfig.find((r) => r.key === reactionTooltip.key);
+        const count = posts.find((p) => p.id === reactionTooltip.postId)?.reactions[reactionTooltip.key] ?? 0;
+        const label = count === 0 ? 'Ingen' : `${count}`;
+        return (
+          <div
+            className="reaction-tooltip"
+            style={{ left: reactionTooltip.x, top: reactionTooltip.y }}
+          >
+            {label} andre reagerte med {rc?.token ?? ''} — Klikk for å bli med
+          </div>
+        );
+      })()}
+
+      {/* Recipe import toast */}
+      {importToast && (
+        <div className="recipe-import-toast">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          {importToast}
+        </div>
+      )}
 
       {/* Post modal — portalled to body so fixed positioning works under any CSS transform */}
       {showAddPost && createPortal(renderPostModal(), document.body)}

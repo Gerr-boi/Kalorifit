@@ -150,9 +150,11 @@ type LevelUpCelebrationItem = {
 type BadgeCelebrationItem = {
   badge: TrophyBadge;
 };
+type LuckyScanPayload = { emoji: string; title: string; subtitle: string };
 type CelebrationQueueItem =
   | { kind: 'level_up'; payload: LevelUpCelebrationItem; confettiPalette: string[] }
-  | { kind: 'badge_unlock'; payload: BadgeCelebrationItem; confettiPalette: string[] };
+  | { kind: 'badge_unlock'; payload: BadgeCelebrationItem; confettiPalette: string[] }
+  | { kind: 'lucky_scan'; payload: LuckyScanPayload; confettiPalette: string[] };
 type AddUndoSnapshot = {
   userId: string | null;
   scopedDailyLogsStorageKey: string;
@@ -185,6 +187,28 @@ export default function ScanScreen() {
   const MAX_SCAN_DECISION_MS = 5000;
   const MAX_VISION_WAIT_MS = 4200;
   const MAX_DISH_PREDICT_WAIT_MS = 1800;
+  const LUCKY_SCAN_STORAGE_KEY = 'kalorifit.scan.luckyCount.v1';
+  const LUCKY_SCAN_INTERVAL = 10;
+  const LUCKY_SCAN_MESSAGES: LuckyScanPayload[] = [
+    { emoji: '🎰', title: 'Lucky scan!', subtitle: 'Du traff jackpoten — scanning er belønnet!' },
+    { emoji: '⚡', title: 'Scan-boost!', subtitle: 'Ekstra energi for å holde oversikten.' },
+    { emoji: '🌟', title: 'Stjernescanner!', subtitle: 'Du er blant de beste i klassen.' },
+    { emoji: '🔥', title: 'On fire!', subtitle: 'Konsistensen din er imponerende.' },
+    { emoji: '🎯', title: 'Presis som alltid!', subtitle: 'Jackpot — fortsett slik!' },
+  ];
+  const LUCKY_SCAN_CONFETTI = ['#f59e0b', '#f97316', '#ef4444', '#a855f7', '#3b82f6', '#10b981', '#fff'];
+
+  function checkLuckyScan(): LuckyScanPayload | null {
+    const raw = localStorage.getItem(LUCKY_SCAN_STORAGE_KEY);
+    const count = raw ? parseInt(raw, 10) : 0;
+    const next = count + 1;
+    localStorage.setItem(LUCKY_SCAN_STORAGE_KEY, String(next));
+    if (next % LUCKY_SCAN_INTERVAL === 0) {
+      return LUCKY_SCAN_MESSAGES[Math.floor(Math.random() * LUCKY_SCAN_MESSAGES.length)];
+    }
+    return null;
+  }
+
   const MAX_OCR_WAIT_MS = 2000;
   const FAST_TOP_MATCH_RESOLVER_WAIT_MS = 1600;
   const MAX_RESOLVER_WAIT_MS = 1800;
@@ -2527,6 +2551,11 @@ async function handleBarcodeDetected(rawCode: string, requireStableRead = true) 
     setPredictionOptions([]);
     void storeVisualAnchorFromProduct(result);
     stopLiveBarcodeScan();
+
+    const luckyPayload = checkLuckyScan();
+    if (luckyPayload) {
+      setCelebrationQueue((prev) => [...prev, { kind: 'lucky_scan', payload: luckyPayload, confettiPalette: LUCKY_SCAN_CONFETTI }]);
+    }
 
     lastHandledRef.current = { code, at: Date.now() };
     return true;
@@ -5144,6 +5173,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
                   <p className="text-xs text-gray-500 mt-2">
                     {currentCelebration.payload.currentXp}/{currentCelebration.payload.nextLevelXp} XP mot neste level
                   </p>
+                </>
+              ) : currentCelebration.kind === 'lucky_scan' ? (
+                <>
+                  <div className="text-5xl mb-3 select-none">{currentCelebration.payload.emoji}</div>
+                  <h3 className="text-xl font-extrabold text-gray-900">{currentCelebration.payload.title}</h3>
+                  <p className="text-sm text-gray-600 mt-2">{currentCelebration.payload.subtitle}</p>
+                  <p className="text-xs text-amber-500 font-semibold mt-3">🎯 Hver 10. skann</p>
                 </>
               ) : (
                 <>
