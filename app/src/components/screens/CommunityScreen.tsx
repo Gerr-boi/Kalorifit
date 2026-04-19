@@ -406,7 +406,7 @@ export default function CommunityScreen() {
   const [contributionScore, setContributionScore] = useLocalStorageState<number>('community.contributionScore.v1', 0);
 
   // Feature #21 — inspired-by counts
-  const [inspiredCounts, setInspiredCounts] = useLocalStorageState<Record<string, number>>('community.inspiredCounts.v1', {});
+  const [inspiredCounts] = useLocalStorageState<Record<string, number>>('community.inspiredCounts.v1', {});
 
   // Feature #22 — weekly pod story
   const thisWeekStoryKey = `community.storyShown.${toDateKey(startOfWeekMonday(new Date()))}.v1`;
@@ -646,22 +646,6 @@ export default function CommunityScreen() {
     return new Set([...autoDetected, ...todayCheckIn.types]);
   }, [autoDetected, todayCheckIn.types]);
 
-  // Feature #19 — pod shame interval check (must be after activeCheckIns is defined)
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      if (
-        podShameOptIn &&
-        new Date().getHours() >= 21 &&
-        activeCheckIns.size === 0 &&
-        !podShameDismissed &&
-        podMemberIds.size > 0
-      ) {
-        setShowPodShameBanner(true);
-      }
-    }, 60_000);
-    return () => window.clearInterval(id);
-  }, [podShameOptIn, activeCheckIns, podShameDismissed, podMemberIds]);
-
   const prevActiveCheckInsRef = useRef<Set<CheckInType>>(new Set());
   useEffect(() => {
     const prev = prevActiveCheckInsRef.current;
@@ -713,6 +697,22 @@ export default function CommunityScreen() {
     }
     return picked;
   }, [activeUserId, posts, profile.goalStrategy, profile.trainingType]);
+
+  // Feature #19 — pod shame interval check
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (
+        podShameOptIn &&
+        new Date().getHours() >= 21 &&
+        activeCheckIns.size === 0 &&
+        !podShameDismissed &&
+        podMemberIds.size > 0
+      ) {
+        setShowPodShameBanner(true);
+      }
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [podShameOptIn, activeCheckIns, podShameDismissed, podMemberIds]);
 
   const weeklyPodChallenge = useMemo(() => {
     const week = getISOWeek(new Date());
@@ -1420,7 +1420,7 @@ export default function CommunityScreen() {
                   const isToday = dateKey === todayDateKey;
                   const isFuture = d > today && !isToday;
                   const hasCi = checkIns.some((ci) => ci.dateKey === dateKey);
-                  let dotEl: JSX.Element;
+                  let dotEl;
                   if (isToday) {
                     dotEl = hasCi
                       ? <div className="week-dot-today-active" />
@@ -1608,7 +1608,7 @@ export default function CommunityScreen() {
           const shouldInterleave = feedPosts.length < 4 && feedFilter === 'all' && activityCards.length > 0;
           if (!shouldInterleave) return feedPosts.map((post) => renderPostCard(post));
 
-          const items: JSX.Element[] = [];
+          const items = [];
           // Insert first activity card at the start if feed is empty, else after index 0
           let cardIdx = 0;
           if (feedPosts.length === 0 && activityCards[0]) {

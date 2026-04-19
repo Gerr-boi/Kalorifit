@@ -1191,56 +1191,6 @@ export default function HomeScreen() {
     });
   }, [logsByDate, selectedDateKey]);
 
-  const quickSuggestionsByMeal = useMemo(() => {
-    const mealIds: MealId[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
-    return mealIds.reduce<Record<MealId, FoodEntry[]>>(
-      (acc, mealId) => {
-        const grouped = new Map<string, { name: string; count: number; kcal: number; protein: number; carbs: number; fat: number }>();
-        Object.values(logsByDate).forEach((log) => {
-          log.meals[mealId].forEach((item) => {
-            const key = item.name.trim().toLowerCase();
-            const existing = grouped.get(key);
-            if (existing) {
-              existing.count += 1;
-              existing.kcal += item.kcal;
-              existing.protein += item.protein;
-              existing.carbs += item.carbs;
-              existing.fat += item.fat;
-              return;
-            }
-            grouped.set(key, {
-              name: item.name,
-              count: 1,
-              kcal: item.kcal,
-              protein: item.protein,
-              carbs: item.carbs,
-              fat: item.fat,
-            });
-          });
-        });
-
-        acc[mealId] = Array.from(grouped.values())
-          .sort((a, b) => b.count - a.count || b.kcal - a.kcal)
-          .slice(0, 3)
-          .map((item, index) => ({
-            id: `history-${mealId}-${index}-${item.name.toLowerCase().replace(/\s+/g, '-')}`,
-            name: item.name,
-            kcal: Math.round(item.kcal / item.count),
-            protein: Math.round(item.protein / item.count),
-            carbs: Math.round(item.carbs / item.count),
-            fat: Math.round(item.fat / item.count),
-          }));
-        return acc;
-      },
-      {
-        breakfast: [],
-        lunch: [],
-        dinner: [],
-        snacks: [],
-      },
-    );
-  }, [logsByDate]);
-
   const globalMacroRatios = useMemo(() => {
     const totals = Object.values(logsByDate)
       .flatMap((log) => Object.values(log.meals).flat())
@@ -3053,15 +3003,12 @@ export default function HomeScreen() {
           const isExpanded = expandedMeals[meal.id];
           const MealIcon = meal.icon;
           const mealHistory = historicalMealStats[meal.id];
-          const mealTemplatesForSlot = savedMealTemplates.filter((template) => template.mealId === meal.id).slice(0, 3);
           const suggestedKcal = mealHistory.avgKcal > 0 ? mealHistory.avgKcal : meal.recommended;
           const groupedItems = groupFoodsByName(items);
           const previewItems = groupedItems.slice(0, 2);
           const extraPreviewCount = Math.max(groupedItems.length - previewItems.length, 0);
           const visibleItems = groupedItems.slice(0, 3);
           const hiddenItemCount = Math.max(groupedItems.length - visibleItems.length, 0);
-          const quickSuggestions = quickSuggestionsByMeal[meal.id];
-
           return (
             <div
               key={meal.id}
