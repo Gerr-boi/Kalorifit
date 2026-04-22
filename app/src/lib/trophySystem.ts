@@ -105,7 +105,7 @@ export const TROPHY_BADGE_DEFINITIONS: TrophyBadgeDefinition[] = [
   {
     id: 'logging_legend',
     label: 'Logging Legend',
-    description: '300+ maltider logget totalt.',
+    description: '300+ måltider logget totalt.',
     styleClass: 'bg-gradient-to-r from-slate-500 to-gray-600 text-white border-slate-300',
     confettiPalette: ['#64748b', '#475569', '#94a3b8', '#cbd5e1'],
   },

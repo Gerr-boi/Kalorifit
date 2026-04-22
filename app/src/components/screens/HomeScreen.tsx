@@ -79,6 +79,7 @@ import {
   type TrainingType,
 } from '../../lib/nutritionPlanner';
 import { generateCoachMessage, computeAdaptiveComplexity } from '../../lib/coachEngine';
+import { useLanguage } from '../../lib/i18n';
 import CoachCard from '../coach/CoachCard';
 import TrajectoryChart from '../trajectory/TrajectoryChart';
 import GoalCelebrationOverlay from '../ui/GoalCelebrationOverlay';
@@ -453,6 +454,7 @@ function localizeBehaviorInsight(insight: string, t: (key: string) => string) {
 
 export default function HomeScreen() {
   const t = useT();
+  const language = useLanguage();
   const [logsByDate, setLogsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', EMPTY_DAY_LOGS);
   const [profilePrefs, setProfilePrefs] = useLocalStorageState<HomeProfile>('profile', EMPTY_HOME_PROFILE);
   const [lastLoggedFood, setLastLoggedFood] = useLocalStorageState<FoodEntry | null>('home.lastLoggedFood.v1', null);
@@ -569,6 +571,9 @@ export default function HomeScreen() {
   type Morgenbrev = { forDateKey: string; kcal: number; protein: number; readDateKey: string | null };
   const [morgenbrev, setMorgenbrev] = useLocalStorageState<Morgenbrev | null>('home.morgenbrev.v1', null);
   const [tomorrowForecastDismissed, setTomorrowForecastDismissed] = useLocalStorageState<string | null>('home.tomorrowForecastDismissed.v1', null);
+  const [prognoseResetDate, setPrognoseResetDate] = useLocalStorageState<string | null>('home.prognoseResetDate.v1', null);
+  const [calorieTweakByDate, setCalorieTweakByDate] = useLocalStorageState<Record<string, number>>('home.calorieTweak.v1', {});
+  const [showCalorieTweak, setShowCalorieTweak] = useState(false);
   const prevProteinRef = useRef<number>(0);
   const pbShownRef = useRef<{ protein: boolean; streak: boolean }>({ protein: false, streak: false });
   const halfwayHapticKeyRef = useRef<string>('');
@@ -715,7 +720,8 @@ export default function HomeScreen() {
   // Note: weightKg still in deps so new users without bmiHistory get correct initial plan
 
   const optimizedTargetKcal = smartDietPlan.optimizedTargetKcal;
-  const netGoal = optimizedTargetKcal + dayLog.trainingKcal;
+  const calorieTweak = calorieTweakByDate[selectedDateKey] ?? 0;
+  const netGoal = optimizedTargetKcal + dayLog.trainingKcal + calorieTweak;
   const caloriesRemaining = netGoal - consumed;
   const hydrationMl = getTotalHydrationMl(dayLog);
   const waterProgress = Math.min(hydrationMl / WATER_GOAL_ML, 1);
@@ -728,8 +734,8 @@ export default function HomeScreen() {
 
   // Adaptive coach message — one concrete action for today
   const coachMessage = useMemo(
-    () => generateCoachMessage(dayLog, profilePrefs),
-    [dayLog, profilePrefs],
+    () => generateCoachMessage(dayLog, profilePrefs, undefined, language),
+    [dayLog, profilePrefs, language],
   );
 
   // Adaptive complexity — simplify UI when user is struggling, unlock advanced when consistent
@@ -740,8 +746,8 @@ export default function HomeScreen() {
   const progressText = caloriesRemaining < 0 ? t('home.overGoal') : t('home.caloriesLeft');
   const progressValue = caloriesRemaining < 0 ? Math.abs(caloriesRemaining) : caloriesRemaining;
   const progressDetailText = caloriesRemaining < 0
-    ? `${kcalNumberFormat.format(consumed - netGoal)} kcal over dagens netto mal`
-    : `${kcalNumberFormat.format(netGoal)} kcal netto mal i dag`;
+    ? t('home.caloriesOverTarget', { kcal: kcalNumberFormat.format(consumed - netGoal) })
+    : t('home.caloriesNetTarget', { kcal: kcalNumberFormat.format(netGoal) });
   const proteinHit = protein >= PROTEIN_GOAL_G;
   const waterHit = waterProgress >= 1;
   const calorieHit = progressRatio >= 1;
@@ -2046,10 +2052,10 @@ export default function HomeScreen() {
   const dateLabel = isTodaySelected ? `I dag, ${fullDateFormat.format(selectedDate)}` : fullDateFormat.format(selectedDate);
   const timeGreeting = useMemo(() => {
     const h = new Date().getHours();
-    if (h >= 5 && h < 12) return 'God morgen';
-    if (h >= 12 && h < 18) return 'God ettermiddag';
-    return 'God kveld';
-  }, []);
+    if (h >= 5 && h < 12) return t('home.greeting.morning');
+    if (h >= 12 && h < 18) return t('home.greeting.afternoon');
+    return t('home.greeting.evening');
+  }, [t]);
   const _coachMessage =
     consumed === 0
       ? 'Start dagen med et måltid for å bygge streak.'
@@ -2116,16 +2122,28 @@ export default function HomeScreen() {
                   </button>
                 )}
                 <h3 className="text-base font-bold text-white/90">
-                  {sidebarView === 'menu' ? 'Meny' : sidebarView === 'logg' ? 'Matlogg' : sidebarView === 'goals' ? 'Mål og makro' : 'Din reise'}
+                  {sidebarView === 'menu' ? t('home.sidebar.menu') : sidebarView === 'logg' ? t('home.sidebar.log') : sidebarView === 'goals' ? t('home.sidebar.goals') : t('home.sidebar.journey')}
                 </h3>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowSidebar(false)}
-                className="w-8 h-8 rounded-full bg-white/[0.07] flex items-center justify-center"
-              >
-                <X className="w-4 h-4 text-white/70" />
-              </button>
+              <div className="flex items-center gap-2">
+                {sidebarView === 'menu' && (
+                  <button
+                    type="button"
+                    onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'profile' } })); setShowSidebar(false); }}
+                    className="w-8 h-8 rounded-full bg-white/[0.07] flex items-center justify-center"
+                    title="Innstillinger"
+                  >
+                    <Settings className="w-4 h-4 text-white/50" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowSidebar(false)}
+                  className="w-8 h-8 rounded-full bg-white/[0.07] flex items-center justify-center"
+                >
+                  <X className="w-4 h-4 text-white/70" />
+                </button>
+              </div>
             </div>
             {/* Scrollable content */}
             <div className="overflow-y-auto flex-1 px-4 pt-4 pb-10 space-y-3">
@@ -2134,78 +2152,155 @@ export default function HomeScreen() {
                   {/* Today at a glance */}
                   <div className="rounded-2xl bg-orange-500/[0.12] border border-orange-500/20 p-4">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-orange-400 mb-3">I dag</p>
-                    <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                    <div className="grid grid-cols-4 gap-1.5 text-center mb-3">
                       <div>
-                        <p className="text-lg font-bold text-white/90">{consumed}</p>
-                        <p className="text-[10px] text-white/40 mt-0.5">kcal spist</p>
+                        <p className="text-base font-bold text-white/90 tabular-nums">{consumed}</p>
+                        <p className="text-[9px] text-white/40 mt-0.5">kcal</p>
                       </div>
                       <div>
-                        <p className="text-lg font-bold text-emerald-400">{Math.round(waterProgress * 100)}%</p>
-                        <p className="text-[10px] text-white/40 mt-0.5">vann</p>
+                        <p className="text-base font-bold text-emerald-400">{Math.round(waterProgress * 100)}%</p>
+                        <p className="text-[9px] text-white/40 mt-0.5">vann</p>
+                        <div className="flex gap-1 mt-1.5 justify-center">
+                          <button
+                            type="button"
+                            onClick={() => addWater(250, 'water:250:menu')}
+                            disabled={isPastSelectedDay}
+                            className="text-[9px] font-semibold text-emerald-400 bg-emerald-500/15 rounded-md px-1.5 py-0.5 disabled:opacity-40 active:bg-emerald-500/25 transition-colors"
+                          >+250</button>
+                          <button
+                            type="button"
+                            onClick={() => addWater(500, 'water:500:menu')}
+                            disabled={isPastSelectedDay}
+                            className="text-[9px] font-semibold text-emerald-400 bg-emerald-500/15 rounded-md px-1.5 py-0.5 disabled:opacity-40 active:bg-emerald-500/25 transition-colors"
+                          >+500</button>
+                        </div>
                       </div>
                       <div>
-                        <p className="text-lg font-bold text-orange-300">{discipline.score}</p>
-                        <p className="text-[10px] text-white/40 mt-0.5">disiplin</p>
+                        <p className="text-base font-bold text-orange-300">{discipline.score}</p>
+                        <p className="text-[9px] text-white/40 mt-0.5">disiplin</p>
+                      </div>
+                      <div>
+                        <p className="text-base font-bold text-amber-400 flex items-center justify-center gap-0.5">
+                          <span>🔥</span><span>{streak}</span>
+                        </p>
+                        <p className="text-[9px] text-white/40 mt-0.5">dager</p>
                       </div>
                     </div>
-                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden mb-3">
                       <div
                         className="h-full rounded-full bg-gradient-to-r from-orange-400 to-orange-500 transition-all duration-700"
                         style={{ width: `${Math.min(100, Math.round(progressRatio * 100))}%` }}
                       />
                     </div>
-                    <p className="text-[10px] text-white/35 mt-1.5">
-                      {caloriesRemaining > 0 ? `${Math.round(caloriesRemaining)} kcal igjen` : `${Math.abs(Math.round(caloriesRemaining))} kcal over mål`}
+                    {(() => {
+                      const pm = smartDietPlan.macros;
+                      const pt = pm?.proteinG ?? 120;
+                      const ct = pm?.carbsG ?? 200;
+                      const ftt = pm?.fatG ?? 70;
+                      const bars = [
+                        { label: 'Protein', val: Math.round(protein), target: pt, color: 'bg-blue-400' },
+                        { label: 'Karbo', val: Math.round(carbs), target: ct, color: 'bg-orange-400' },
+                        { label: 'Fett', val: Math.round(fat), target: ftt, color: 'bg-purple-400' },
+                      ];
+                      return (
+                        <div className="space-y-1.5">
+                          {bars.map(({ label, val, target, color }) => (
+                            <div key={label}>
+                              <div className="flex justify-between items-center mb-0.5">
+                                <span className="text-[9px] text-white/40">{label}</span>
+                                <span className="text-[9px] text-white/50 tabular-nums">{val}/{target}g</span>
+                              </div>
+                              <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+                                <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(100, Math.round((val / target) * 100))}%` }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                    <p className="text-[9px] text-white/30 mt-2">
+                      {caloriesRemaining > 0 ? t('home.caloriesRemainingLabel', { kcal: Math.round(caloriesRemaining) }) : t('home.caloriesOverGoalLabel', { kcal: Math.abs(Math.round(caloriesRemaining)) })}
                     </p>
                   </div>
 
                   {/* Quick actions */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { handleQuickAdd('repeat-day-yesterday'); setShowSidebar(false); }}
-                      disabled={isPastSelectedDay}
-                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left disabled:opacity-40 active:bg-white/[0.09] transition-colors"
-                    >
-                      <RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
-                      <div>
-                        <p className="text-xs font-semibold text-white/90">Gjenta i går</p>
-                        <p className="text-[10px] text-white/35">Kopier måltider</p>
+                  {/* AI Skann — featured CTA */}
+                  <button
+                    type="button"
+                    onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } })); setShowSidebar(false); }}
+                    className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left active:brightness-110 transition-all"
+                    style={{ background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)' }}
+                  >
+                    <Camera className="w-5 h-5 text-white shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-white">AI Skann</p>
+                      <p className="text-[10px] text-white/70">{t('home.scan.takePhotoHint')}</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-white/60 shrink-0" />
+                  </button>
+
+                  {/* Quick actions */}
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 px-1 mb-2">Hurtigvalg</p>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const h = new Date().getHours();
+                          const meal = (h < 10 ? 'breakfast' : h < 14 ? 'lunch' : h < 19 ? 'dinner' : 'snacks') as MealId;
+                          setExpandedMeals({ ...collapsedMeals, [meal]: true });
+                          setRingExpanded(false);
+                          setShowSidebar(false);
+                        }}
+                        disabled={isPastSelectedDay}
+                        className="w-full flex items-center gap-3 rounded-2xl border border-orange-500/30 bg-orange-500/10 px-3 py-3 text-left disabled:opacity-40 active:bg-orange-500/20 transition-colors"
+                      >
+                        <div className="w-8 h-8 rounded-xl bg-orange-500/20 flex items-center justify-center shrink-0">
+                          <Plus className="w-4 h-4 text-orange-400" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold text-white/90">Legg til mat</p>
+                          <p className="text-[10px] text-white/35">Søk, skann eller velg</p>
+                        </div>
+                      </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { handleQuickAdd('repeat-last'); }}
+                          disabled={isPastSelectedDay || !lastLoggedFood}
+                          className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left disabled:opacity-40 active:bg-white/[0.09] transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4 text-violet-400 shrink-0" />
+                          <div>
+                            <p className="text-xs font-semibold text-white/90">{t('home.scan.repeatLast')}</p>
+                            <p className="text-[10px] text-white/35 truncate max-w-[80px]">{lastLoggedFood?.name ?? '–'}</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { handleQuickAdd('repeat-day-yesterday'); setShowSidebar(false); }}
+                          disabled={isPastSelectedDay}
+                          className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left disabled:opacity-40 active:bg-white/[0.09] transition-colors"
+                        >
+                          <RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
+                          <div>
+                            <p className="text-xs font-semibold text-white/90">{t('home.scan.repeatYesterday')}</p>
+                            <p className="text-[10px] text-white/35">Kopier måltider</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'meals' } })); setShowSidebar(false); }}
+                          className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
+                        >
+                          <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <div>
+                            <p className="text-xs font-semibold text-white/90">Oppskrifter</p>
+                            <p className="text-[10px] text-white/35">Finn måltider</p>
+                          </div>
+                        </button>
                       </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } })); setShowSidebar(false); }}
-                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
-                    >
-                      <Camera className="w-4 h-4 text-orange-400 shrink-0" />
-                      <div>
-                        <p className="text-xs font-semibold text-white/90">AI Skann</p>
-                        <p className="text-[10px] text-white/35">Ta bilde av mat</p>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'meals' } })); setShowSidebar(false); }}
-                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
-                    >
-                      <BookOpen className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <div>
-                        <p className="text-xs font-semibold text-white/90">Oppskrifter</p>
-                        <p className="text-[10px] text-white/35">Finn måltider</p>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'profile' } })); setShowSidebar(false); }}
-                      className="flex items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.05] px-3 py-3 text-left active:bg-white/[0.09] transition-colors"
-                    >
-                      <Settings className="w-4 h-4 text-slate-400 shrink-0" />
-                      <div>
-                        <p className="text-xs font-semibold text-white/90">Innstillinger</p>
-                        <p className="text-[10px] text-white/35">Profil og mål</p>
-                      </div>
-                    </button>
+                    </div>
                   </div>
 
                   {/* Section navigators */}
@@ -2213,9 +2308,9 @@ export default function HomeScreen() {
                     <p className="text-[10px] font-bold uppercase tracking-wider text-white/25 px-1 mb-2">Oversikt</p>
                     <div className="space-y-1.5">
                       {([
-                        { view: 'logg' as const, icon: BookOpen, color: 'text-blue-400 bg-blue-500/15', label: 'Matlogg', sub: 'I går + tidligere dager' },
-                        { view: 'goals' as const, icon: BarChart2, color: 'text-orange-400 bg-orange-500/15', label: 'Mål og makro', sub: 'Energi, makro, progresjon' },
-                        { view: 'journey' as const, icon: Flame, color: 'text-emerald-400 bg-emerald-500/15', label: 'Din reise', sub: 'Vektgraf og fremgang' },
+                        { view: 'logg' as const, icon: BookOpen, color: 'text-blue-400 bg-blue-500/15', label: t('home.sidebar.log'), sub: t('home.sidebar.logSub') },
+                        { view: 'goals' as const, icon: BarChart2, color: 'text-orange-400 bg-orange-500/15', label: t('home.sidebar.goals'), sub: t('home.sidebar.goalsSub') },
+                        { view: 'journey' as const, icon: Flame, color: 'text-emerald-400 bg-emerald-500/15', label: t('home.sidebar.journey'), sub: t('home.sidebar.journeySub') },
                       ]).map(({ view, icon: Icon, color, label, sub }) => (
                         <button
                           key={view}
@@ -2526,6 +2621,7 @@ export default function HomeScreen() {
         <div style={{ padding: '0 16px 0 16px' }}>
           <CoachCard
             message={coachMessage}
+            lang={language}
             onAction={(priority) => {
               if (priority === 'protein' || priority === 'calories_under' || priority === 'logging') {
                 window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'scan' } }));
@@ -2649,12 +2745,12 @@ export default function HomeScreen() {
             <p className="hero-stat-value text-orange-500 dark:text-orange-300">
               <RollingNumber value={animatedConsumed} format={kcalNumberFormat.format.bind(kcalNumberFormat)} />
             </p>
-            <p className="hero-stat-label">Spist</p>
+            <p className="hero-stat-label">{t('home.stats.consumed')}</p>
           </div>
           <div className="hero-stat-divider" />
           <div className={`hero-stat-pill hero-stat-pill-training text-center${flashedStat === 'training' ? ' hero-stat-flash' : ''}`}>
             <p className="hero-stat-value text-emerald-500 dark:text-emerald-300">+{kcalNumberFormat.format(animatedTraining)}</p>
-            <p className="hero-stat-label">Trening</p>
+            <p className="hero-stat-label">{t('home.stats.training')}</p>
           </div>
         </div>
 
@@ -2672,6 +2768,52 @@ export default function HomeScreen() {
             </p>
           );
         })()}
+
+        {/* Finjuster mål — inline calorie goal tweak */}
+        {isTodaySelected && (
+          <div className="mt-3 flex flex-col items-center gap-2">
+            {showCalorieTweak ? (
+              <div className="flex items-center gap-2 bg-slate-100 dark:bg-white/[0.06] rounded-2xl px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => setCalorieTweakByDate((prev) => ({ ...prev, [selectedDateKey]: (prev[selectedDateKey] ?? 0) - 50 }))}
+                  className="w-8 h-8 rounded-full bg-white dark:bg-white/10 shadow-sm text-slate-700 dark:text-white/80 text-lg font-bold flex items-center justify-center active:scale-95 transition-transform"
+                >−</button>
+                <div className="flex flex-col items-center min-w-[80px]">
+                  <p className="text-[13px] font-bold text-slate-800 dark:text-white/90 leading-none">
+                    {kcalNumberFormat.format(netGoal)} kcal
+                  </p>
+                  {calorieTweak !== 0 && (
+                    <p className={`text-[10px] font-semibold mt-0.5 ${calorieTweak > 0 ? 'text-emerald-500' : 'text-orange-500'}`}>
+                      {calorieTweak > 0 ? '+' : ''}{calorieTweak} justering
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCalorieTweakByDate((prev) => ({ ...prev, [selectedDateKey]: (prev[selectedDateKey] ?? 0) + 50 }))}
+                  className="w-8 h-8 rounded-full bg-white dark:bg-white/10 shadow-sm text-slate-700 dark:text-white/80 text-lg font-bold flex items-center justify-center active:scale-95 transition-transform"
+                >+</button>
+                {calorieTweak !== 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCalorieTweakByDate((prev) => { const n = { ...prev }; delete n[selectedDateKey]; return n; })}
+                    className="ml-1 text-[10px] text-slate-400 dark:text-white/30 underline"
+                  >nullstill</button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowCalorieTweak(true)}
+                className="text-[11px] text-slate-400 dark:text-white/30 hover:text-slate-500 dark:hover:text-white/50 transition-colors flex items-center gap-1"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                Finjuster mål
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Macro row when expanded — tap to open nutrient detail */}
         {ringExpanded && (
@@ -2867,7 +3009,7 @@ export default function HomeScreen() {
             disabled={isPastSelectedDay}
           >
             <Camera className="w-4 h-4" />
-            Ta bilde
+            {t('home.scan.takePhoto')}
           </button>
           <button
             type="button"
@@ -2876,7 +3018,7 @@ export default function HomeScreen() {
             disabled={isPastSelectedDay}
           >
             <ScanLine className="w-4 h-4" />
-            Strekkode
+            {t('home.scan.barcode')}
           </button>
           <button
             type="button"
@@ -2884,7 +3026,7 @@ export default function HomeScreen() {
             className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed flex flex-col items-center gap-0.5"
             disabled={isPastSelectedDay || !lastLoggedFood}
           >
-            <span>Gjenta sist</span>
+            <span>{t('home.scan.repeatLast')}</span>
             {lastLoggedFood && (
               <span className="text-[10px] font-normal text-slate-400 dark:text-white/30 truncate max-w-full leading-tight">
                 {lastLoggedFood.name} {lastLoggedFood.kcal} kcal · {lastLoggedFood.protein}g P
@@ -2897,7 +3039,7 @@ export default function HomeScreen() {
             className="btn-neutral text-sm py-3 disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={isPastSelectedDay}
           >
-            Gjenta i går
+            {t('home.scan.repeatYesterday')}
           </button>
         </div>
       </div>
@@ -2913,7 +3055,7 @@ export default function HomeScreen() {
               <p className={`text-3xl font-bold leading-none ${caloriesRemaining < 0 ? 'text-red-500' : 'text-gray-900 dark:text-white/90'}`}>
                 {caloriesRemaining < 0 ? `+${Math.abs(Math.round(caloriesRemaining))}` : Math.round(caloriesRemaining)}
               </p>
-              <p className="text-xs text-gray-400 mt-0.5">{caloriesRemaining < 0 ? 'over mål' : 'kcal igjen'}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{caloriesRemaining < 0 ? t('home.overMal') : t('home.kcalIgjen')}</p>
               <div className="mt-2 h-1.5 rounded-full bg-gray-200 dark:bg-white/[0.08] overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${caloriesRemaining < 0 ? 'bg-red-400' : 'bg-orange-500'}`}
@@ -2931,7 +3073,7 @@ export default function HomeScreen() {
                 <p className={`text-3xl font-bold leading-none ${protein >= smartDietPlan.macros.proteinG ? 'text-emerald-500' : 'text-gray-900 dark:text-white/90'}`}>
                   {protein >= smartDietPlan.macros.proteinG ? Math.round(protein) : `${Math.round(smartDietPlan.macros.proteinG - protein)}`}
                 </p>
-                <p className="text-xs text-gray-400 mt-0.5">{protein >= smartDietPlan.macros.proteinG ? 'g nådd!' : 'g igjen'}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{protein >= smartDietPlan.macros.proteinG ? t('home.stats.gReached') : t('home.stats.gRemaining')}</p>
                 <div className="mt-2 h-2.5 rounded-full bg-blue-100 dark:bg-blue-500/[0.12] overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-700 ${protein >= smartDietPlan.macros.proteinG ? 'bg-emerald-400' : 'bg-blue-500'}`}
@@ -2949,7 +3091,7 @@ export default function HomeScreen() {
 
         {/* Log header */}
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-white/70">Dagens matlogg</h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-white/70">{t('home.foodLog.title')}</h3>
           {todaysLoggedItems.length > 0 && (
             <span className="text-[11px] text-slate-400 dark:text-white/30">{todaysLoggedItems.length} varer</span>
           )}
@@ -2957,7 +3099,7 @@ export default function HomeScreen() {
 
         {todaysLoggedItems.length === 0 ? (
           <p className="text-xs text-slate-400 dark:text-white/30 py-1">
-            {isTodaySelected ? 'Ingen matvarer logget ennå i dag.' : 'Ingen matvarer logget.'}
+            {isTodaySelected ? t('home.foodLog.emptyToday') : t('home.foodLog.empty')}
           </p>
         ) : (
           <div className="mt-3 space-y-2">
@@ -3037,7 +3179,7 @@ export default function HomeScreen() {
                       </>
                     ) : (
                       <p className="text-sm text-slate-400 dark:text-white/30">
-                        {mealHistory.avgKcal > 0 ? `Vanlig: ~${mealHistory.avgKcal} kcal` : `Anbefalt: ${meal.recommended} kcal`}
+                        {mealHistory.avgKcal > 0 ? t('home.foodLog.mealUsual', { kcal: mealHistory.avgKcal }) : t('home.foodLog.mealRecommended', { kcal: meal.recommended })}
                       </p>
                     )}
                   </div>
@@ -3068,7 +3210,7 @@ export default function HomeScreen() {
                           meal.id,
                           {
                             id: `predictive-${meal.id}-${suggestedKcal}`,
-                            name: `Predikert ${meal.name}`,
+                            name: `${t('home.foodLog.predicted')} ${meal.name}`,
                             kcal: suggestedKcal,
                             protein: Math.max(0, Math.round(suggestedKcal * globalMacroRatios.protein)),
                             carbs: Math.max(0, Math.round(suggestedKcal * globalMacroRatios.carbs)),
@@ -3174,12 +3316,12 @@ export default function HomeScreen() {
                     <button
                       type="button"
                       className="rounded-xl border border-slate-200 dark:border-white/[0.06] text-slate-500 dark:text-white/40 text-xs px-3 py-2 flex items-center justify-center gap-1.5"
-                      onClick={() => setScanHint('Strekkodeskanner klar for rask logging.')}
+                      onClick={() => setScanHint(t('home.scan.barcodeHint'))}
                       title="Strekkodeskanner"
                       disabled={isPastSelectedDay}
                     >
                       <ScanLine className="w-3.5 h-3.5" />
-                      Strekkode
+                      {t('home.scan.barcode')}
                     </button>
                     {/* Manuell — full width ghost */}
                     <button
@@ -3372,7 +3514,7 @@ export default function HomeScreen() {
                   },
                 ]);
                 setPendingTemplate(null);
-                setScanHint('Maltid lagret for 1-tap logging.');
+                setScanHint('Måltid lagret for 1-tap logging.');
               }}
               className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
             >
@@ -3407,7 +3549,7 @@ export default function HomeScreen() {
                 <p className={`text-2xl font-bold leading-none ${hasTrainingLogged ? 'text-gray-900 dark:text-white/90' : 'text-gray-400'}`}>
                   {dayLog.trainingKcal}
                 </p>
-                <p className="text-xs text-gray-400 mt-0.5">kcal forbrent</p>
+                <p className="text-xs text-gray-400 mt-0.5">{t('home.stats.kcalBurned')}</p>
               </div>
               <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.trening ? '' : '-rotate-90'}`} />
             </div>
@@ -3425,7 +3567,7 @@ export default function HomeScreen() {
           <p className="text-sm text-gray-600 dark:text-white/60 mb-4">
             {selectedDayWorkouts.length > 0
               ? `${selectedDayWorkouts.length} økt${selectedDayWorkouts.length > 1 ? 'er' : ''} logget`
-              : 'Trening registrert'}
+              : t('home.stats.workoutLogged')}
           </p>
         )}
         {expandedSections.trening && (
@@ -3473,7 +3615,7 @@ export default function HomeScreen() {
             <div className="flex items-center gap-2">
               <div className="text-right">
                 <p className="text-sm font-bold text-cyan-700 dark:text-cyan-300">{hydrationMl} / {WATER_GOAL_ML} ml</p>
-                <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% av mål</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400">{Math.round(waterProgress * 100)}% {t('home.stats.ofGoal')}</p>
               </div>
               <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.vann ? '' : '-rotate-90'}`} />
             </div>
@@ -3611,7 +3753,7 @@ export default function HomeScreen() {
                 <div className="w-10 h-10 rounded-2xl bg-slate-100 dark:bg-white/[0.07] flex items-center justify-center">
                   <Pill className="w-5 h-5 text-slate-500 dark:text-white/50" />
                 </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white/90">Andre inntak</h3>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white/90">{t('home.extras.title')}</h3>
               </div>
               <div className="flex items-center gap-2">
                 {customIntakes.length > 0 && (
@@ -3758,7 +3900,7 @@ export default function HomeScreen() {
                 <Scale className="w-5 h-5 text-orange-600 dark:text-orange-400" />
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kroppsvekt</h3>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">{t('home.bodyWeight.title')}</h3>
                 {journeyWeightSeries.length >= 2 && (() => {
                   const first = journeyWeightSeries[0].value;
                   const last = journeyWeightSeries[journeyWeightSeries.length - 1].value;
@@ -3777,7 +3919,7 @@ export default function HomeScreen() {
                   <p className="text-xl font-bold text-slate-900 dark:text-white/90">
                     {journeyWeightSeries[journeyWeightSeries.length - 1].value.toFixed(1)} kg
                   </p>
-                  <p className="text-xs text-slate-500 dark:text-white/40">Siste måling</p>
+                  <p className="text-xs text-slate-500 dark:text-white/40">{t('home.bodyWeight.lastMeasurement')}</p>
                 </div>
               )}
               <ChevronDown className={`w-4 h-4 text-slate-400 dark:text-white/30 transition-transform duration-200 shrink-0 ${expandedSections.kroppsvekt ? '' : '-rotate-90'}`} />
@@ -3921,7 +4063,7 @@ export default function HomeScreen() {
               <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-900/20 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">Kosthold & Mål</h3>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white/90">{t('home.dietGoal.title')}</h3>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-400 dark:text-white/30">{netGoal} kcal</span>
@@ -4008,7 +4150,12 @@ export default function HomeScreen() {
       {/* ===== NUTRITION TWIN / TRAJECTORY ===== */}
       {isTodaySelected && adaptiveComplexity !== 'minimal' && (
         <div style={{ padding: '0 16px' }}>
-          <TrajectoryChart logsByDate={logsByDate} rawProfile={profilePrefs} />
+          <TrajectoryChart
+            logsByDate={logsByDate}
+            rawProfile={profilePrefs}
+            resetDate={prognoseResetDate}
+            onReset={() => setPrognoseResetDate(toDateKey(new Date()))}
+          />
         </div>
       )}
 
@@ -5270,8 +5417,8 @@ export default function HomeScreen() {
                 const detailRings = [
                   { label: 'Kalorier', value: `${kcalNumberFormat.format(dayConsumed)}`, sub: `av ${kcalNumberFormat.format(dayTarget)}`, ratio: Math.min(1, dayConsumed / Math.max(1, dayTarget)), color: '#f97316' },
                   { label: 'Protein', value: `${Math.round(dayProtein)}g`, sub: `av ${smartDietPlan.macros?.proteinG ?? PROTEIN_GOAL_G}g`, ratio: Math.min(1, dayProtein / (smartDietPlan.macros?.proteinG ?? PROTEIN_GOAL_G)), color: '#a855f7' },
-                  { label: 'Vann', value: `${Math.round(dayWater / 100) / 10}L`, sub: `av ${WATER_GOAL_ML / 1000}L`, ratio: Math.min(1, dayWater / WATER_GOAL_ML), color: '#38bdf8' },
-                  { label: 'Trening', value: log.trainingKcal > 0 ? `${log.trainingKcal} kcal` : '—', sub: log.trainingKcal > 0 ? 'trent' : 'ikke trent', ratio: Math.min(1, log.trainingKcal / 300), color: '#22c55e' },
+                  { label: t('home.stats.water'), value: `${Math.round(dayWater / 100) / 10}L`, sub: `av ${WATER_GOAL_ML / 1000}L`, ratio: Math.min(1, dayWater / WATER_GOAL_ML), color: '#38bdf8' },
+                  { label: t('home.stats.training'), value: log.trainingKcal > 0 ? `${log.trainingKcal} kcal` : '—', sub: log.trainingKcal > 0 ? t('home.stats.trained') : t('home.stats.notTrained'), ratio: Math.min(1, log.trainingKcal / 300), color: '#22c55e' },
                 ];
                 const detailR = 20;
                 const detailC = 2 * Math.PI * detailR;
@@ -5384,7 +5531,7 @@ export default function HomeScreen() {
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-white/80">Strekkode</span>
+                  <span className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-white/80">{t('home.scan.barcode')}</span>
                   <button
                     type="button"
                     onClick={() => { openScanTab('barcode'); setSpeedDialOpen(false); }}
@@ -5395,7 +5542,7 @@ export default function HomeScreen() {
                   </button>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-white/80">Ta bilde</span>
+                  <span className="bg-white dark:bg-gray-800 rounded-xl px-3 py-1.5 shadow-lg border border-slate-100 dark:border-white/10 text-xs font-semibold text-slate-700 dark:text-white/80">{t('home.scan.takePhoto')}</span>
                   <button
                     type="button"
                     onClick={() => { openScanTab('photo'); setSpeedDialOpen(false); }}

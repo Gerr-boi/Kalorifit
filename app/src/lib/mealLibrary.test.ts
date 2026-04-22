@@ -63,7 +63,7 @@ describe('scoreMealRecommendation', () => {
       recipe: {
         id: 'fav-1',
         title: 'Kimchi protein bowl',
-        source: 'Mine maltider',
+        source: 'Mine måltider',
         sortContexts: ['recommended', 'gut', 'post_workout'],
         dietStyles: ['high_protein'],
         goalCategories: ['recomp'],

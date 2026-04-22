@@ -188,11 +188,41 @@ function App() {
     );
   }
 
-  // Show loading spinner during auth check
+  // Show loading screen during auth check
   if (isSupabaseConfigured() && authLoading) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-orange-500/30 border-t-orange-500 rounded-full animate-spin" />
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-10">
+        <div className="flex flex-col items-center gap-6">
+          <div
+            className="relative"
+            style={{ animation: 'kf-logo-in 0.65s cubic-bezier(0.34,1.56,0.64,1) both' }}
+          >
+            <div className="absolute inset-0 rounded-3xl blur-2xl opacity-50 bg-orange-500 scale-125 pointer-events-none" />
+            <img
+              src="/icon-192x192.png"
+              alt="KaloriFit"
+              className="relative w-20 h-20 rounded-3xl shadow-2xl"
+            />
+          </div>
+          <div
+            className="text-center"
+            style={{ animation: 'kf-rise 0.5s ease-out 0.4s both' }}
+          >
+            <h1 className="text-2xl font-black text-white tracking-tight">KaloriFit</h1>
+            <p
+              className="text-sm text-zinc-500 mt-1"
+              style={{ animation: 'kf-fade 0.5s ease-out 0.65s both' }}
+            >
+              Din smarte kostholdsassistent
+            </p>
+          </div>
+        </div>
+        <div
+          className="w-36 h-0.5 rounded-full relative overflow-hidden bg-white/[0.06]"
+          style={{ animation: 'kf-fade 0.4s ease-out 0.8s both' }}
+        >
+          <div className="loading-bar absolute top-0 h-full w-2/5 bg-orange-500 rounded-full" />
+        </div>
       </div>
     );
   }

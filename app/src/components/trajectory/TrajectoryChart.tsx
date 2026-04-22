@@ -4,8 +4,8 @@
  * Uses: last 14 days of logs + current body weight + goal mode.
  * Formula: 7700 kcal ≈ 1kg body fat. 500 kcal/day deficit ≈ 0.5kg/week.
  */
-import { useMemo } from 'react';
-import { TrendingDown, TrendingUp, Minus } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { TrendingDown, TrendingUp, Minus, RotateCcw } from 'lucide-react';
 import type { DayLog } from '../../lib/disciplineEngine';
 import { toDateKey, addDays, startOfDay } from '../../lib/disciplineEngine';
 import { buildSmartDietPlan, normalizeNutritionProfile } from '../../lib/nutritionPlanner';
@@ -14,6 +14,8 @@ import type { NutritionProfile } from '../../lib/nutritionPlanner';
 interface TrajectoryChartProps {
   logsByDate: Record<string, DayLog>;
   rawProfile: Partial<NutritionProfile> | null | undefined;
+  resetDate?: string | null;
+  onReset?: () => void;
 }
 
 type ProjectionPoint = {
@@ -25,6 +27,7 @@ type ProjectionPoint = {
 function computeProjection(
   logsByDate: Record<string, DayLog>,
   rawProfile: Partial<NutritionProfile> | null | undefined,
+  resetDate?: string | null,
 ): ProjectionPoint[] | null {
   const profile = normalizeNutritionProfile(rawProfile);
   const plan = buildSmartDietPlan({ profile, logsByDate, logEvents: [], weightHistory: [], date: new Date() });
@@ -33,12 +36,14 @@ function computeProjection(
 
   if (!startWeightKg || startWeightKg <= 0) return null;
 
-  // Average daily surplus/deficit over the last 14 days
+  // Average daily surplus/deficit over the last 14 days (or since resetDate)
   const today = startOfDay(new Date());
   let totalKcal = 0;
   let daysWithData = 0;
   for (let i = 1; i <= 14; i++) {
-    const key = toDateKey(addDays(today, -i));
+    const day = addDays(today, -i);
+    const key = toDateKey(day);
+    if (resetDate && key < resetDate) break;
     const log = logsByDate[key];
     if (!log) continue;
     const eaten = Object.values(log.meals).flat().reduce((s, e) => s + e.kcal, 0);
@@ -64,10 +69,12 @@ function computeProjection(
   return points;
 }
 
-export default function TrajectoryChart({ logsByDate, rawProfile }: TrajectoryChartProps) {
+export default function TrajectoryChart({ logsByDate, rawProfile, resetDate, onReset }: TrajectoryChartProps) {
+  const [confirmReset, setConfirmReset] = useState(false);
+
   const points = useMemo(
-    () => computeProjection(logsByDate, rawProfile),
-    [logsByDate, rawProfile],
+    () => computeProjection(logsByDate, rawProfile, resetDate),
+    [logsByDate, rawProfile, resetDate],
   );
 
   if (!points) {
@@ -125,6 +132,15 @@ export default function TrajectoryChart({ logsByDate, rawProfile }: TrajectoryCh
     ? `${totalChange.toFixed(1)}kg opp på 6 uker`
     : 'Stabilt vekt de neste 6 ukene';
 
+  function handleResetClick() {
+    if (confirmReset) {
+      onReset?.();
+      setConfirmReset(false);
+    } else {
+      setConfirmReset(true);
+    }
+  }
+
   return (
     <div
       style={{
@@ -137,9 +153,39 @@ export default function TrajectoryChart({ logsByDate, rawProfile }: TrajectoryCh
     >
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#111827', margin: 0 }}>Vektprognose</p>
-          <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>Basert på de siste 14 dagene</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#111827', margin: 0 }}>Vektprognose</p>
+            <p style={{ fontSize: 11, color: '#6b7280', margin: 0 }}>
+              {resetDate ? `Fra ${resetDate}` : 'Basert på de siste 14 dagene'}
+            </p>
+          </div>
+          {onReset && (
+            <button
+              type="button"
+              onClick={handleResetClick}
+              onBlur={() => setConfirmReset(false)}
+              title="Nullstill prognose"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                background: confirmReset ? '#fef2f2' : 'transparent',
+                border: confirmReset ? '1px solid #fca5a5' : '1px solid #e5e7eb',
+                borderRadius: 20,
+                padding: '3px 8px',
+                cursor: 'pointer',
+                color: confirmReset ? '#dc2626' : '#9ca3af',
+                fontSize: 10,
+                fontWeight: 600,
+                transition: 'all 150ms ease',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <RotateCcw size={10} />
+              {confirmReset ? 'Bekreft' : 'Nullstill'}
+            </button>
+          )}
         </div>
         <div
           style={{
@@ -152,6 +198,7 @@ export default function TrajectoryChart({ logsByDate, rawProfile }: TrajectoryCh
             padding: '4px 10px',
             fontSize: 11,
             fontWeight: 700,
+            flexShrink: 0,
           }}
         >
           <TrendIcon size={13} />

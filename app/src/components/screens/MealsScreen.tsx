@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Clock, Flame, Plus, Sparkles, Star, Users } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { BookOpen, ChevronDown, ChevronRight, Clock, Dumbbell, Flame, Info, Leaf, Plus, SlidersHorizontal, Sparkles, Sprout, Star, Users, Wind, X, Zap } from 'lucide-react';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
+import { useT } from '../../lib/i18n';
 import { addDays, createEmptyDayLog, getTotalHydrationMl, startOfDay, toDateKey, type DayLog, type FoodEntry, type MealId } from '../../lib/disciplineEngine';
 import { getFavoriteTagMatches, inferMealMetadata, scoreMealRecommendation } from '../../lib/mealLibrary';
 import { normalizeNutritionProfile, type DietStyle, type GoalCategory, type GoalStrategy } from '../../lib/nutritionPlanner';
@@ -18,87 +19,7 @@ type ProfilePrefs = {
   intolerances?: string[];
 };
 
-const smartSortOptions: Array<{ id: SmartSortId; label: string }> = [
-  { id: 'recommended', label: 'Anbefalt for deg' },
-  { id: 'goal', label: 'Matcher malet ditt' },
-  { id: 'post_workout', label: 'Etter trening' },
-  { id: 'evening', label: 'Kveldvennlig' },
-  { id: 'gut', label: 'Tarmvennlig' },
-  { id: 'high_energy', label: 'Høy energi' },
-  { id: 'anti_inflammatory', label: 'Anti-inflammatorisk' },
-];
-
-const libraryOptions = [
-  { id: 'discover', label: 'For deg' },
-  { id: 'mine', label: 'Mine måltider' },
-] as const;
-
-const mealFilterOptions = [
-  { id: 'alle', label: 'Alle' },
-  { id: 'frokost', label: 'Frokost' },
-  { id: 'lunsj', label: 'Lunsj' },
-  { id: 'middag', label: 'Middag' },
-  { id: 'snacks', label: 'Snacks' },
-] as const satisfies Array<{ id: MealSlot; label: string }>;
-
-const tagInfo: Record<NutritionTagId, { label: string; explanation: string; article: string; url: string; supplement: string; training: string }> = {
-  gut_health: {
-    label: '#GutHealth',
-    explanation: 'Fermentert mat og fiber stotter tarmfloraen.',
-    article: 'Harvard: Gut microbiome basics',
-    url: 'https://www.health.harvard.edu/blog/do-gut-bacteria-inhibit-weight-loss-2020012318699',
-    supplement: 'Prioriter mat forst, probiotika ved behov.',
-    training: 'Rolig aktivitet passer ofte ved sensitiv mage.',
-  },
-  high_protein: {
-    label: '#HighProtein',
-    explanation: 'Protein hjelper metthet og muskelvedlikehold.',
-    article: 'NIH: Protein and body composition',
-    url: 'https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7539343/',
-    supplement: 'Proteinpulver kan vaere praktisk.',
-    training: 'Styrketrening + jevnt proteininntak fungerer best.',
-  },
-  low_inflammation: {
-    label: '#LowInflammation',
-    explanation: 'Omega-3, polyfenoler og hel mat kan dempe inflammasjon.',
-    article: 'Cleveland Clinic: Anti-inflammatory eating',
-    url: 'https://health.clevelandclinic.org/anti-inflammatory-diet',
-    supplement: 'Omega-3 kan vurderes ved lavt fiskeinntak.',
-    training: 'Legg inn restitusjon etter harde økter.',
-  },
-  brain_fuel: {
-    label: '#BrainFuel',
-    explanation: 'Jevn energi og sunt fett stotter fokus.',
-    article: 'Mayo Clinic: Brain food',
-    url: 'https://www.mayoclinic.org/healthy-lifestyle/nutrition-and-healthy-eating/in-depth/brain-food/art-20048351',
-    supplement: 'Magnesium er aktuelt ved høy belastning.',
-    training: 'Unnga for lange perioder uten mat.',
-  },
-  hormone_support: {
-    label: '#HormoneSupport',
-    explanation: 'Nok energi og sunt fett stotter hormonbalanse.',
-    article: 'Johns Hopkins: Hormones and weight',
-    url: 'https://www.hopkinsmedicine.org/health/wellness-and-prevention/hormones-and-weight-loss',
-    supplement: 'Sjekk vitamin D ved mistanke om lavstatus.',
-    training: 'Periodiser intensitet over uken.',
-  },
-  fiber_focus: {
-    label: '#FiberFocus',
-    explanation: 'Fiber stotter fordoyelse og metthet.',
-    article: 'Cleveland Clinic: High-fiber foods',
-    url: 'https://health.clevelandclinic.org/high-fiber-foods',
-    supplement: 'Psyllium kan vaere nyttig ved lavt inntak.',
-    training: 'Fordel fiber utover dagen.',
-  },
-  recovery: {
-    label: '#Recovery',
-    explanation: 'Protein + vaeske + antioksidanter stotter restitusjon.',
-    article: 'ACSM: Recovery nutrition',
-    url: 'https://www.acsm.org/all-blog-posts/certification-blog/acsm-certified-blog/2020/07/31/recovery-nutrition',
-    supplement: 'Kreatin kan vurderes for styrkeidrett.',
-    training: 'Spis innen 1-2 timer etter hard økt.',
-  },
-};
+// smartSortOptions, libraryOptions, mealFilterOptions and tagInfo are defined inside MealsScreen to use t()
 
 const recipes = mealRecipes;
 const COMMUNITY_RECIPE_PLACEHOLDER = 'https://images.unsplash.com/photo-1547592180-85f173990554?w=700&h=420&fit=crop';
@@ -160,6 +81,89 @@ function createSavedMealId() {
 
 export default function MealsScreen() {
   const { activeUserId } = useCurrentUser();
+  const t = useT();
+
+  const smartSortOptions: Array<{ id: SmartSortId; label: string }> = [
+    { id: 'recommended', label: t('meals.sort.recommended') },
+    { id: 'goal', label: t('meals.sort.goal') },
+    { id: 'post_workout', label: t('meals.sort.post_workout') },
+    { id: 'evening', label: t('meals.sort.evening') },
+    { id: 'gut', label: t('meals.sort.gut') },
+    { id: 'high_energy', label: t('meals.sort.high_energy') },
+    { id: 'anti_inflammatory', label: t('meals.sort.anti_inflammatory') },
+  ];
+
+  const libraryOptions = [
+    { id: 'discover' as const, label: t('meals.library.discover') },
+    { id: 'mine' as const, label: t('meals.library.mine') },
+  ];
+
+  const mealFilterOptions: Array<{ id: MealSlot; label: string }> = [
+    { id: 'alle', label: t('meals.filters.all') },
+    { id: 'frokost', label: t('meals.filters.breakfast') },
+    { id: 'lunsj', label: t('meals.filters.lunch') },
+    { id: 'middag', label: t('meals.filters.dinner') },
+    { id: 'snacks', label: t('meals.filters.snacks') },
+  ];
+
+  const tagInfo: Record<NutritionTagId, { label: string; explanation: string; article: string; url: string; supplement: string; training: string }> = {
+    gut_health: {
+      label: t('meals.tagInfo.gut_health.label'),
+      explanation: t('meals.tagInfo.gut_health.explanation'),
+      article: t('meals.tagInfo.gut_health.article'),
+      url: 'https://www.health.harvard.edu/blog/do-gut-bacteria-inhibit-weight-loss-2020012318699',
+      supplement: t('meals.tagInfo.gut_health.supplement'),
+      training: t('meals.tagInfo.gut_health.training'),
+    },
+    high_protein: {
+      label: t('meals.tagInfo.high_protein.label'),
+      explanation: t('meals.tagInfo.high_protein.explanation'),
+      article: t('meals.tagInfo.high_protein.article'),
+      url: 'https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7539343/',
+      supplement: t('meals.tagInfo.high_protein.supplement'),
+      training: t('meals.tagInfo.high_protein.training'),
+    },
+    low_inflammation: {
+      label: t('meals.tagInfo.low_inflammation.label'),
+      explanation: t('meals.tagInfo.low_inflammation.explanation'),
+      article: t('meals.tagInfo.low_inflammation.article'),
+      url: 'https://health.clevelandclinic.org/anti-inflammatory-diet',
+      supplement: t('meals.tagInfo.low_inflammation.supplement'),
+      training: t('meals.tagInfo.low_inflammation.training'),
+    },
+    brain_fuel: {
+      label: t('meals.tagInfo.brain_fuel.label'),
+      explanation: t('meals.tagInfo.brain_fuel.explanation'),
+      article: t('meals.tagInfo.brain_fuel.article'),
+      url: 'https://www.mayoclinic.org/healthy-lifestyle/nutrition-and-healthy-eating/in-depth/brain-food/art-20048351',
+      supplement: t('meals.tagInfo.brain_fuel.supplement'),
+      training: t('meals.tagInfo.brain_fuel.training'),
+    },
+    hormone_support: {
+      label: t('meals.tagInfo.hormone_support.label'),
+      explanation: t('meals.tagInfo.hormone_support.explanation'),
+      article: t('meals.tagInfo.hormone_support.article'),
+      url: 'https://www.hopkinsmedicine.org/health/wellness-and-prevention/hormones-and-weight-loss',
+      supplement: t('meals.tagInfo.hormone_support.supplement'),
+      training: t('meals.tagInfo.hormone_support.training'),
+    },
+    fiber_focus: {
+      label: t('meals.tagInfo.fiber_focus.label'),
+      explanation: t('meals.tagInfo.fiber_focus.explanation'),
+      article: t('meals.tagInfo.fiber_focus.article'),
+      url: 'https://health.clevelandclinic.org/high-fiber-foods',
+      supplement: t('meals.tagInfo.fiber_focus.supplement'),
+      training: t('meals.tagInfo.fiber_focus.training'),
+    },
+    recovery: {
+      label: t('meals.tagInfo.recovery.label'),
+      explanation: t('meals.tagInfo.recovery.explanation'),
+      article: t('meals.tagInfo.recovery.article'),
+      url: 'https://www.acsm.org/all-blog-posts/certification-blog/acsm-certified-blog/2020/07/31/recovery-nutrition',
+      supplement: t('meals.tagInfo.recovery.supplement'),
+      training: t('meals.tagInfo.recovery.training'),
+    },
+  };
   const [activeLibrary, setActiveLibrary] = useState<'discover' | 'mine'>('discover');
   const [activeSort, setActiveSort] = useState<SmartSortId>('recommended');
   const [activeMealFilter, setActiveMealFilter] = useState<MealSlot>('alle');
@@ -167,6 +171,13 @@ export default function MealsScreen() {
   const [infoTag, setInfoTag] = useState<NutritionTagId | null>(null);
   const [selectedRecipe, setSelectedRecipe] = useState<DisplayRecipe | null>(null);
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [expandedReasonCards, setExpandedReasonCards] = useState<Set<string>>(new Set());
+  const [expandedTagInfoCards, setExpandedTagInfoCards] = useState<Set<string>>(new Set());
+  const [peekRecipe, setPeekRecipe] = useState<DisplayRecipe | null>(null);
+  const [heroIndex, setHeroIndex] = useState(0);
+  const [showStatBreakdown, setShowStatBreakdown] = useState(false);
+  const heroTouchStartX = useRef<number | null>(null);
   const [diaryFeedback, setDiaryFeedback] = useState<string | null>(null);
   const [showCreateMealModal, setShowCreateMealModal] = useState(false);
   const [newMealName, setNewMealName] = useState('');
@@ -235,46 +246,47 @@ export default function MealsScreen() {
   }, [logsByDate, today]);
 
   const weeklyInsight = weekSignals.fermented < 4
-    ? 'Denne uken mangler du fermentert mat. Tarmvennlige forslag prioriteres.'
+    ? t('meals.weeklyInsight.lowFermented')
     : weekSignals.fiber < 14
-      ? 'Denne uken er fiberinntaket lavt. Flere fiberrike oppskrifter vises.'
+      ? t('meals.weeklyInsight.lowFiber')
       : weekSignals.protein < 650
-        ? 'Protein er under ukesmal. Hoyprotein-oppskrifter er frontet.'
-        : 'Bra flyt denne uken. Vi holder variasjon og restitusjon i fokus.';
+        ? t('meals.weeklyInsight.lowProtein')
+        : t('meals.weeklyInsight.good');
 
   const bannerTitle = profile.goalStrategy === 'gut_health'
-    ? 'Bra for tarmen din i dag'
+    ? t('meals.banner.gutMode')
     : hardWorkoutToday
-      ? 'Restitusjonsmåltider etter hard økt'
+      ? t('meals.banner.recovery')
       : poorSleepProxy
-        ? 'Energistøtte for en krevende dag'
-        : 'Måltider tilpasset profilen din';
+        ? t('meals.banner.energy')
+        : t('meals.banner.default');
   const bannerSubtitle = profile.goalStrategy === 'gut_health'
-    ? 'Mikrobiomet ditt trenger fermentert mat, fiberbredde og polyfenoler.'
-    : 'Sortering og forslag er justert etter malet ditt og dagens signaler.';
+    ? t('meals.banner.gutSub')
+    : t('meals.banner.defaultSub');
 
   const recommendationBlocks = useMemo(() => {
     const blocks: Array<{ id: string; title: string; desc: string; match: (recipe: MealRecipe) => boolean }> = [];
-    if (hardWorkoutToday) blocks.push({ id: 'recovery', title: 'Restitusjonsmåltider i dag', desc: 'Basert på hard treningsdag.', match: (r) => r.tags.includes('recovery') || r.signals.highProtein });
-    if (poorSleepProxy) blocks.push({ id: 'energy', title: 'Energistøttende måltider', desc: 'Jevn energi ved lav restitusjon.', match: (r) => r.signals.highEnergy || r.signals.magnesiumRich });
-    if (stressProxy) blocks.push({ id: 'calming', title: 'Magnesiumrike valg', desc: 'Nyttig ved høy belastning.', match: (r) => r.signals.magnesiumRich || r.signals.antiInflammatory });
-    if (lowFiberToday) blocks.push({ id: 'fiber', title: 'Du er lav på fiber i dag', desc: '3 raske fiberforslag.', match: (r) => r.signals.fiber >= 7 });
-    if (profile.goalStrategy === 'gut_health') blocks.push({ id: 'gut', title: 'Tarmmodus aktiv', desc: 'Fermentert og fiberrik mat prioriteres.', match: (r) => r.signals.fermented || r.sortContexts.includes('gut') });
+    if (hardWorkoutToday) blocks.push({ id: 'recovery', title: t('meals.recommendationBlocks.recoveryTitle'), desc: t('meals.recommendationBlocks.recoveryDesc'), match: (r) => r.tags.includes('recovery') || r.signals.highProtein });
+    if (poorSleepProxy) blocks.push({ id: 'energy', title: t('meals.recommendationBlocks.energyTitle'), desc: t('meals.recommendationBlocks.energyDesc'), match: (r) => r.signals.highEnergy || r.signals.magnesiumRich });
+    if (stressProxy) blocks.push({ id: 'calming', title: t('meals.recommendationBlocks.calmingTitle'), desc: t('meals.recommendationBlocks.calmingDesc'), match: (r) => r.signals.magnesiumRich || r.signals.antiInflammatory });
+    if (lowFiberToday) blocks.push({ id: 'fiber', title: t('meals.recommendationBlocks.fiberTitle'), desc: t('meals.recommendationBlocks.fiberDesc'), match: (r) => r.signals.fiber >= 7 });
+    if (profile.goalStrategy === 'gut_health') blocks.push({ id: 'gut', title: t('meals.recommendationBlocks.gutTitle'), desc: t('meals.recommendationBlocks.gutDesc'), match: (r) => r.signals.fermented || r.sortContexts.includes('gut') });
     return blocks.slice(0, 4);
-  }, [hardWorkoutToday, lowFiberToday, poorSleepProxy, profile.goalStrategy, stressProxy]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hardWorkoutToday, lowFiberToday, poorSleepProxy, profile.goalStrategy, stressProxy, t]);
 
   const rawMyRecipes = useMemo<DisplayRecipe[]>(() => {
     return communityPosts
       .filter((post) => post.authorId === activeUserId && post.kind === 'recipe' && post.recipeTitle?.trim())
       .map((post) => ({
         id: `community-${post.id}`,
-        title: post.recipeTitle?.trim() ?? 'Min oppskrift',
+        title: post.recipeTitle?.trim() ?? t('meals.myMealsSource'),
         image: post.imageDataUrl || COMMUNITY_RECIPE_PLACEHOLDER,
         calories: Math.max(0, Math.round(post.calories || 0)),
         time: `${Math.max(1, post.recipePrepMinutes ?? 20)} min`,
         rating: 4.7,
         reviews: 1,
-        source: 'Mine måltider',
+        source: t('meals.myMealsSource'),
         servings: Math.max(1, post.recipeServings ?? 1),
         mealSlots: ['lunsj', 'middag'] satisfies Array<Exclude<MealSlot, 'alle'>>,
         tags: [] as NutritionTagId[],
@@ -312,15 +324,15 @@ export default function MealsScreen() {
         steps: recipe.customSteps ?? [],
         caption: recipe.customCaption ?? '',
       }),
-      source: 'Mine måltider',
+      source: t('meals.myMealsSource'),
     }));
-  }, [rawMyRecipes]);
+  }, [rawMyRecipes, t]);
 
   const communityRecipeDatabase = useMemo<DisplayRecipe[]>(() => {
     return communityPosts
       .filter((post) => post.kind === 'recipe' && post.recipeTitle?.trim())
       .map((post) => {
-        const title = post.recipeTitle?.trim() ?? 'Community-oppskrift';
+        const title = post.recipeTitle?.trim() ?? 'Community';
         const calories = Math.max(0, Math.round(post.calories || 0));
         const inferred = inferMealMetadata({
           title,
@@ -372,12 +384,12 @@ export default function MealsScreen() {
               ? 'middag'
               : 'snacks';
         const mealSlotLabel = template.mealId === 'breakfast'
-          ? 'Frokost'
+          ? t('meals.filters.breakfast')
           : template.mealId === 'lunch'
-            ? 'Lunsj'
+            ? t('meals.filters.lunch')
             : template.mealId === 'dinner'
-              ? 'Middag'
-              : 'Snacks';
+              ? t('meals.filters.dinner')
+              : t('meals.filters.snacks');
         const inferred = inferMealMetadata({
           title: template.name,
           calories: Math.max(0, Math.round(totals.kcal)),
@@ -395,10 +407,10 @@ export default function MealsScreen() {
           title: template.name,
           image: COMMUNITY_RECIPE_PLACEHOLDER,
           calories: Math.max(0, Math.round(totals.kcal)),
-          time: 'Klar na',
+          time: t('meals.readyNow'),
           rating: 5,
           reviews: Math.max(1, template.usageCount || 0),
-          source: 'Lagrede måltider',
+          source: t('meals.savedMealsSource'),
           servings: 1,
           ingredients: template.items.map((item) => item.name),
           steps: [],
@@ -406,15 +418,12 @@ export default function MealsScreen() {
           mealSlots: inferred.mealSlots.length > 0 ? inferred.mealSlots : [mealSlot] satisfies Array<Exclude<MealSlot, 'alle'>>,
           origin: 'saved' as const,
           customIngredients: template.items.map((item) => `${item.name} - ${Math.round(item.kcal)} kcal`),
-          customSteps: [
-            'Laget som et raskt standardmåltid for logging.',
-            'Trykk "Legg til i dagbok" for å bruke det direkte i Hjem.',
-          ],
+          customSteps: [],
           customCaption: `${template.usageCount} raske logger${mealSlotLabel ? ` • ${mealSlotLabel}` : ''}`,
         };
       })
       .sort((a, b) => b.reviews - a.reviews || a.title.localeCompare(b.title));
-  }, [savedMealTemplates]);
+  }, [savedMealTemplates, t]);
 
   const filteredRecipes = useMemo<DisplayRecipe[]>(() => {
     const blocked = new Set([...(profilePrefs.allergies ?? []), ...(profilePrefs.intolerances ?? [])].map((v) => v.toLowerCase()));
@@ -461,14 +470,67 @@ export default function MealsScreen() {
     });
   }, [activeLibrary, activeMealFilter, activeSort, activeTagFilter, communityRecipeDatabase, favoriteTags, favorites, hardWorkoutToday, lowFiberToday, myRecipes, profile.dietStyle, profile.goalCategory, profile.goalStrategy, profilePrefs.allergies, profilePrefs.intolerances, recentMealKeywords, savedMeals, showFavoritesOnly]);
 
-  const blocksWithItems = useMemo(() => recommendationBlocks.map((block) => ({ ...block, items: filteredRecipes.filter(block.match).slice(0, 3) })), [filteredRecipes, recommendationBlocks]);
+  const blocksWithItems = useMemo(() => {
+    const seen = new Set<string>();
+    return recommendationBlocks.map((block) => {
+      const items = filteredRecipes.filter((r) => !seen.has(r.id) && block.match(r)).slice(0, 3);
+      items.forEach((r) => seen.add(r.id));
+      return { ...block, items };
+    });
+  }, [filteredRecipes, recommendationBlocks]);
   const visibleRecommendationBlocks = useMemo(
     () => blocksWithItems.filter((block) => block.items.length > 0),
     [blocksWithItems],
   );
-  const activeSortLabel = smartSortOptions.find((item) => item.id === activeSort)?.label ?? 'Anbefalt for deg';
-  const mealFilterLabel = activeMealFilter === 'alle' ? 'For deg' : activeMealFilter[0].toUpperCase() + activeMealFilter.slice(1);
-  const activeTagLabel = activeTagFilter ? tagInfo[activeTagFilter].label : 'Alle tags';
+  const contextualHeader = useMemo(() => {
+    const h = new Date().getHours();
+    const m = new Date().getMinutes();
+    const totalMin = h * 60 + m;
+    if (totalMin < 9 * 60) return { title: t('meals.contextualHeader.morning.title'), sub: t('meals.contextualHeader.morning.sub') };
+    if (totalMin < 10 * 60 + 30) return { title: t('meals.contextualHeader.midMorning.title'), sub: t('meals.contextualHeader.midMorning.sub') };
+    if (totalMin < 11 * 60 + 30) {
+      const minsToLunch = 11 * 60 + 30 - totalMin;
+      return { title: t('meals.contextualHeader.preLunch.title', { n: String(minsToLunch) }), sub: t('meals.contextualHeader.preLunch.sub') };
+    }
+    if (totalMin < 13 * 60 + 30) return { title: t('meals.contextualHeader.lunch.title'), sub: t('meals.contextualHeader.lunch.sub') };
+    if (totalMin < 16 * 60) return { title: t('meals.contextualHeader.afternoon.title'), sub: t('meals.contextualHeader.afternoon.sub') };
+    if (totalMin < 18 * 60) {
+      const minsToEve = 18 * 60 - totalMin;
+      return { title: t('meals.contextualHeader.preDinner.title', { n: String(minsToEve) }), sub: t('meals.contextualHeader.preDinner.sub') };
+    }
+    if (totalMin < 20 * 60) return { title: t('meals.contextualHeader.dinner.title'), sub: t('meals.contextualHeader.dinner.sub') };
+    return { title: t('meals.contextualHeader.evening.title'), sub: t('meals.contextualHeader.evening.sub') };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t]);
+
+  const shownInBlocksIds = useMemo(
+    () => new Set(visibleRecommendationBlocks.flatMap((block) => block.items.map((r) => r.id))),
+    [visibleRecommendationBlocks],
+  );
+
+  const featuredMeals = useMemo(() => filteredRecipes.slice(0, 3), [filteredRecipes]);
+
+  const heroReasonPills = useMemo(() =>
+    featuredMeals.map((recipe) => {
+      if (hardWorkoutToday && recipe.tags.includes('recovery')) return t('meals.reasonPills.afterWorkout');
+      if (lowFiberToday && recipe.signals.fiber >= 7) return t('meals.reasonPills.lowFiber');
+      if (profile.goalStrategy === 'gut_health' && (recipe.signals.fermented || recipe.sortContexts.includes('gut'))) return t('meals.reasonPills.gutFriendly');
+      if (recipe.goalCategories.includes(profile.goalCategory)) return t('meals.reasonPills.matchesGoal');
+      return null;
+    }),
+    [featuredMeals, hardWorkoutToday, lowFiberToday, profile.goalCategory, profile.goalStrategy, t],
+  );
+
+  const blockTheme: Record<string, { border: string; headerBg: string; iconColor: string; icon: React.ReactNode }> = {
+    fiber:    { border: 'border-l-4 border-l-green-500',  headerBg: 'bg-green-50 dark:bg-green-900/20',   iconColor: 'text-green-600 dark:text-green-400',  icon: <Leaf className="h-4 w-4" /> },
+    energy:   { border: 'border-l-4 border-l-amber-500',  headerBg: 'bg-amber-50 dark:bg-amber-900/20',   iconColor: 'text-amber-600 dark:text-amber-400',  icon: <Zap className="h-4 w-4" /> },
+    recovery: { border: 'border-l-4 border-l-blue-500',   headerBg: 'bg-blue-50 dark:bg-blue-900/20',     iconColor: 'text-blue-600 dark:text-blue-400',    icon: <Dumbbell className="h-4 w-4" /> },
+    calming:  { border: 'border-l-4 border-l-violet-500', headerBg: 'bg-violet-50 dark:bg-violet-900/20', iconColor: 'text-violet-600 dark:text-violet-400', icon: <Wind className="h-4 w-4" /> },
+    gut:      { border: 'border-l-4 border-l-purple-500', headerBg: 'bg-purple-50 dark:bg-purple-900/20', iconColor: 'text-purple-600 dark:text-purple-400', icon: <Sprout className="h-4 w-4" /> },
+  };
+  const activeSortLabel = smartSortOptions.find((item) => item.id === activeSort)?.label ?? t('meals.sort.recommended');
+  const mealFilterLabel = activeMealFilter === 'alle' ? t('meals.library.discover') : mealFilterOptions.find((o) => o.id === activeMealFilter)?.label ?? activeMealFilter;
+  const activeTagLabel = activeTagFilter ? tagInfo[activeTagFilter].label : t('meals.tags.allTags');
   const selectedMacros = selectedRecipe ? estimateMacros(selectedRecipe) : null;
   const selectedMicros = selectedRecipe ? estimateMicros(selectedRecipe) : null;
   const selectedIngredients = selectedRecipe ? getRecipeIngredients(selectedRecipe) : [];
@@ -477,10 +539,10 @@ export default function MealsScreen() {
   const savedCount = savedMealTemplates.length;
   const personalizedCount = filteredRecipes.filter((recipe) => recipe.goalCategories.includes(profile.goalCategory)).length;
   const mineCount = savedMeals.length + myRecipes.length;
-  const collectionTitle = activeLibrary === 'mine' ? 'Dine måltider' : 'Alle forslag';
+  const collectionTitle = activeLibrary === 'mine' ? t('meals.collection.myMeals') : t('meals.collection.allSuggestions');
   const collectionDescription = activeLibrary === 'mine'
-    ? `${mineCount} lagrede eller egne måltider.`
-    : `${filteredRecipes.length} forslag fra katalog og community.`;
+    ? t('meals.collection.fromMine', { n: String(mineCount) })
+    : t('meals.collection.fromLibrary', { n: String(filteredRecipes.length) });
 
   function toggleFavoriteRecipe(recipeId: string) {
     setFavoriteRecipeIds((prev) => (
@@ -565,7 +627,7 @@ export default function MealsScreen() {
     if ('ingredients' in recipe && Array.isArray((recipe as MealRecipe & { ingredients?: string[] }).ingredients) && ((recipe as MealRecipe & { ingredients?: string[] }).ingredients ?? []).length > 0) {
       return (recipe as MealRecipe & { ingredients?: string[] }).ingredients ?? [];
     }
-    return ['Ingredienser ikke tilgjengelig'];
+    return [t('meals.ingredientsNotAvailable')];
   }
 
   function getRecipeSteps(recipe: DisplayRecipe) {
@@ -579,7 +641,7 @@ export default function MealsScreen() {
     if ('steps' in recipe && Array.isArray((recipe as MealRecipe & { steps?: string[] }).steps) && ((recipe as MealRecipe & { steps?: string[] }).steps ?? []).length > 0) {
       return (recipe as MealRecipe & { steps?: string[] }).steps ?? [];
     }
-    return ['Fremgangsmate ikke tilgjengelig'];
+    return [t('meals.stepsNotAvailable')];
   }
 
   function addRecipeToDiary(recipe: DisplayRecipe) {
@@ -621,7 +683,7 @@ export default function MealsScreen() {
         )),
       );
     }
-    setDiaryFeedback(`${recipe.title} lagt til i dagbok.`);
+    setDiaryFeedback(t('meals.feedback.addedToDiary', { name: recipe.title }));
   }
 
   function resetCreateMealForm() {
@@ -641,11 +703,11 @@ export default function MealsScreen() {
     const fat = Number(newMealFat.replace(',', '.'));
 
     if (!name) {
-      setDiaryFeedback('Gi måltidet et navn.');
+      setDiaryFeedback(t('meals.createMeal.errorNoName'));
       return;
     }
     if ([kcal, protein, carbs, fat].some((value) => !Number.isFinite(value) || value < 0)) {
-      setDiaryFeedback('Bruk gyldige tall for kcal og makroer.');
+      setDiaryFeedback(t('meals.createMeal.errorInvalidMacros'));
       return;
     }
 
@@ -670,13 +732,17 @@ export default function MealsScreen() {
     setShowCreateMealModal(false);
     setActiveLibrary('mine');
     resetCreateMealForm();
-    setDiaryFeedback(`${name} lagret i Mine måltider.`);
+    setDiaryFeedback(t('meals.createMeal.savedFeedback', { name }));
   }
 
   useEffect(() => {
     if (!showCreateMealModal) return;
     resetCreateMealForm();
   }, [showCreateMealModal]);
+
+  useEffect(() => {
+    setHeroIndex(0);
+  }, [filteredRecipes]);
 
   useEffect(() => {
     if (!diaryFeedback) return;
@@ -686,260 +752,253 @@ export default function MealsScreen() {
 
   return (
     <div className="screen">
-      <div className="relative h-56 overflow-hidden">
-        <img src="https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=900&h=420&fit=crop" alt="Personalized meals" className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/35 to-transparent" />
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-slate-950/35 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 p-5 text-white">
-          <h1 className="max-w-[18rem] text-2xl font-bold leading-tight">{bannerTitle}</h1>
-          <p className="text-sm text-white/85 mt-1">{bannerSubtitle}</p>
-          <p className="mt-2 max-w-[19rem] text-xs leading-relaxed text-cyan-100/90">{weeklyInsight}</p>
-          <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur-sm">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{mealFilterLabel} - {activeSortLabel}</span>
+      {activeLibrary === 'discover' && featuredMeals.length > 0 ? (() => {
+        const safeIdx = Math.min(heroIndex, featuredMeals.length - 1);
+        const heroMeal = featuredMeals[safeIdx];
+        const reasonPill = heroReasonPills[safeIdx];
+        return (
+          <div>
+            <div
+              className="relative h-[220px] overflow-hidden"
+              onTouchStart={(e) => { heroTouchStartX.current = e.touches[0].clientX; }}
+              onTouchEnd={(e) => {
+                if (heroTouchStartX.current === null) return;
+                const dx = e.changedTouches[0].clientX - heroTouchStartX.current;
+                if (dx < -40 && safeIdx < featuredMeals.length - 1) setHeroIndex(safeIdx + 1);
+                else if (dx > 40 && safeIdx > 0) setHeroIndex(safeIdx - 1);
+                heroTouchStartX.current = null;
+              }}
+            >
+              <img src={heroMeal.image} alt={heroMeal.title} className="h-full w-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
+
+              {reasonPill && (
+                <div className="absolute left-4 top-4">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/40 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur-sm">
+                    <Sparkles className="h-3 w-3" />
+                    {reasonPill}
+                  </span>
+                </div>
+              )}
+
+              {favorites.has(heroMeal.id) && (
+                <div className="absolute right-4 top-4">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-yellow-300/50 bg-yellow-400/20 px-2.5 py-1.5 text-[11px] font-medium text-yellow-100 backdrop-blur-sm">
+                    <Star className="h-3 w-3 fill-yellow-300 text-yellow-300" />
+                    {t('meals.hero.favorite')}
+                  </span>
+                </div>
+              )}
+
+              <div className="absolute inset-x-0 bottom-0 p-4">
+                <h2 className="text-xl font-bold leading-tight text-white">{heroMeal.title}</h2>
+                <p className="mt-0.5 text-sm text-white/80">{heroMeal.calories} kcal · {heroMeal.time}</p>
+                <div className="mt-3 flex items-center justify-between">
+                  {heroMeal.rating ? (
+                    <span className="inline-flex items-center gap-1 text-sm text-white/90">
+                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                      {heroMeal.rating}
+                    </span>
+                  ) : <span />}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); addRecipeToDiary(heroMeal); }}
+                    className="flex items-center gap-1.5 rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-lg"
+                  >
+                    <Plus className="h-4 w-4" />
+                    {t('meals.hero.addButton')}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-1.5 bg-white py-2.5 dark:bg-gray-900">
+              {featuredMeals.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setHeroIndex(i)}
+                  className={`rounded-full transition-all ${i === safeIdx ? 'h-1.5 w-4 bg-slate-900 dark:bg-white' : 'h-1.5 w-1.5 bg-slate-300 dark:bg-gray-600'}`}
+                  aria-label={t('meals.dotIndicator.show', { n: String(i + 1) })}
+                />
+              ))}
+              {featuredMeals.length > 1 && (
+                <span className="ml-2 text-[10px] text-slate-400 dark:text-gray-500">
+                  {t('meals.hero.otherSuggestions', { n: String(featuredMeals.length - 1) })}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })() : (
+        <div className="relative h-32 overflow-hidden">
+          <img src="https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=900&h=420&fit=crop" alt={t('meals.header.myMeals')} className="h-full w-full object-cover" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 p-4 text-white">
+            <h1 className="text-xl font-bold">{t('meals.header.myMeals')}</h1>
+            <p className="mt-0.5 text-xs text-white/80">{t('meals.header.available', { n: String(mineCount) })}</p>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur-md dark:border-gray-800 dark:bg-gray-900/95">
-        <div className="px-4 py-3 space-y-3">
-          <div>
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Visning</p>
-            <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1 dark:bg-gray-800">
+        <div className="px-4 pt-3 pb-2 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex rounded-xl bg-slate-100 p-0.5 dark:bg-gray-800">
               {libraryOptions.map((option) => (
                 <button
                   key={option.id}
                   onClick={() => setActiveLibrary(option.id)}
-                  className={`rounded-xl px-4 py-2.5 text-sm font-medium transition-all ${
+                  className={`rounded-[10px] px-3 py-1.5 text-sm font-medium transition-all ${
                     activeLibrary === option.id
                       ? 'bg-white text-slate-900 shadow-sm dark:bg-gray-900 dark:text-gray-100'
-                      : 'text-slate-600 dark:text-gray-300'
+                      : 'text-slate-500 dark:text-gray-400'
                   }`}
                 >
                   {option.label}
                 </button>
               ))}
             </div>
-          </div>
-          {activeLibrary === 'mine' && (
-            <button
-              type="button"
-              onClick={() => setShowCreateMealModal(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm"
-            >
-              <Plus className="h-4 w-4" />
-              Opprett måltid
-            </button>
-          )}
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Måltidstype</p>
-              <p className="text-xs text-slate-500 dark:text-gray-400">{mealFilterLabel}</p>
-            </div>
-            <div className="grid grid-cols-3 gap-2">
-              {mealFilterOptions.map((option) => (
+            <div className="flex items-center gap-2">
+              {activeLibrary === 'mine' && (
                 <button
-                  key={option.id}
-                  onClick={() => setActiveMealFilter(option.id)}
-                  className={`rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
-                    activeMealFilter === option.id
-                      ? 'bg-orange-500 text-white shadow-sm'
-                      : 'bg-slate-100 text-slate-700 dark:bg-gray-800 dark:text-gray-300'
-                  }`}
+                  type="button"
+                  onClick={() => setShowCreateMealModal(true)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-500 text-white shadow-sm"
+                  aria-label="Opprett måltid"
                 >
-                  {option.label}
+                  <Plus className="h-4 w-4" />
                 </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Sortering</p>
-              <p className="text-xs text-slate-500 dark:text-gray-400">{activeSortLabel}</p>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory">
-              {smartSortOptions.map((option) => (
-                <button
-                  key={option.id}
-                  onClick={() => setActiveSort(option.id)}
-                  className={`snap-start rounded-full border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                    activeSort === option.id
-                      ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/30'
-                      : 'bg-white dark:bg-gray-800 text-slate-600 dark:text-gray-300 border-slate-200 dark:border-gray-700'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">Tags</p>
-              <p className="text-xs text-slate-500 dark:text-gray-400">{activeTagLabel}</p>
-            </div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
+              )}
               <button
                 type="button"
-                onClick={() => setActiveTagFilter(null)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                  activeTagFilter === null
+                onClick={() => setShowAdvancedFilters(true)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  activeSort !== 'recommended' || activeTagFilter
                     ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
                     : 'border-slate-200 bg-white text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
                 }`}
               >
-                Alle tags
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+                {t('meals.filterBar.filterButton')}
+                {(activeSort !== 'recommended' ? 1 : 0) + (activeTagFilter ? 1 : 0) > 0 && (
+                  <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-bold dark:bg-slate-900/20">
+                    {(activeSort !== 'recommended' ? 1 : 0) + (activeTagFilter ? 1 : 0)}
+                  </span>
+                )}
               </button>
-              {Object.entries(tagInfo).map(([tag, info]) => {
-                const typedTag = tag as NutritionTagId;
-                const isFavoriteTag = favoriteTags.includes(tag as NutritionTagId);
-                const isActiveFilter = activeTagFilter === typedTag;
-                return (
-                  <div key={tag} className="inline-flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTagFilter((prev) => prev === typedTag ? null : typedTag)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
-                      isActiveFilter
-                        ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
-                        : isFavoriteTag
-                        ? 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200'
-                        : 'border-slate-200 bg-white text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
-                    }`}
-                  >
-                    <Star className={`h-3.5 w-3.5 ${isFavoriteTag ? 'fill-current' : ''}`} />
-                    {info.label}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleFavoriteTag(typedTag)}
-                    className={`rounded-full border px-2 py-2 text-[10px] font-semibold ${
-                      isFavoriteTag
-                        ? 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200'
-                        : 'border-slate-200 bg-white text-slate-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400'
-                    }`}
-                    aria-label={`Toggle favorite tag ${info.label}`}
-                  >
-                    Fav
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setInfoTag(typedTag)}
-                    className="rounded-full border border-slate-200 bg-white px-2 py-2 text-[10px] font-semibold text-slate-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400"
-                    aria-label={`Show info for ${info.label}`}
-                  >
-                    Info
-                  </button>
-                  </div>
-                );
-              })}
             </div>
           </div>
-        </div>
-        {false && (
-        <>
-        <div className="px-4 py-3 space-y-3">
-          <button
-            onClick={() => setActiveLibrary('discover')}
-            className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeLibrary === 'discover' ? 'bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300'}`}
-          >
-            For deg
-          </button>
-          <button
-            onClick={() => setActiveLibrary('mine')}
-            className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeLibrary === 'mine' ? 'bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-900' : 'bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300'}`}
-          >
-            Mine måltider
-          </button>
-        </div>
-        {activeLibrary === 'mine' && (
-          <div className="px-4 pt-2">
-            <button
-              type="button"
-              onClick={() => setShowCreateMealModal(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm"
-            >
-              <Plus className="h-4 w-4" />
-              Opprett måltid
-            </button>
+
+          <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {mealFilterOptions.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => setActiveMealFilter(option.id)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all ${
+                  activeMealFilter === option.id
+                    ? 'bg-orange-500 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 dark:bg-gray-800 dark:text-gray-300'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
-        )}
-        <div className="scroll-container py-3">
-          {(['alle', 'frokost', 'lunsj', 'middag', 'snacks'] as const).map((slot) => (
-            <button key={slot} onClick={() => setActiveMealFilter(slot)} className={`px-4 py-2 rounded-full whitespace-nowrap font-medium text-sm transition-all ${activeMealFilter === slot ? 'bg-orange-500 text-white shadow-sm' : 'bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-300'}`}>
-              {slot === 'alle' ? 'For deg' : slot[0].toUpperCase() + slot.slice(1)}
-            </button>
-          ))}
         </div>
-        <div className="px-4 pb-3 flex items-center gap-2 overflow-x-auto">
-          {smartSortOptions.map((option) => (
-            <button key={option.id} onClick={() => setActiveSort(option.id)} className={`text-xs px-3 py-1.5 rounded-full border whitespace-nowrap transition-colors ${activeSort === option.id ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/30' : 'bg-white dark:bg-gray-800 text-slate-600 dark:text-gray-300 border-slate-200 dark:border-gray-700'}`}>
-              {option.label}
-            </button>
-          ))}
-        </div>
-        </>
-        )}
       </div>
 
-      <div className="px-4 pt-4">
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Tilgjengelige' : 'Vises nå'}</p>
-            <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{filteredRecipes.length}</p>
+      <div className="px-4 pt-3">
+        <button
+          type="button"
+          onClick={() => setShowStatBreakdown((p) => !p)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 transition-colors dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+        >
+          <Sparkles className="h-3 w-3 text-orange-400 dark:text-orange-300" />
+          {activeLibrary === 'mine'
+            ? `${mineCount} ${t('meals.stats.available').toLowerCase()}`
+            : `${personalizedCount} ${t('meals.stats.fitsYou').toLowerCase()} (${filteredRecipes.length})`}
+          {activeLibrary === 'discover' && visibleRecommendations > 0 && (
+            <span className="text-slate-400 dark:text-gray-500"> · {visibleRecommendations} {t('meals.stats.personalTips').toLowerCase()}</span>
+          )}
+          <ChevronDown className={`h-3 w-3 text-slate-400 transition-transform dark:text-gray-500 ${showStatBreakdown ? 'rotate-180' : ''}`} />
+        </button>
+        {showStatBreakdown && (
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-800/60">
+              <p className="text-base font-semibold text-slate-900 dark:text-gray-100">{filteredRecipes.length}</p>
+              <p className="text-[10px] leading-tight text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? t('meals.stats.available') : t('meals.stats.recipes')}</p>
+            </div>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-800/60">
+              <p className="text-base font-semibold text-slate-900 dark:text-gray-100">{personalizedCount}</p>
+              <p className="text-[10px] leading-tight text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? t('meals.stats.readyToLog') : t('meals.stats.fitsYou')}</p>
+            </div>
+            <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 dark:border-gray-800 dark:bg-gray-800/60">
+              <p className="text-base font-semibold text-slate-900 dark:text-gray-100">{activeLibrary === 'mine' ? savedCount : visibleRecommendations}</p>
+              <p className="text-[10px] leading-tight text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? t('meals.stats.saved') : t('meals.stats.personalTips')}</p>
+            </div>
           </div>
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Klare å logge' : 'Matcher deg'}</p>
-            <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{personalizedCount}</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200/70 bg-white/80 px-3 py-3 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-gray-500">{activeLibrary === 'mine' ? 'Lagret' : 'Aktive løft'}</p>
-            <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-gray-100">{activeLibrary === 'mine' ? savedCount : visibleRecommendations}</p>
-          </div>
-        </div>
+        )}
       </div>
 
       {activeLibrary === 'discover' && visibleRecommendationBlocks.length > 0 && (
         <div className="px-4 py-4 space-y-3">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-slate-900 dark:text-gray-100">Prioritert nå</p>
-              <p className="text-xs text-slate-500 dark:text-gray-400">{mealFilterLabel} • {activeSortLabel}</p>
+              <p className="text-sm font-semibold text-slate-900 dark:text-gray-100">{contextualHeader.title}</p>
+              <p className="text-xs text-slate-500 dark:text-gray-400">{contextualHeader.sub}</p>
             </div>
             <div className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600 dark:bg-gray-800 dark:text-gray-300">
-              {visibleRecommendations} raske valg
+              {t('meals.collection.quickChoices', { n: String(visibleRecommendations) })}
             </div>
           </div>
-          {visibleRecommendationBlocks.map((block, idx) => (
+          {visibleRecommendationBlocks.map((block) => {
+            const theme = blockTheme[block.id] ?? { border: 'border-l-4 border-l-slate-400', headerBg: 'bg-slate-50 dark:bg-gray-800/60', iconColor: 'text-slate-500 dark:text-gray-400', icon: <Sparkles className="h-4 w-4" /> };
+            return (
             <div
               key={block.id}
-              className={`rounded-2xl border p-3 ${
-                idx % 2 === 0
-                  ? 'bg-gradient-to-br from-slate-50 to-white border-slate-100 dark:from-gray-800 dark:to-gray-800 dark:border-gray-700'
-                  : 'bg-gradient-to-br from-orange-50 to-white border-orange-100 dark:from-gray-800 dark:to-gray-800 dark:border-gray-700'
-              }`}
+              className={`overflow-hidden rounded-2xl border border-slate-100 dark:border-gray-700 ${theme.border}`}
             >
-              <p className="text-sm font-semibold text-slate-800 dark:text-gray-100">{block.title}</p>
-              <p className="text-xs text-slate-500 dark:text-gray-400 mb-2">{block.desc}</p>
-              <div className="grid grid-cols-1 gap-2">
+              <div className={`flex items-center gap-2 px-3 py-2.5 ${theme.headerBg}`}>
+                <span className={theme.iconColor}>{theme.icon}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-800 dark:text-gray-100">{block.title}</p>
+                  <p className="text-[11px] text-slate-500 dark:text-gray-400">{block.desc}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-gray-900/50 dark:text-gray-400">
+                  {block.items.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 bg-white p-2 dark:bg-gray-900">
                 {block.items.map((recipe) => (
                   <div
                     key={recipe.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setSelectedRecipe(recipe)}
+                    onClick={() => setPeekRecipe(recipe)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        setSelectedRecipe(recipe);
+                        setPeekRecipe(recipe);
                       }
                     }}
                     className="w-full text-left flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-2 border border-slate-100 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
                   >
-                    <img src={recipe.image} alt={recipe.title} className="w-16 h-16 rounded-lg object-cover" />
-                    <div className="min-w-0">
+                    <div className="relative shrink-0">
+                      <img src={recipe.image} alt={recipe.title} className="w-16 h-16 rounded-lg object-cover" />
+                      {recipe.rating && (
+                        <span className="absolute left-1 top-1 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                          <Star className="h-2.5 w-2.5 fill-yellow-400 text-yellow-400" />
+                          {recipe.rating}
+                        </span>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{recipe.title}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{recipe.calories} kcal - {recipe.time} - trykk for detaljer</p>
+                      <div className="mt-0.5 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                        <span>{recipe.calories} kcal · {recipe.time}</span>
+                        <ChevronRight className="h-3 w-3 text-slate-300 dark:text-gray-600" />
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -947,15 +1006,17 @@ export default function MealsScreen() {
                         event.stopPropagation();
                         addRecipeToDiary(recipe);
                       }}
-                      className="ml-auto shrink-0 rounded-lg bg-orange-500 text-white text-xs font-medium px-3 py-1.5"
+                      className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-orange-500 text-white"
+                      aria-label={`Legg til ${recipe.title}`}
                     >
-                      Legg til
+                      <Plus className="h-4 w-4" />
                     </button>
                   </div>
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -963,14 +1024,14 @@ export default function MealsScreen() {
         <div>
           <p className="text-sm font-medium text-slate-700 dark:text-gray-200">{collectionTitle}</p>
           <p className="text-xs text-slate-500 dark:text-gray-400">
-            {collectionDescription}{activeTagFilter ? ` Filtrert pa ${tagInfo[activeTagFilter].label}.` : ''}
+            {collectionDescription}{activeTagFilter ? ` ${t('meals.collection.filteredBy', { tag: tagInfo[activeTagFilter].label })}` : ''}
           </p>
         </div>
         <button
           onClick={() => setShowFavoritesOnly((prev) => !prev)}
           className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${showFavoritesOnly ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300'}`}
         >
-          {showFavoritesOnly ? 'Viser favoritter' : 'Kun favoritter'}
+          {showFavoritesOnly ? t('meals.collection.showingFavorites') : t('meals.collection.showFavorites')}
         </button>
       </div>
 
@@ -978,25 +1039,23 @@ export default function MealsScreen() {
         {filteredRecipes.length === 0 && (
           <div className="mx-4 rounded-2xl border border-dashed border-slate-300 dark:border-gray-700 bg-slate-50 dark:bg-gray-800 p-5 text-center">
             <p className="text-sm font-semibold text-slate-700 dark:text-gray-100">
-              {activeLibrary === 'mine' ? 'Ingen egne oppskrifter enda' : 'Ingen oppskrifter matcher akkurat na'}
+              {activeLibrary === 'mine' ? t('meals.empty.noOwn') : t('meals.empty.noMatch')}
             </p>
               <p className="mt-1 text-xs text-slate-500 dark:text-gray-400">
-                {activeLibrary === 'mine'
-                ? 'Opprett et måltid eller del en oppskrift i Community, så dukker det opp her.'
-                : 'Bytt maltype, sortering eller skru av filter for favoritter.'}
+                {activeLibrary === 'mine' ? t('meals.empty.noOwnSub') : t('meals.empty.noMatchSub')}
               </p>
           </div>
         )}
-        {filteredRecipes.map((recipe) => {
+        {filteredRecipes.filter((r) => activeLibrary !== 'discover' || !shownInBlocksIds.has(r.id)).map((recipe) => {
           const favoriteTagMatches = getFavoriteTagMatches(recipe, favoriteTags);
           const recommendationReasons = [
-            recipe.goalCategories.includes(profile.goalCategory) ? 'Matcher mal' : null,
-            recipe.dietStyles.includes(profile.dietStyle) ? 'Passer koststil' : null,
-            hardWorkoutToday && recipe.tags.includes('recovery') ? 'Bra etter trening' : null,
-            lowFiberToday && recipe.signals.fiber >= 7 ? 'Høy fiber i dag' : null,
-            activeSort === 'gut' && (recipe.signals.fermented || recipe.signals.fiber >= 6) ? 'Tarmvennlig' : null,
-            activeSort === 'evening' && recipe.signals.eveningFriendly ? 'Kveldvennlig' : null,
-            favoriteTagMatches[0] ? `Favoritt-tag ${tagInfo[favoriteTagMatches[0]].label}` : null,
+            recipe.goalCategories.includes(profile.goalCategory) ? t('meals.recommendReason.matchesGoal') : null,
+            recipe.dietStyles.includes(profile.dietStyle) ? t('meals.recommendReason.fitsDiet') : null,
+            hardWorkoutToday && recipe.tags.includes('recovery') ? t('meals.recommendReason.goodAfterWorkout') : null,
+            lowFiberToday && recipe.signals.fiber >= 7 ? t('meals.recommendReason.highFiber') : null,
+            activeSort === 'gut' && (recipe.signals.fermented || recipe.signals.fiber >= 6) ? t('meals.recommendReason.gutFriendly') : null,
+            activeSort === 'evening' && recipe.signals.eveningFriendly ? t('meals.recommendReason.eveningFriendly') : null,
+            favoriteTagMatches[0] ? t('meals.recommendReason.favoriteTag', { tag: tagInfo[favoriteTagMatches[0]].label }) : null,
           ].filter(Boolean).slice(0, 3) as string[];
           return (
             <div
@@ -1022,7 +1081,7 @@ export default function MealsScreen() {
                   </span>
                   {favorites.has(recipe.id) ? (
                     <span className="inline-flex rounded-full border border-yellow-300/60 bg-yellow-400/20 px-3 py-1 text-[11px] font-medium text-yellow-100 backdrop-blur">
-                      Favoritt
+                      {t('meals.hero.favorite')}
                     </span>
                   ) : null}
                 </div>
@@ -1059,61 +1118,97 @@ export default function MealsScreen() {
                   </div>
                 </div>
 
-                <div className="mt-3 rounded-2xl border border-slate-200/70 bg-slate-50/90 p-3 dark:border-gray-800 dark:bg-gray-800/60">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-gray-400">Hvorfor denne</p>
-                    <div className="flex items-center gap-1 text-orange-500">
-                      <Star className="w-4 h-4 fill-current" />
-                      <span className="text-sm font-medium">{recipe.rating}</span>
-                      <span className="text-xs text-slate-400 dark:text-gray-500">({recipe.reviews})</span>
+                {(() => {
+                  const allReasons = recommendationReasons.length > 0
+                    ? recommendationReasons
+                    : [recipe.origin === 'community' ? t('meals.recipeCard.fromCommunity') : t('meals.recipeCard.variation')];
+                  const isExpanded = expandedReasonCards.has(recipe.id);
+                  const visibleReasons = isExpanded ? allReasons : allReasons.slice(0, 2);
+                  const hiddenCount = allReasons.length - 2;
+                  return (
+                    <div className="mt-3 rounded-2xl border border-slate-200/70 bg-slate-50/90 p-3 dark:border-gray-800 dark:bg-gray-800/60">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-gray-400">{t('meals.recipeCard.whyThis')}</p>
+                        <div className="flex items-center gap-1 text-orange-500">
+                          <Star className="w-4 h-4 fill-current" />
+                          <span className="text-sm font-medium">{recipe.rating}</span>
+                          <span className="text-xs text-slate-400 dark:text-gray-500">({recipe.reviews})</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {visibleReasons.map((reason) => (
+                          <span key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                            {reason}
+                          </span>
+                        ))}
+                        {!isExpanded && hiddenCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setExpandedReasonCards((prev) => new Set([...prev, recipe.id])); }}
+                            className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
+                          >
+                            +{hiddenCount}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {(recommendationReasons.length > 0 ? recommendationReasons : [recipe.origin === 'community' ? 'Fra Community-oppskrift' : 'Variasjon i planen']).map((reason) => (
-                      <span key={reason} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] text-slate-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
-                        {reason}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {recipe.tags.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {recipe.tags.map((tag) => (
+                  <div className="mt-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      {recipe.tags.map((tag) => (
+                        <button
+                          key={tag}
+                          className={`rounded-full px-2.5 py-1 text-xs ${
+                            activeTagFilter === tag
+                              ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                              : favoriteTags.includes(tag)
+                              ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-200 dark:ring-orange-500/30'
+                              : 'bg-slate-100 text-slate-700 dark:bg-gray-800 dark:text-gray-300'
+                          }`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setActiveTagFilter((prev) => prev === tag ? null : tag);
+                          }}
+                        >
+                          {tagInfo[tag].label}
+                        </button>
+                      ))}
                       <button
-                        key={tag}
-                        className={`rounded-full px-2.5 py-1 text-xs ${
-                          activeTagFilter === tag
-                            ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                            : favoriteTags.includes(tag)
-                            ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-200 dark:ring-orange-500/30'
-                            : 'bg-slate-100 text-slate-700 dark:bg-gray-800 dark:text-gray-300'
-                        }`}
+                        type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          setActiveTagFilter((prev) => prev === tag ? null : tag);
+                          setExpandedTagInfoCards((prev) => {
+                            const next = new Set(prev);
+                            prev.has(recipe.id) ? next.delete(recipe.id) : next.add(recipe.id);
+                            return next;
+                          });
                         }}
+                        className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-500 dark:bg-gray-800 dark:text-gray-400"
                       >
-                        {tagInfo[tag].label}
+                        {expandedTagInfoCards.has(recipe.id) ? t('meals.recipeCard.hideInfo') : t('meals.recipeCard.readMore')}
                       </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                {recipe.tags.length > 0 ? (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {recipe.tags.map((tag) => (
-                      <button
-                        key={`${tag}-info`}
-                        className="rounded-full bg-slate-100 px-2 py-1 text-[10px] text-slate-500 dark:bg-gray-800 dark:text-gray-400"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setInfoTag(tag);
-                        }}
-                      >
-                        Info {tagInfo[tag].label}
-                      </button>
-                    ))}
+                    </div>
+                    {expandedTagInfoCards.has(recipe.id) && (
+                      <div className="mt-2 space-y-1.5">
+                        {recipe.tags.map((tag) => (
+                          <button
+                            key={`${tag}-info`}
+                            type="button"
+                            onClick={(event) => { event.stopPropagation(); setInfoTag(tag); }}
+                            className="flex w-full items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-left dark:border-gray-800 dark:bg-gray-800/60"
+                          >
+                            <Info className="h-3.5 w-3.5 shrink-0 text-slate-400 dark:text-gray-500" />
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-slate-700 dark:text-gray-200">{tagInfo[tag].label}</p>
+                              <p className="truncate text-[10px] text-slate-500 dark:text-gray-400">{tagInfo[tag].explanation}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : null}
 
@@ -1126,7 +1221,7 @@ export default function MealsScreen() {
                     }}
                     className="w-full rounded-xl bg-slate-900 py-2.5 text-sm font-medium text-white dark:bg-white dark:text-slate-900"
                   >
-                    Se detaljer
+                    {t('meals.recipeCard.details')}
                   </button>
                   <button
                     type="button"
@@ -1136,7 +1231,7 @@ export default function MealsScreen() {
                     }}
                     className="w-full rounded-xl bg-orange-500 py-2.5 text-sm font-medium text-white"
                   >
-                    Legg til
+                    {t('meals.recipeCard.addToDiary')}
                   </button>
                 </div>
               </div>
@@ -1144,6 +1239,178 @@ export default function MealsScreen() {
           );
         })}
       </div>
+
+      {peekRecipe && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setPeekRecipe(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-lg rounded-t-3xl bg-white pb-8 shadow-xl dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="relative h-44 w-full overflow-hidden rounded-t-3xl">
+              <img src={peekRecipe.image} alt={peekRecipe.title} className="h-full w-full object-cover" />
+              <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/60 to-transparent" />
+              <button
+                type="button"
+                onClick={() => setPeekRecipe(null)}
+                className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <div className="absolute bottom-3 left-4 right-4">
+                <h3 className="text-base font-semibold text-white">{peekRecipe.title}</h3>
+                <p className="text-xs text-white/80">{peekRecipe.mealSlots.map((s) => s[0].toUpperCase() + s.slice(1)).join(' · ')}</p>
+              </div>
+            </div>
+            <div className="px-4 pt-4">
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded-xl bg-orange-50 px-3 py-2 text-orange-700 dark:bg-orange-500/10 dark:text-orange-200">
+                  <p className="text-[10px] uppercase tracking-wide opacity-70">Kcal</p>
+                  <p className="mt-0.5 font-semibold">{peekRecipe.calories}</p>
+                </div>
+                <div className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700 dark:bg-gray-800 dark:text-gray-200">
+                  <p className="text-[10px] uppercase tracking-wide opacity-70">{t('meals.detail.microTitle').split(' ')[0]}</p>
+                  <p className="mt-0.5 font-semibold">{peekRecipe.time}</p>
+                </div>
+                <div className="rounded-xl bg-slate-100 px-3 py-2 text-slate-700 dark:bg-gray-800 dark:text-gray-200">
+                  <p className="text-[10px] uppercase tracking-wide opacity-70">{t('meals.detail.servings')}</p>
+                  <p className="mt-0.5 font-semibold">{peekRecipe.servings}</p>
+                </div>
+              </div>
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => { addRecipeToDiary(peekRecipe); setPeekRecipe(null); }}
+                  className="flex-1 rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white"
+                >
+                  {t('meals.peek.addToDiary')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setSelectedRecipe(peekRecipe); setPeekRecipe(null); }}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+                >
+                  {t('meals.peek.seeMore')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAdvancedFilters && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowAdvancedFilters(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-lg rounded-t-3xl bg-white px-4 pb-8 pt-4 shadow-xl dark:bg-gray-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900 dark:text-gray-100">{t('meals.advancedFilters.title')}</p>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFilters(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-gray-800 dark:text-gray-400"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-gray-500">{t('meals.advancedFilters.sortLabel')}</p>
+                <div className="relative">
+                  <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {smartSortOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => setActiveSort(option.id)}
+                        className={`rounded-full border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
+                          activeSort === option.id
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-200 dark:border-amber-500/30'
+                            : 'bg-white dark:bg-gray-800 text-slate-600 dark:text-gray-300 border-slate-200 dark:border-gray-700'
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center bg-gradient-to-l from-white via-white/80 to-transparent pl-6 pr-1 dark:from-gray-900 dark:via-gray-900/80">
+                    <ChevronRight className="h-4 w-4 text-slate-400 dark:text-gray-500" />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 dark:text-gray-500">{t('meals.advancedFilters.tagsLabel')}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTagFilter(null)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors ${
+                      activeTagFilter === null
+                        ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
+                        : 'border-slate-200 bg-white text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                    }`}
+                  >
+                    {t('meals.tags.allTags')}
+                  </button>
+                  {Object.entries(tagInfo).map(([tag, info]) => {
+                    const typedTag = tag as NutritionTagId;
+                    const isFavoriteTag = favoriteTags.includes(tag as NutritionTagId);
+                    const isActiveFilter = activeTagFilter === typedTag;
+                    return (
+                      <div key={tag} className="inline-flex items-center gap-1">
+                        <span className={`inline-flex items-center rounded-full border text-xs font-medium transition-colors ${
+                          isActiveFilter
+                            ? 'border-slate-900 bg-slate-900 text-white dark:border-white dark:bg-white dark:text-slate-900'
+                            : isFavoriteTag
+                            ? 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200'
+                            : 'border-slate-200 bg-white text-slate-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                        }`}>
+                          <button
+                            type="button"
+                            onClick={() => toggleFavoriteTag(typedTag)}
+                            className="pl-2.5 pr-1 py-2"
+                            aria-label={`${isFavoriteTag ? 'Fjern' : 'Legg til'} favoritt-tag ${info.label}`}
+                          >
+                            <Star className={`h-3.5 w-3.5 ${isFavoriteTag ? 'fill-current' : ''}`} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTagFilter((prev) => prev === typedTag ? null : typedTag)}
+                            className="pr-2.5 py-2"
+                          >
+                            {info.label}
+                          </button>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setInfoTag(typedTag)}
+                          className="flex h-6 w-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-500"
+                          aria-label={`Info om ${info.label}`}
+                        >
+                          <Info className="h-3 w-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {(activeSort !== 'recommended' || activeTagFilter) && (
+                <button
+                  type="button"
+                  onClick={() => { setActiveSort('recommended'); setActiveTagFilter(null); }}
+                  className="text-xs text-slate-400 underline underline-offset-2 dark:text-gray-500"
+                >
+                  Tilbakestill filtre
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {infoTag && (
         <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4">
@@ -1298,7 +1565,7 @@ export default function MealsScreen() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400">Maltidstype</label>
+                  <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-gray-400">Måltidstype</label>
                   <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {([
                       ['breakfast', 'Frokost'],

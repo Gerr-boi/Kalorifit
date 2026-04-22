@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity, ArrowLeft, Trophy, X, Trash2, AlertTriangle } from 'lucide-react';
+import { useT } from '../../lib/i18n';
+import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity, ArrowLeft, Trophy, X, Trash2, AlertTriangle, Check } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
@@ -147,6 +148,7 @@ const DIET_EXPLORER_OPTIONS: Array<{
 ];
 
 export default function ProfileScreen() {
+  const t = useT();
   const { currentUser, updateUserName } = useCurrentUser();
   const { signOut, deleteAccount } = useSupabaseAuth();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -206,10 +208,10 @@ export default function ProfileScreen() {
   })();
 
   const bmiCategory = (b: number) => {
-    if (b < 18.5) return 'Undervekt';
-    if (b < 25) return 'Normal';
-    if (b < 30) return 'Overvekt';
-    return 'Fedme';
+    if (b < 18.5) return t('profile.bmi.underweight');
+    if (b < 25) return t('profile.bmi.normal');
+    if (b < 30) return t('profile.bmi.overweight');
+    return t('profile.bmi.obesity');
   };
 
   const latestMeasurement = profile.bmiHistory[0] ?? null;
@@ -257,9 +259,9 @@ export default function ProfileScreen() {
     );
 
     return [
-      { label: 'Dager', value: String(activeDays), color: 'text-orange-500' },
-      { label: 'Maltider', value: String(mealsLogged), color: 'text-blue-500' },
-      { label: 'Kalorier', value: `${Math.round(caloriesLogged / 1000)}k`, color: 'text-green-500' },
+      { label: t('profile.statsLabels.days'), value: String(activeDays), color: 'text-orange-500' },
+      { label: t('profile.statsLabels.meals'), value: String(mealsLogged), color: 'text-blue-500' },
+      { label: t('profile.statsLabels.calories'), value: `${Math.round(caloriesLogged / 1000)}k`, color: 'text-green-500' },
     ];
   }, [logsByDate]);
 
@@ -474,15 +476,6 @@ export default function ProfileScreen() {
     setShowBmi(false);
   };
 
-  const getMenuItems = () => [
-    { id: 'notifications', icon: Bell, label: 'Varsler', value: profile.notificationsEnabled ? 'Pa' : 'Av' },
-    { id: 'privacy', icon: Shield, label: 'Personvern', value: profile.privacyMode },
-    { id: 'darkmode', icon: Moon, label: 'Mørk modus', value: darkMode ? 'På' : 'Av' },
-    { id: 'language', icon: Globe, label: 'Språk', value: profile.language },
-    { id: 'bmi', icon: Activity, label: 'Mine målinger', value: '' },
-    { id: 'help', icon: HelpCircle, label: 'Hjelp og støtte', value: '' },
-  ];
-
   const initials = profile.name
     .split(' ')
     .filter(Boolean)
@@ -497,10 +490,10 @@ export default function ProfileScreen() {
 
   const trendLabel =
     latestWeeklyReport.trendDirection === 'up'
-      ? 'Oppadgaende'
+      ? t('profile.trends.upward')
       : latestWeeklyReport.trendDirection === 'down'
-      ? 'Nedadgaende'
-      : 'Stabil';
+      ? t('profile.trends.downward')
+      : t('profile.trends.stable');
 
   const formatDateKey = (dateKey: string) => {
     const [year, month, day] = dateKey.split('-').map(Number);
@@ -520,6 +513,12 @@ export default function ProfileScreen() {
   const settingsTierLabel = profile.settingsTier ?? DEFAULT_NUTRITION_PROFILE.settingsTier;
   const xpRingProgress = monthlyIdentity.level.progressPct;
 
+  const metricBarColor = (pct: number) =>
+    pct >= 90 ? 'bg-green-500' : pct >= 70 ? 'bg-orange-500' : 'bg-red-500';
+
+  const dayBarColor = (score: number) =>
+    score >= 80 ? 'bg-green-400' : score >= 60 ? 'bg-orange-400' : score > 0 ? 'bg-amber-300' : 'bg-gray-200 dark:bg-white/[0.06]';
+
   if (showPersonalSettings) {
     return (
       <div className="screen min-h-screen bg-white dark:bg-gray-900">
@@ -531,14 +530,14 @@ export default function ProfileScreen() {
           >
             <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-200" />
           </button>
-          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Personlig info</h3>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{t('profile.personalSettings.title')}</h3>
         </div>
 
         <div className="p-4 space-y-4">
           <div className="card dark:bg-gray-800 dark:border-gray-700 m-0">
             <div className="space-y-3">
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Profilbilde</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.profileImageLabel')}</label>
                 <div className="mt-2 flex items-center gap-3">
                   {draftProfileImage ? (
                     <img
@@ -556,14 +555,14 @@ export default function ProfileScreen() {
                       onClick={() => profileImageInputRef.current?.click()}
                       className="rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-medium"
                     >
-                      Velg bilde
+                      {t('profile.personalSettings.chooseImage')}
                     </button>
                     {draftProfileImage && (
                       <button
                         onClick={() => setDraftProfileImage(null)}
                         className="rounded-xl bg-gray-100 dark:bg-gray-600 dark:text-gray-100 px-3 py-2 text-sm font-medium"
                       >
-                        Fjern
+                        {t('profile.personalSettings.removeImage')}
                       </button>
                     )}
                   </div>
@@ -578,242 +577,242 @@ export default function ProfileScreen() {
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Navn</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.nameLabel')}</label>
                 <input
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="f.eks. Ola Nordmann"
+                  placeholder={t('profile.personalSettings.namePlaceholder')}
                 />
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Medlem siden</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.memberSinceLabel')}</label>
                 <input
                   value={draftMemberSince}
                   onChange={(e) => setDraftMemberSince(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="f.eks. 2024"
+                  placeholder={t('profile.personalSettings.memberSincePlaceholder')}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-sm text-gray-600 dark:text-gray-400">Alder</label>
+                  <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.ageLabel')}</label>
                   <input
                     inputMode="numeric"
                     value={draftAge}
                     onChange={(e) => setDraftAge(e.target.value)}
                     className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                    placeholder="f.eks. 30"
+                    placeholder={t('profile.personalSettings.agePlaceholder')}
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600 dark:text-gray-400">Kjonn</label>
+                  <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.genderLabel')}</label>
                   <select
                     value={draftSex}
                     onChange={(e) => setDraftSex(e.target.value as BiologicalSex)}
                     className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
                   >
-                    <option value="female">Kvinne</option>
-                    <option value="male">Mann</option>
+                    <option value="female">{t('profile.personalSettings.female')}</option>
+                    <option value="male">{t('profile.personalSettings.male')}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Aktivitet</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.activityLabel')}</label>
                 <select
                   value={draftActivityLevel}
                   onChange={(e) => setDraftActivityLevel(e.target.value as ActivityLevel)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
                 >
-                  <option value="sedentary">Stillesittende</option>
-                  <option value="light">Lett aktiv</option>
-                  <option value="moderate">Moderat aktiv</option>
-                  <option value="very">Veldig aktiv</option>
+                  <option value="sedentary">{t('profile.activityLabels.sedentary')}</option>
+                  <option value="light">{t('profile.activityLabels.light')}</option>
+                  <option value="moderate">{t('profile.activityLabels.moderate')}</option>
+                  <option value="very">{t('profile.activityLabels.very')}</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Konfigurasjonsnivå</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.configLevelLabel')}</label>
                 <select
                   value={draftSettingsTier}
                   onChange={(e) => setDraftSettingsTier(e.target.value as SettingsTier)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
                 >
-                  <option value="basic">Basic mode</option>
-                  <option value="advanced">Advanced mode</option>
+                  <option value="basic">{t('profile.personal.basicMode')}</option>
+                  <option value="advanced">{t('profile.personal.advancedMode')}</option>
                 </select>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-sm text-gray-600 dark:text-gray-400">Goal kategori</label>
+                  <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.goalCategoryLabel')}</label>
                   <select
                     value={draftGoalCategory}
                     onChange={(e) => setDraftGoalCategory(e.target.value as GoalCategory)}
                     className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
                   >
-                    <option value="fat_loss">Fat Loss</option>
-                    <option value="muscle_gain">Muscle Gain</option>
-                    <option value="recomp">Recomposition</option>
-                    <option value="performance">Performance</option>
-                    <option value="health">Health Focus</option>
+                    <option value="fat_loss">{t('profile.goalCategoryLabels.fat_loss')}</option>
+                    <option value="muscle_gain">{t('profile.goalCategoryLabels.muscle_gain')}</option>
+                    <option value="recomp">{t('profile.goalCategoryLabels.recomp')}</option>
+                    <option value="performance">{t('profile.goalCategoryLabels.performance')}</option>
+                    <option value="health">{t('profile.goalCategoryLabels.health')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600 dark:text-gray-400">Diet style</label>
+                  <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.dietStyleLabel')}</label>
                   <select
                     value={draftDietStyle}
                     onChange={(e) => setDraftDietStyle(e.target.value as DietStyle)}
                     className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
                   >
-                    <option value="standard_balanced">Standard Balanced</option>
-                    <option value="high_protein">High Protein</option>
-                    <option value="low_carb">Low Carb</option>
-                    <option value="high_carb_performance">High Carb Performance</option>
-                    <option value="carb_cycling">Carb Cycling</option>
-                    <option value="keto">Keto</option>
-                    <option value="mediterranean">Mediterranean</option>
-                    <option value="vegetarian">Vegetarian</option>
-                    <option value="vegan">Vegan</option>
-                    <option value="flexible_iifym">Flexible (IIFYM)</option>
-                    <option value="structured_meal_plan">Structured Meal Plan</option>
+                    <option value="standard_balanced">{t('profile.dietStyleLabels.standard_balanced')}</option>
+                    <option value="high_protein">{t('profile.dietStyleLabels.high_protein')}</option>
+                    <option value="low_carb">{t('profile.dietStyleLabels.low_carb')}</option>
+                    <option value="high_carb_performance">{t('profile.dietStyleLabels.high_carb_performance')}</option>
+                    <option value="carb_cycling">{t('profile.dietStyleLabels.carb_cycling')}</option>
+                    <option value="keto">{t('profile.dietStyleLabels.keto')}</option>
+                    <option value="mediterranean">{t('profile.dietStyleLabels.mediterranean')}</option>
+                    <option value="vegetarian">{t('profile.dietStyleLabels.vegetarian')}</option>
+                    <option value="vegan">{t('profile.dietStyleLabels.vegan')}</option>
+                    <option value="flexible_iifym">{t('profile.dietStyleLabels.flexible_iifym')}</option>
+                    <option value="structured_meal_plan">{t('profile.dietStyleLabels.structured_meal_plan')}</option>
                   </select>
                 </div>
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Goal strategi</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.goalStrategyLabel')}</label>
                 <select
                   value={draftGoalStrategy}
                   onChange={(e) => setDraftGoalStrategy(e.target.value as GoalStrategy)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
                 >
-                  <option value="slow_cut">Slow cut (-250)</option>
-                  <option value="standard_cut">Standard cut (-400)</option>
-                  <option value="aggressive_cut">Aggressive cut (-600)</option>
-                  <option value="event_prep">Event prep</option>
-                  <option value="lean_bulk">Lean bulk (+200)</option>
-                  <option value="standard_bulk">Standard bulk (+350)</option>
-                  <option value="aggressive_bulk">Aggressive bulk (+500)</option>
-                  <option value="high_protein_maintenance">High protein maintenance</option>
-                  <option value="fat_reduction_no_scale">Fat reduction no scale focus</option>
-                  <option value="strength_focus">Strength focus</option>
-                  <option value="endurance_focus">Endurance focus</option>
-                  <option value="hybrid_athlete">Hybrid athlete</option>
-                  <option value="blood_markers">Improve blood markers</option>
-                  <option value="stable_energy">Stabilize energy</option>
-                  <option value="hormonal_balance">Hormonal balance</option>
-                  <option value="gut_health">Gut health</option>
+                  <option value="slow_cut">{t('profile.goalStrategyLabels.slow_cut')}</option>
+                  <option value="standard_cut">{t('profile.goalStrategyLabels.standard_cut')}</option>
+                  <option value="aggressive_cut">{t('profile.goalStrategyLabels.aggressive_cut')}</option>
+                  <option value="event_prep">{t('profile.goalStrategyLabels.event_prep')}</option>
+                  <option value="lean_bulk">{t('profile.goalStrategyLabels.lean_bulk')}</option>
+                  <option value="standard_bulk">{t('profile.goalStrategyLabels.standard_bulk')}</option>
+                  <option value="aggressive_bulk">{t('profile.goalStrategyLabels.aggressive_bulk')}</option>
+                  <option value="high_protein_maintenance">{t('profile.goalStrategyLabels.high_protein_maintenance')}</option>
+                  <option value="fat_reduction_no_scale">{t('profile.goalStrategyLabels.fat_reduction_no_scale')}</option>
+                  <option value="strength_focus">{t('profile.goalStrategyLabels.strength_focus')}</option>
+                  <option value="endurance_focus">{t('profile.goalStrategyLabels.endurance_focus')}</option>
+                  <option value="hybrid_athlete">{t('profile.goalStrategyLabels.hybrid_athlete')}</option>
+                  <option value="blood_markers">{t('profile.goalStrategyLabels.blood_markers')}</option>
+                  <option value="stable_energy">{t('profile.goalStrategyLabels.stable_energy')}</option>
+                  <option value="hormonal_balance">{t('profile.goalStrategyLabels.hormonal_balance')}</option>
+                  <option value="gut_health">{t('profile.goalStrategyLabels.gut_health')}</option>
                 </select>
               </div>
 
               {draftSettingsTier === 'advanced' && (
                 <div className="space-y-3 rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Advanced system</p>
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">{t('profile.personalSettings.advancedSystemLabel')}</p>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Training type</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.trainingTypeLabel')}</label>
                       <select value={draftTrainingType} onChange={(e) => setDraftTrainingType(e.target.value as TrainingType)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="strength">Strength</option>
-                        <option value="running">Running</option>
-                        <option value="crossfit">CrossFit</option>
-                        <option value="cycling">Cycling</option>
-                        <option value="mixed">Mixed</option>
-                        <option value="sedentary">Sedentary</option>
+                        <option value="strength">{t('profile.trainingTypeLabels.strength')}</option>
+                        <option value="running">{t('profile.trainingTypeLabels.running')}</option>
+                        <option value="crossfit">{t('profile.trainingTypeLabels.crossfit')}</option>
+                        <option value="cycling">{t('profile.trainingTypeLabels.cycling')}</option>
+                        <option value="mixed">{t('profile.trainingTypeLabels.mixed')}</option>
+                        <option value="sedentary">{t('profile.trainingTypeLabels.sedentary')}</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Training day +kcal</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.trainingDayBoostLabel')}</label>
                       <input inputMode="numeric" value={draftTrainingBoost} onChange={(e) => setDraftTrainingBoost(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200" />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Metabolic sensitivity</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.metabolicLabel')}</label>
                       <select value={draftMetabolicSensitivity} onChange={(e) => setDraftMetabolicSensitivity(e.target.value as MetabolicSensitivity)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="gain_easy">Gain weight easily</option>
-                        <option value="normal">Normal</option>
-                        <option value="lose_easy">Lose weight easily</option>
+                        <option value="gain_easy">{t('profile.metabolicLabels.gain_easily')}</option>
+                        <option value="normal">{t('profile.metabolicLabels.normal')}</option>
+                        <option value="lose_easy">{t('profile.metabolicLabels.lose_easily')}</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Plateau sensitivity</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.plateauLabel')}</label>
                       <select value={draftPlateauSensitivity} onChange={(e) => setDraftPlateauSensitivity(e.target.value as PlateauSensitivity)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="conservative">Conservative</option>
-                        <option value="standard">Standard</option>
-                        <option value="aggressive">Aggressive</option>
+                        <option value="conservative">{t('profile.plateauLabels.conservative')}</option>
+                        <option value="standard">{t('profile.plateauLabels.standard')}</option>
+                        <option value="aggressive">{t('profile.plateauLabels.aggressive')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Lifestyle</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.lifestyleLabel')}</label>
                       <select value={draftLifestylePattern} onChange={(e) => setDraftLifestylePattern(e.target.value as LifestylePattern)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="3_meals">3 meals</option>
-                        <option value="4_meals">4 meals</option>
-                        <option value="5_small_meals">5 small meals</option>
-                        <option value="if_16_8">Intermittent fasting 16:8</option>
-                        <option value="omad">OMAD</option>
+                        <option value="3_meals">{t('profile.lifestyleLabels.three_meals')}</option>
+                        <option value="4_meals">{t('profile.lifestyleLabels.four_meals')}</option>
+                        <option value="5_small_meals">{t('profile.lifestyleLabels.five_small')}</option>
+                        <option value="if_16_8">{t('profile.lifestyleLabels.intermittent_16_8')}</option>
+                        <option value="omad">{t('profile.lifestyleLabels.omad')}</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Behavior</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.behaviorLabel')}</label>
                       <select value={draftBehaviorPreference} onChange={(e) => setDraftBehaviorPreference(e.target.value as BehaviorPreference)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="strict">Strict structure</option>
-                        <option value="flexible">Flexible approach</option>
-                        <option value="coaching">Coaching reminders</option>
-                        <option value="minimal">Minimal reminders</option>
+                        <option value="strict">{t('profile.behaviorLabels.strict_structure')}</option>
+                        <option value="flexible">{t('profile.behaviorLabels.flexible_approach')}</option>
+                        <option value="coaching">{t('profile.behaviorLabels.coaching_reminders')}</option>
+                        <option value="minimal">{t('profile.behaviorLabels.minimal_reminders')}</option>
                       </select>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Timeline</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.timelineLabel')}</label>
                       <select value={draftTimelineType} onChange={(e) => setDraftTimelineType(e.target.value as TimelineType)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="8_week_cut">8-week cut</option>
-                        <option value="12_week_bulk">12-week bulk</option>
-                        <option value="maintenance_open">Open maintenance</option>
-                        <option value="event_based">Event-based</option>
+                        <option value="8_week_cut">{t('profile.timelineLabels.eight_week_cut')}</option>
+                        <option value="12_week_bulk">{t('profile.timelineLabels.twelve_week_bulk')}</option>
+                        <option value="maintenance_open">{t('profile.timelineLabels.maintenance_open')}</option>
+                        <option value="event_based">{t('profile.timelineLabels.event_based')}</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Weeks</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.weeksLabel')}</label>
                       <input inputMode="numeric" value={draftTimelineWeeks} onChange={(e) => setDraftTimelineWeeks(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200" />
                     </div>
                   </div>
 
                   {draftTimelineType === 'event_based' && (
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Event date</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.eventDateLabel')}</label>
                       <input type="date" value={draftEventDate} onChange={(e) => setDraftEventDate(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200" />
                     </div>
                   )}
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Psychology type</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.psychologyLabel')}</label>
                       <select value={draftPsychologyType} onChange={(e) => setDraftPsychologyType(e.target.value as PsychologyType)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="data_driven">Data-driven</option>
-                        <option value="visual">Visual learner</option>
-                        <option value="competitive">Competitive</option>
-                        <option value="community">Community-focused</option>
-                        <option value="private">Private tracker</option>
+                        <option value="data_driven">{t('profile.psychologyLabels.data_driven')}</option>
+                        <option value="visual">{t('profile.psychologyLabels.visual_learner')}</option>
+                        <option value="competitive">{t('profile.psychologyLabels.competitive')}</option>
+                        <option value="community">{t('profile.psychologyLabels.community_focused')}</option>
+                        <option value="private">{t('profile.psychologyLabels.private_tracker')}</option>
                       </select>
                     </div>
                     <div>
-                      <label className="text-sm text-gray-600 dark:text-gray-400">Special phase</label>
+                      <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.personalSettings.specialPhaseLabel')}</label>
                       <select value={draftSpecialPhase} onChange={(e) => setDraftSpecialPhase(e.target.value as SpecialPhase)} className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 dark:bg-gray-700 dark:text-gray-200">
-                        <option value="normal">Normal</option>
-                        <option value="reverse_diet">Reverse diet</option>
-                        <option value="recovery">Recovery phase</option>
-                        <option value="smart_auto">Smart auto mode</option>
+                        <option value="normal">{t('profile.specialPhaseLabels.normal')}</option>
+                        <option value="reverse_diet">{t('profile.specialPhaseLabels.reverse_diet')}</option>
+                        <option value="recovery">{t('profile.specialPhaseLabels.recovery_phase')}</option>
+                        <option value="smart_auto">{t('profile.specialPhaseLabels.smart_auto')}</option>
                       </select>
                     </div>
                   </div>
@@ -821,12 +820,12 @@ export default function ProfileScreen() {
                   <div className="rounded-lg bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-600">
                     <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200">
                       <input type="checkbox" checked={draftCycleBasedAdjustments} onChange={(e) => setDraftCycleBasedAdjustments(e.target.checked)} />
-                      Cycle-based adjustment
+                      {t('profile.personalSettings.cycleAdjLabel')}
                     </label>
                     {draftCycleBasedAdjustments && (
                       <div className="grid grid-cols-2 gap-2 mt-2">
                         <input type="date" value={draftCycleStartDate} onChange={(e) => setDraftCycleStartDate(e.target.value)} className="rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200" />
-                        <input inputMode="numeric" value={draftCycleLengthDays} onChange={(e) => setDraftCycleLengthDays(e.target.value)} placeholder="Cycle days" className="rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200" />
+                        <input inputMode="numeric" value={draftCycleLengthDays} onChange={(e) => setDraftCycleLengthDays(e.target.value)} placeholder={t('profile.personalSettings.cycleDaysPlaceholder')} className="rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm dark:bg-gray-700 dark:text-gray-200" />
                       </div>
                     )}
                   </div>
@@ -840,13 +839,13 @@ export default function ProfileScreen() {
               onClick={() => setShowPersonalSettings(false)}
               className="rounded-xl bg-gray-100 dark:bg-gray-600 dark:text-gray-100 px-4 py-2 font-medium"
             >
-              Avbryt
+              {t('profile.personalSettings.cancelButton')}
             </button>
             <button
               onClick={savePersonalSettings}
               className="rounded-xl bg-orange-500 px-4 py-2 text-white font-medium"
             >
-              Lagre
+              {t('profile.personalSettings.saveButton')}
             </button>
           </div>
         </div>
@@ -876,36 +875,35 @@ export default function ProfileScreen() {
 
         <div className="flex flex-col items-center">
           <div className="relative">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-44 h-44 rounded-full blur-3xl opacity-25 bg-amber-400 pointer-events-none" />
             <div
-              className="mb-4 rounded-full p-[4px]"
+              className="mb-4 rounded-full p-[6px]"
               style={{
-                background: `conic-gradient(#f59e0b ${xpRingProgress}%, rgba(255,255,255,0.35) ${xpRingProgress}% 100%)`,
+                background: `conic-gradient(#f59e0b ${xpRingProgress}%, rgba(255,255,255,0.20) ${xpRingProgress}% 100%)`,
               }}
             >
               {profile.profileImageDataUrl ? (
                 <img
                   src={profile.profileImageDataUrl}
                   alt={profile.name}
-                  className="w-24 h-24 rounded-full object-cover border-4 border-white/40 bg-white"
+                  className="w-24 h-24 rounded-full object-cover border-4 border-white/50 bg-white"
                 />
               ) : (
-                <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-5xl border-4 border-white/40">
+                <div className="w-24 h-24 bg-white rounded-full flex items-center justify-center text-5xl border-4 border-white/50">
                   {initials || 'U'}
                 </div>
               )}
             </div>
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-amber-500 text-white text-[11px] px-2 py-1 font-semibold whitespace-nowrap">
-              LVL {monthlyIdentity.level.value} • {monthlyIdentity.level.currentXp}/{monthlyIdentity.level.nextLevelXp} XP
-            </div>
             <div
-              className="absolute bottom-4 right-0 h-4 w-4 rounded-full border-2 border-white bg-green-500 shadow-sm"
+              className="absolute bottom-5 right-0 h-4 w-4 rounded-full border-2 border-white bg-green-500 shadow-sm"
               title="Aktiv"
               aria-label="Aktiv profilstatus"
             />
           </div>
-          <div className="mt-4">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{profile.name}</h2>
-            <p className="text-sm text-gray-400 dark:text-white/50">Medlem siden {profile.memberSince}</p>
+          <div className="mt-5 text-center">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-0.5">{profile.name}</h2>
+            <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">{monthlyIdentity.primaryTitle} · Level {monthlyIdentity.level.value}</p>
+            <p className="text-xs text-gray-400 dark:text-white/50 mt-1">{t('profile.memberSince')} {profile.memberSince}</p>
           </div>
         </div>
       </div>
@@ -919,10 +917,41 @@ export default function ProfileScreen() {
         ))}
       </div>
 
+      <div className="mt-4 mx-4 rounded-2xl p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/25 dark:to-orange-900/15 border border-amber-200/70 dark:border-amber-700/30">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Trophy className="w-5 h-5 text-amber-500 shrink-0" />
+              <h3 className="text-base font-black text-gray-900 dark:text-white tracking-tight uppercase">{monthlyIdentity.primaryTitle}</h3>
+            </div>
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+              Level {monthlyIdentity.level.value} · {monthlyIdentity.level.label}
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 tabular-nums shrink-0 ml-2">
+            {monthlyIdentity.level.currentXp}/{monthlyIdentity.level.nextLevelXp} XP
+          </span>
+        </div>
+        <div className="h-3 bg-amber-200/50 dark:bg-amber-900/50 rounded-full overflow-hidden mb-2">
+          <div
+            className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full"
+            style={{ width: `${monthlyIdentity.level.progressPct}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-amber-700/70 dark:text-amber-400/70">
+            {Math.max(0, monthlyIdentity.level.nextLevelXp - monthlyIdentity.level.currentXp)} XP til Level {monthlyIdentity.level.value + 1}
+          </p>
+          <button onClick={() => setShowIdentity(true)} className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+            {t('profile.seeAchievements')}
+          </button>
+        </div>
+      </div>
+
       <div className="card mt-4">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Smart diet profil</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{t('profile.smartDietProfile')}</p>
             <p className="text-sm font-semibold text-gray-900 dark:text-white/90">{goalStrategyLabel}</p>
             <p className="text-xs text-gray-400 dark:text-white/40 mt-0.5">
               {dietStyleLabel} · {settingsTierLabel}
@@ -934,79 +963,46 @@ export default function ProfileScreen() {
               onClick={() => setShowDietExplorer(true)}
               className="text-xs rounded-lg bg-gray-100 dark:bg-white/[0.08] text-gray-600 dark:text-white/60 px-3 py-1.5 font-medium"
             >
-              Utforsk dietter
+              {t('profile.exploreButton')}
             </button>
             <button
               type="button"
               onClick={openPersonalSettings}
               className="text-xs rounded-lg bg-orange-500 text-white px-3 py-1.5 font-medium"
             >
-              Endre
+              {t('profile.changeButton')}
             </button>
           </div>
         </div>
       </div>
 
       <div className="card mt-4">
-        <button onClick={() => setShowIdentity(true)} className="w-full text-left">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Identitet</p>
-              <h3 className="text-base font-bold text-gray-900 dark:text-white/90">{monthlyIdentity.primaryTitle}</h3>
-              <p className="text-xs text-gray-400 dark:text-white/40 mt-0.5">
-                Level {monthlyIdentity.level.value} · {monthlyIdentity.level.label}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-3xl font-bold text-gray-900 dark:text-white/90">{monthlyIdentity.level.currentXp}</p>
-              <p className="text-xs text-gray-400 dark:text-white/40">/ {monthlyIdentity.level.nextLevelXp} XP</p>
-            </div>
-          </div>
-          <div className="h-1.5 bg-gray-100 dark:bg-white/[0.08] rounded-full mt-3 overflow-hidden">
-            <div className="h-full bg-orange-500 rounded-full" style={{ width: `${monthlyIdentity.level.progressPct}%` }} />
-          </div>
-        </button>
-      </div>
-
-      <div className="card mt-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Shield className="w-4 h-4 text-gray-400" />
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Personvern</h3>
-        </div>
-        <div className="privacy-grid">
-          <button
-            type="button"
-            onClick={toggleSocialAnonymous}
-            className={`privacy-toggle dark:bg-gray-700 dark:text-gray-200 ${profile.socialAnonymousPosting ? 'privacy-on' : ''}`}
-          >
-            Anonymous posting: {profile.socialAnonymousPosting ? 'On' : 'Off'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleHideWeightNumbers}
-            className={`privacy-toggle dark:bg-gray-700 dark:text-gray-200 ${profile.socialHideWeightNumbers ? 'privacy-on' : ''}`}
-          >
-            Hide weight numbers: {profile.socialHideWeightNumbers ? 'On' : 'Off'}
-          </button>
-          <button
-            type="button"
-            onClick={toggleHideBodyPhotos}
-            className={`privacy-toggle dark:bg-gray-700 dark:text-gray-200 ${profile.socialHideBodyPhotos ? 'privacy-on' : ''}`}
-          >
-            Hide body photos: {profile.socialHideBodyPhotos ? 'On' : 'Off'}
-          </button>
-        </div>
-      </div>
-
-      <div className="card mt-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Daglig disiplinscore</p>
-            <p className="text-xs text-gray-400 dark:text-white/40">Automatisk basert på dagens logging</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{t('profile.dailyDiscipline')}</p>
+            <p className="text-xs text-gray-400 dark:text-white/40">{t('profile.disciplineScore.subtitle')}</p>
           </div>
-          <div className="text-right">
-            <p className="text-3xl font-bold text-gray-900 dark:text-white/90">{dailyDiscipline.score}</p>
-            <p className="text-xs text-gray-400 dark:text-white/40">{dailyDiscipline.grade}</p>
+          <div className="flex flex-col items-center">
+            {(() => {
+              const r = 26;
+              const circ = 2 * Math.PI * r;
+              const progress = circ * (dailyDiscipline.score / 100);
+              const col = dailyDiscipline.score >= 90 ? '#22c55e' : dailyDiscipline.score >= 70 ? '#f97316' : '#ef4444';
+              return (
+                <svg width="64" height="64" viewBox="0 0 64 64">
+                  <circle cx="32" cy="32" r={r} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth="6" />
+                  <circle
+                    cx="32" cy="32" r={r} fill="none"
+                    stroke={col} strokeWidth="6" strokeLinecap="round"
+                    strokeDasharray={circ}
+                    strokeDashoffset={circ - progress}
+                    style={{ transform: 'rotate(-90deg)', transformOrigin: '32px 32px' }}
+                  />
+                  <text x="32" y="37" textAnchor="middle" style={{ fontSize: '15px', fontWeight: '800', fill: col }}>{dailyDiscipline.score}</text>
+                </svg>
+              );
+            })()}
+            <p className="text-[10px] text-gray-400 dark:text-white/40 -mt-1">{dailyDiscipline.grade}</p>
           </div>
         </div>
 
@@ -1018,7 +1014,7 @@ export default function ProfileScreen() {
                 <span className="text-sm font-semibold text-gray-900 dark:text-white/90">{metric.percent}%</span>
               </div>
               <div className="h-1.5 bg-gray-100 dark:bg-white/[0.08] rounded-full overflow-hidden">
-                <div className="h-full bg-orange-500 rounded-full" style={{ width: `${metric.percent}%` }} />
+                <div className={`h-full rounded-full ${metricBarColor(metric.percent)}`} style={{ width: `${metric.percent}%` }} />
               </div>
               <div className="mt-1 flex justify-between text-xs text-gray-400 dark:text-white/35">
                 <span>{metric.progressLabel}</span>
@@ -1028,40 +1024,34 @@ export default function ProfileScreen() {
           ))}
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3">
-          <div className="rounded-xl bg-green-50 dark:bg-green-900/20 p-3">
-            <p className="text-xs font-semibold text-green-700 dark:text-green-300 uppercase mb-1">Accomplished</p>
-            {dailyDiscipline.accomplished.length > 0 ? (
-              <div className="space-y-1">
-                {dailyDiscipline.accomplished.map((item) => (
-                  <p key={item} className="text-xs text-green-700 dark:text-green-200">
-                    {item}
-                  </p>
-                ))}
+        <div className="mt-4 space-y-2">
+          {dailyDiscipline.accomplished.length === 0 && dailyDiscipline.missing.length === 0 && (
+            <p className="text-xs text-gray-400 dark:text-white/30 px-1">{t('profile.noDataToday')}</p>
+          )}
+          {dailyDiscipline.accomplished.map((item) => (
+            <div key={item} className="flex items-center gap-2.5">
+              <div className="w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center shrink-0">
+                <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
               </div>
-            ) : (
-              <p className="text-xs text-green-700 dark:text-green-200">Ingen omrader over 85% enda i dag.</p>
-            )}
-          </div>
-
-          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 p-3">
-            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 uppercase mb-1">Missing</p>
-            <div className="space-y-1">
-              {(dailyDiscipline.missing.length > 0 ? dailyDiscipline.missing : ['Alle mal er dekket i dag.']).map((item) => (
-                <p key={item} className="text-xs text-amber-700 dark:text-amber-200">
-                  {item}
-                </p>
-              ))}
+              <span className="text-sm text-gray-700 dark:text-white/70">{item}</span>
             </div>
-          </div>
+          ))}
+          {dailyDiscipline.missing.map((item) => (
+            <div key={item} className="flex items-center gap-2.5">
+              <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-3 h-3 text-amber-500 dark:text-amber-400" />
+              </div>
+              <span className="text-sm text-gray-500 dark:text-white/50">{item}</span>
+            </div>
+          ))}
         </div>
       </div>
 
       <div className="card mt-4">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Ukesrapport</p>
-            <p className="text-xs text-gray-400 dark:text-white/40">Auto-genereres hver søndag</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{t('profile.weeklyReport.title')}</p>
+            <p className="text-xs text-gray-400 dark:text-white/40">{t('profile.weeklyReport.subtitle')}</p>
           </div>
           <p className="text-xs text-gray-400 dark:text-white/40">
             {latestWeeklyReport.weekStartKey}–{latestWeeklyReport.weekEndKey}
@@ -1070,21 +1060,21 @@ export default function ProfileScreen() {
 
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
-            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Gj.snitt score</p>
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">{t('profile.weeklyReport.avgScore')}</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-white/90">{latestWeeklyReport.avgDisciplineScore}</p>
           </div>
           <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
-            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Trend</p>
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">{t('profile.weeklyReport.trend')}</p>
             <p className="text-2xl font-bold text-gray-900 dark:text-white/90">{trendLabel}</p>
           </div>
           <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
-            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Beste dag</p>
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">{t('profile.weeklyReport.bestDay')}</p>
             <p className="text-sm font-semibold text-gray-700 dark:text-white/70">
               {formatDateKey(latestWeeklyReport.bestDay.dateKey)} ({latestWeeklyReport.bestDay.score})
             </p>
           </div>
           <div className="rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06] p-3">
-            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">Svakeste dag</p>
+            <p className="text-xs text-gray-400 dark:text-white/40 mb-1">{t('profile.weeklyReport.worstDay')}</p>
             <p className="text-sm font-semibold text-gray-700 dark:text-white/70">
               {formatDateKey(latestWeeklyReport.worstDay.dateKey)} ({latestWeeklyReport.worstDay.score})
             </p>
@@ -1092,15 +1082,21 @@ export default function ProfileScreen() {
         </div>
 
         <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/[0.06]">
-          <p className="text-xs text-gray-400 dark:text-white/40">Streak:</p>
+          <p className="text-xs text-gray-400 dark:text-white/40">{t('profile.weeklyReport.streak')}</p>
           <p className="text-sm font-semibold text-gray-700 dark:text-white/70">{latestWeeklyReport.streakStatus}</p>
         </div>
 
         <div className="mt-3 grid grid-cols-7 gap-1">
           {latestWeeklyReport.days.map((day) => (
-            <div key={day.dateKey} className="rounded-lg bg-gray-50 dark:bg-white/[0.04] p-1.5 text-center">
+            <div key={day.dateKey} className="flex flex-col items-center gap-1">
               <p className="text-[9px] text-gray-400 dark:text-white/30">{formatDateKey(day.dateKey)}</p>
-              <p className="text-xs font-semibold text-gray-700 dark:text-white/70">{day.score}</p>
+              <div className="w-full flex flex-col justify-end h-10 rounded-sm overflow-hidden bg-gray-100 dark:bg-white/[0.06]">
+                <div
+                  className={`w-full ${dayBarColor(day.score)}`}
+                  style={{ height: `${Math.max(3, Math.round((day.score / 100) * 40))}px` }}
+                />
+              </div>
+              <p className="text-[9px] font-semibold text-gray-600 dark:text-white/60">{day.score}</p>
             </div>
           ))}
         </div>
@@ -1110,36 +1106,94 @@ export default function ProfileScreen() {
       <div className="mt-4 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 flex items-start gap-3">
         <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
         <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-          KaloriFit er ikke medisinsk rådgivning. Rådfør deg med lege eller ernæringsfysiolog ved behov.
+          {t('profile.healthDisclaimer')}
         </p>
       </div>
 
       <div className="card mt-4 p-0 overflow-hidden">
-        {getMenuItems().map((item, index) => (
+        <button
+          onClick={toggleNotifications}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06]"
+        >
+          <div className="flex items-center gap-3">
+            <Bell className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
+            <span className="text-sm font-medium text-gray-700 dark:text-white/80">{t('profile.settingsMenu.notifications')}</span>
+          </div>
+          <span className="text-sm text-gray-400 dark:text-white/40">{profile.notificationsEnabled ? t('profile.on') : t('profile.off')}</span>
+        </button>
+
+        <button
+          onClick={togglePrivacyMode}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06]"
+        >
+          <div className="flex items-center gap-3">
+            <Shield className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
+            <span className="text-sm font-medium text-gray-700 dark:text-white/80">{t('profile.settingsMenu.privacy')}</span>
+          </div>
+          <span className="text-sm text-gray-400 dark:text-white/40">{profile.privacyMode}</span>
+        </button>
+
+        {[
+          { label: t('profile.settingsMenu.anonymousPosting'), value: profile.socialAnonymousPosting, toggle: toggleSocialAnonymous },
+          { label: t('profile.settingsMenu.hideWeight'), value: profile.socialHideWeightNumbers, toggle: toggleHideWeightNumbers },
+          { label: t('profile.settingsMenu.hideBodyPhotos'), value: profile.socialHideBodyPhotos, toggle: toggleHideBodyPhotos },
+        ].map(({ label, value, toggle }) => (
           <button
-            key={index}
-            onClick={() => {
-              if (item.id === 'bmi') setShowBmi(true);
-              if (item.id === 'darkmode') toggleDarkMode();
-              if (item.id === 'notifications') toggleNotifications();
-              if (item.id === 'privacy') togglePrivacyMode();
-              if (item.id === 'language') toggleLanguage();
-              if (item.id === 'help') setShowHelp(true);
-            }}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06] last:border-b-0"
+            key={label}
+            type="button"
+            onClick={toggle}
+            className="w-full flex items-center justify-between pl-12 pr-4 py-2.5 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06] bg-gray-50/60 dark:bg-white/[0.015]"
           >
-            <div className="flex items-center gap-3">
-              <item.icon className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
-              <span className="text-sm font-medium text-gray-700 dark:text-white/80">{item.label}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              {item.value && (
-                <span className="text-sm text-gray-400 dark:text-white/40">{item.value}</span>
-              )}
-              <ChevronRight className="w-4 h-4 text-gray-300 dark:text-white/20" />
+            <span className="text-sm text-gray-600 dark:text-white/60">{label}</span>
+            <div className={`relative w-9 h-5 rounded-full transition-colors ${value ? 'bg-orange-500' : 'bg-gray-200 dark:bg-white/10'}`}>
+              <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${value ? 'translate-x-4' : 'translate-x-0.5'}`} />
             </div>
           </button>
         ))}
+
+        <button
+          onClick={toggleDarkMode}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06]"
+        >
+          <div className="flex items-center gap-3">
+            <Moon className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
+            <span className="text-sm font-medium text-gray-700 dark:text-white/80">{t('profile.settingsMenu.darkMode')}</span>
+          </div>
+          <span className="text-sm text-gray-400 dark:text-white/40">{darkMode ? t('profile.on') : t('profile.off')}</span>
+        </button>
+
+        <button
+          onClick={toggleLanguage}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06]"
+        >
+          <div className="flex items-center gap-3">
+            <Globe className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
+            <span className="text-sm font-medium text-gray-700 dark:text-white/80">{t('profile.settingsMenu.language')}</span>
+          </div>
+          <span className="text-sm text-gray-400 dark:text-white/40">{profile.language}</span>
+        </button>
+
+        <button
+          onClick={() => setShowBmi(true)}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors border-b border-gray-100 dark:border-white/[0.06]"
+        >
+          <div className="flex items-center gap-3">
+            <Activity className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
+            <span className="text-sm font-medium text-gray-700 dark:text-white/80">{t('profile.settingsMenu.measurements')}</span>
+          </div>
+          <ChevronRight className="w-4 h-4 text-gray-300 dark:text-white/20" />
+        </button>
+
+        <button
+          onClick={() => setShowHelp(true)}
+          className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <HelpCircle className="w-5 h-5 text-gray-400 dark:text-white/40 shrink-0" />
+            <span className="text-sm font-medium text-gray-700 dark:text-white/80">{t('profile.settingsMenu.help')}</span>
+          </div>
+          <ChevronRight className="w-4 h-4 text-gray-300 dark:text-white/20" />
+        </button>
       </div>
 
       {/* Logout */}
@@ -1148,7 +1202,7 @@ export default function ProfileScreen() {
         className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium"
       >
         <LogOut className="w-5 h-5" />
-        Logg ut
+        {t('profile.logOut')}
       </button>
 
       {/* Legal links */}
@@ -1157,13 +1211,13 @@ export default function ProfileScreen() {
           onClick={() => setShowPrivacy(true)}
           className="text-xs text-gray-400 dark:text-zinc-500 underline underline-offset-2 hover:text-gray-600 dark:hover:text-zinc-300 transition-colors"
         >
-          Personvernerklæring
+          {t('profile.privacyPolicy')}
         </button>
         <button
           onClick={() => setShowTerms(true)}
           className="text-xs text-gray-400 dark:text-zinc-500 underline underline-offset-2 hover:text-gray-600 dark:hover:text-zinc-300 transition-colors"
         >
-          Brukervilkår
+          {t('profile.termsOfService')}
         </button>
       </div>
 
@@ -1173,7 +1227,7 @@ export default function ProfileScreen() {
         className="w-full flex items-center justify-center gap-2 p-3 mt-1 mb-6 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
       >
         <Trash2 className="w-4 h-4" />
-        Slett konto og data
+        {t('profile.deleteAccount')}
       </button>
 
       {/* Delete account confirmation dialog */}
@@ -1185,20 +1239,19 @@ export default function ProfileScreen() {
                 <AlertTriangle className="w-5 h-5 text-red-500" />
               </div>
               <div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-base">Slett konto og data</h3>
-                <p className="text-xs text-gray-500 dark:text-zinc-400">Dette kan ikke angres</p>
+                <h3 className="font-bold text-gray-900 dark:text-white text-base">{t('profile.deleteConfirm.title')}</h3>
+                <p className="text-xs text-gray-500 dark:text-zinc-400">{t('profile.deleteConfirm.warning')}</p>
               </div>
             </div>
             <p className="text-sm text-gray-600 dark:text-zinc-300 mb-6 leading-relaxed">
-              All data slettes permanent: kostholdslogger, progresjon, merker og kontoopplysninger.
-              I henhold til GDPR fjernes alle personopplysninger innen 30 dager.
+              {t('profile.deleteConfirm.body')}
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => setShowDeleteConfirm(false)}
                 className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 text-gray-700 dark:text-zinc-300 font-medium text-sm"
               >
-                Avbryt
+                {t('profile.deleteConfirm.cancel')}
               </button>
               <button
                 disabled={deleteLoading}
@@ -1211,7 +1264,7 @@ export default function ProfileScreen() {
                 }}
                 className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-semibold text-sm disabled:opacity-50 transition-colors"
               >
-                {deleteLoading ? 'Sletter...' : 'Slett alt'}
+                {deleteLoading ? t('profile.deleteConfirm.deleting') : t('profile.deleteConfirm.confirm')}
               </button>
             </div>
           </div>
@@ -1232,7 +1285,7 @@ export default function ProfileScreen() {
                   <HelpCircle className="w-5 h-5 text-orange-500" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-gray-900 dark:text-white">Hjelp og støtte</h2>
+                  <h2 className="text-base font-bold text-gray-900 dark:text-white">{t('profile.help.title')}</h2>
                   <p className="text-xs text-gray-500 dark:text-zinc-400">KaloriFit — v1.0</p>
                 </div>
               </div>
@@ -1249,38 +1302,23 @@ export default function ProfileScreen() {
 
               {/* Contact */}
               <div className="rounded-xl bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-700/30 p-4">
-                <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-1">Kontakt oss</p>
+                <p className="text-xs font-semibold text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-1">{t('profile.help.contact')}</p>
                 <p className="text-sm text-gray-700 dark:text-zinc-300">
-                  Har du spørsmål, fant en feil, eller trenger hjelp?
+                  {t('profile.help.contactBody')}
                 </p>
                 <p className="mt-1 font-medium text-orange-500">support@kalorifit.no</p>
               </div>
 
               {/* FAQ */}
               <div>
-                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wide mb-3">Vanlige spørsmål</p>
+                <p className="text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wide mb-3">{t('profile.help.faqTitle')}</p>
                 <div className="space-y-3">
                   {[
-                    {
-                      q: 'Hvordan endre kalorirmål?',
-                      a: 'Gå til Rediger profil (tannhjulet øverst) og oppdater vekt, mål og aktivitetsnivå. Målene beregnes automatisk.',
-                    },
-                    {
-                      q: 'Dataene mine forsvant — hva gjør jeg?',
-                      a: 'Data lagres lokalt på enheten. Logg inn med konto for å synkronisere på tvers av enheter og unngå tap.',
-                    },
-                    {
-                      q: 'Kan jeg eksportere dataene mine?',
-                      a: 'Dataeksport er under utvikling. Send oss en e-post så hjelper vi deg manuelt i mellomtiden.',
-                    },
-                    {
-                      q: 'Er anbefalingene medisinsk rådgivning?',
-                      a: 'Nei. KaloriFit er et støtteverktøy, ikke en medisinsk tjeneste. Rådfør deg med helsepersonell ved behov.',
-                    },
-                    {
-                      q: 'Hvordan slette kontoen min?',
-                      a: 'Scroll ned på denne siden og trykk "Slett konto og data". All data fjernes permanent.',
-                    },
+                    { q: t('profile.help.faq.q1'), a: t('profile.help.faq.a1') },
+                    { q: t('profile.help.faq.q2'), a: t('profile.help.faq.a2') },
+                    { q: t('profile.help.faq.q3'), a: t('profile.help.faq.a3') },
+                    { q: t('profile.help.faq.q4'), a: t('profile.help.faq.a4') },
+                    { q: t('profile.help.faq.q5'), a: t('profile.help.faq.a5') },
                   ].map(({ q, a }) => (
                     <div key={q} className="rounded-xl border border-gray-100 dark:border-zinc-800 p-3">
                       <p className="font-semibold text-gray-800 dark:text-white text-sm mb-1">{q}</p>
@@ -1296,13 +1334,13 @@ export default function ProfileScreen() {
                   onClick={() => { setShowHelp(false); setShowPrivacy(true); }}
                   className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 text-xs font-medium text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
                 >
-                  Personvernerklæring
+                  {t('profile.privacyPolicy')}
                 </button>
                 <button
                   onClick={() => { setShowHelp(false); setShowTerms(true); }}
                   className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 text-xs font-medium text-gray-600 dark:text-zinc-300 hover:bg-gray-50 dark:hover:bg-zinc-800 transition-colors"
                 >
-                  Brukervilkår
+                  {t('profile.termsOfService')}
                 </button>
               </div>
 
@@ -1313,7 +1351,7 @@ export default function ProfileScreen() {
                 onClick={() => setShowHelp(false)}
                 className="w-full py-3 bg-orange-500 hover:bg-orange-400 text-white font-semibold rounded-xl text-sm transition-colors"
               >
-                Lukk
+                {t('profile.help.close')}
               </button>
             </div>
           </div>
@@ -1325,8 +1363,8 @@ export default function ProfileScreen() {
           <div className="w-full max-w-xl rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-xl max-h-[88vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Explore diets</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Pick a style and apply instantly.</p>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{t('profile.dietExplorerModal.title')}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('profile.dietExplorerModal.subtitle')}</p>
               </div>
               <button
                 onClick={() => setShowDietExplorer(false)}
@@ -1348,7 +1386,7 @@ export default function ProfileScreen() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                          {option.title} {isActive ? '(active)' : ''}
+                          {option.title} {isActive ? t('profile.dietExplorerModal.active') : ''}
                         </p>
                         <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{option.description}</p>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Best for: {option.bestFor}</p>
@@ -1359,7 +1397,7 @@ export default function ProfileScreen() {
                         disabled={isActive}
                         className={`text-xs rounded-lg px-3 py-1.5 font-medium ${isActive ? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400' : 'bg-emerald-100 text-emerald-700'}`}
                       >
-                        {isActive ? 'Selected' : 'Use'}
+                        {isActive ? t('profile.dietExplorerModal.selectedButton') : t('profile.dietExplorerModal.useButton')}
                       </button>
                     </div>
                   </div>
@@ -1375,8 +1413,8 @@ export default function ProfileScreen() {
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-xl max-h-[88vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Trophy Room</h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Monthly identity update: {monthlyIdentity.monthKey}</p>
+                <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{t('profile.identityModal.title')}</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('profile.identityModal.monthlyUpdate')}{monthlyIdentity.monthKey}</p>
               </div>
               <button
                 onClick={() => setShowIdentity(false)}
@@ -1412,47 +1450,47 @@ export default function ProfileScreen() {
 
             <div className="grid grid-cols-2 gap-3 mt-3 text-sm">
               <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-300">Avg discipline</p>
+                <p className="text-xs text-gray-500 dark:text-gray-300">{t('profile.identityModal.avgDiscipline')}</p>
                 <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{monthlyIdentity.avgDisciplineScore}</p>
               </div>
               <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-300">Consistency</p>
+                <p className="text-xs text-gray-500 dark:text-gray-300">{t('profile.identityModal.consistency')}</p>
                 <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{monthlyIdentity.consistencyRate}%</p>
               </div>
               <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-300">Best streak</p>
-                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{monthlyIdentity.bestStreakDays} days</p>
+                <p className="text-xs text-gray-500 dark:text-gray-300">{t('profile.identityModal.bestStreak')}</p>
+                <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{t('profile.identityModal.bestStreakDays').replace('{n}', String(monthlyIdentity.bestStreakDays))}</p>
               </div>
               <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                <p className="text-xs text-gray-500 dark:text-gray-300">Challenges</p>
+                <p className="text-xs text-gray-500 dark:text-gray-300">{t('profile.identityModal.challenges')}</p>
                 <p className="text-xl font-bold text-gray-800 dark:text-gray-100">{monthlyIdentity.challengeCompletions}</p>
               </div>
             </div>
 
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mt-3">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">XP Sources</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t('profile.identityModal.xpSources')}</p>
               <div className="space-y-1 text-sm">
                 <p className="flex justify-between text-gray-600 dark:text-gray-300">
-                  <span>Logging</span>
+                  <span>{t('profile.identityModal.logging')}</span>
                   <span>{monthlyIdentity.xpBreakdown.logging} XP</span>
                 </p>
                 <p className="flex justify-between text-gray-600 dark:text-gray-300">
-                  <span>Hitting goals</span>
+                  <span>{t('profile.identityModal.hittingGoals')}</span>
                   <span>{monthlyIdentity.xpBreakdown.goals} XP</span>
                 </p>
                 <p className="flex justify-between text-gray-600 dark:text-gray-300">
-                  <span>Completing challenges</span>
+                  <span>{t('profile.identityModal.completingChallenges')}</span>
                   <span>{monthlyIdentity.xpBreakdown.challenges} XP</span>
                 </p>
               </div>
               <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600 flex justify-between">
-                <p className="font-semibold text-gray-700 dark:text-gray-200">Total</p>
+                <p className="font-semibold text-gray-700 dark:text-gray-200">{t('profile.identityModal.total')}</p>
                 <p className="font-semibold text-amber-600 dark:text-amber-300">{monthlyIdentity.xpBreakdown.total} XP</p>
               </div>
             </div>
 
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mt-3">
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Unlocked Performance Titles</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t('profile.identityModal.unlockedTitles')}</p>
               <div className="space-y-2">
                 {monthlyIdentity.unlockedTitles.map((title) => (
                   <div key={title} className="rounded-lg bg-white dark:bg-gray-800 p-3 border border-gray-200 dark:border-gray-600">
@@ -1467,7 +1505,7 @@ export default function ProfileScreen() {
             <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4 mt-3">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                  Prestasjoner
+                  {t('profile.identityModal.achievements')}
                 </p>
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   {earnedBadges.length}/{ALL_BADGES.length}
@@ -1508,7 +1546,7 @@ export default function ProfileScreen() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 -mt-24">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-gray-800 p-5 shadow-xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Mine målinger</h3>
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">{t('profile.bmiModal.title')}</h3>
               <button
                 onClick={() => setShowBmi(false)}
                 className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-600 flex items-center justify-center"
@@ -1520,13 +1558,13 @@ export default function ProfileScreen() {
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Siste vekt</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('profile.bmiModal.latestWeight')}</p>
                   <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {latestMeasurement ? `${latestMeasurement.weightKg} kg` : `${profile.weightKg} kg`}
                   </p>
                 </div>
                 <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-3">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Endring siden sist</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('profile.bmiModal.changeSinceLast')}</p>
                   <p className="text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {weightDeltaFromLast === null ? '--' : `${weightDeltaFromLast > 0 ? '+' : ''}${weightDeltaFromLast} kg`}
                   </p>
@@ -1534,59 +1572,59 @@ export default function ProfileScreen() {
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Høyde (cm)</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.bmiModal.heightLabel')}</label>
                 <input
                   inputMode="decimal"
                   value={heightCm}
                   onChange={(e) => setHeightCm(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="f.eks. 180"
+                  placeholder={t('profile.bmiModal.heightPlaceholder')}
                 />
               </div>
 
               <div>
-                <label className="text-sm text-gray-600 dark:text-gray-400">Vekt (kg)</label>
+                <label className="text-sm text-gray-600 dark:text-gray-400">{t('profile.bmiModal.weightLabel')}</label>
                 <input
                   inputMode="decimal"
                   value={weightKg}
                   onChange={(e) => setWeightKg(e.target.value)}
                   className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-200 dark:bg-gray-700 dark:text-gray-200"
-                  placeholder="f.eks. 82"
+                  placeholder={t('profile.bmiModal.weightPlaceholder')}
                 />
               </div>
 
               <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
                 {bmi === null ? (
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Skriv inn høyde og vekt for å beregne målinger.</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">{t('profile.bmiModal.enterToCalc')}</p>
                 ) : (
                   <div className="space-y-3">
                     <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Din BMI akkurat na</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{t('profile.bmiModal.yourBmiNow')}</p>
                       <p className="text-2xl font-bold text-gray-800 dark:text-gray-200">{bmi.toFixed(1)}</p>
                       <p className="text-sm text-gray-600 dark:text-gray-400">{bmiCategory(bmi)}</p>
                     </div>
                     {healthyWeightRange && (
                       <p className="text-xs text-gray-600 dark:text-gray-300">
-                        Sunn vekt for din høyde: ca. {healthyWeightRange.min}-{healthyWeightRange.max} kg
+                        {t('profile.bmiModal.healthyWeight').replace('{min}', String(healthyWeightRange.min)).replace('{max}', String(healthyWeightRange.max))}
                       </p>
                     )}
                     <button
                       onClick={saveBmi}
                       className="rounded-xl bg-orange-500 px-4 py-2 text-white font-medium"
                     >
-                      Lagre måling
+                      {t('profile.bmiModal.saveMeasurement')}
                     </button>
                   </div>
                 )}
               </div>
 
               <p className="text-xs text-gray-500 dark:text-gray-500">
-                Tips: Logg målinger 1-2 ganger i uka på samme tidspunkt for jevnere trend.
+                {t('profile.bmiModal.tip')}
               </p>
 
               {profile.bmiHistory.length > 0 && (
                 <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Siste målinger</p>
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t('profile.bmiModal.recentTitle')}</p>
                   <div className="space-y-1">
                     {profile.bmiHistory.slice(0, 3).map((entry) => (
                       <p key={`${entry.date}-${entry.bmi}`} className="text-xs text-gray-600 dark:text-gray-300">
@@ -1602,7 +1640,7 @@ export default function ProfileScreen() {
       )}
 
       <p className="text-center text-sm text-gray-400 mt-4 pb-8">
-        KaloriFit v1.0.0
+        {t('profile.version')}
       </p>
     </div>
   );

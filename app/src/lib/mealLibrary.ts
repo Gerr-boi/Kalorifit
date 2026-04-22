@@ -241,7 +241,7 @@ export function scoreMealRecommendation({
   activeTagFilter,
 }: ScoreMealInput) {
   const favoriteTagMatches = getFavoriteTagMatches(recipe, favoriteTags);
-  let score = recipe.source === 'Community' ? 3.5 : recipe.source === 'Mine maltider' ? 4.5 : 4;
+  let score = recipe.source === 'Community' ? 3.5 : recipe.source === 'Mine måltider' ? 4.5 : 4;
 
   if (recipe.sortContexts.includes(activeSort)) score += 8;
   if (recipe.dietStyles.includes(profileDietStyle)) score += 6;
@@ -263,8 +263,8 @@ export function scoreMealRecommendation({
   const keywordMatches = Array.from(recentMealKeywords).filter((token) => title.includes(token)).length;
   score += Math.min(keywordMatches, 3) * 1.5;
 
-  if (recipe.source === 'Lagrede maltider') score += 1.5;
-  if (recipe.source === 'Mine maltider') score += 1;
+  if (recipe.source === 'Lagrede måltider') score += 1.5;
+  if (recipe.source === 'Mine måltider') score += 1;
 
   return score;
 }

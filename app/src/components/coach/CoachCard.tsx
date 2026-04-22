@@ -11,6 +11,7 @@ interface CoachCardProps {
   message: CoachMessage;
   onDismiss?: () => void;
   onAction?: (priority: CoachPriority) => void;
+  lang?: 'Norsk' | 'English';
 }
 
 const priorityConfig: Record<CoachPriority, { icon: typeof Flame; color: string; bg: string; border: string }> = {
@@ -81,7 +82,7 @@ function UrgencyDot({ urgency }: { urgency: CoachMessage['urgency'] }) {
   );
 }
 
-function MacroPill({ label, value, unit, done }: { label: string; value: number; unit: string; done: boolean }) {
+function MacroPill({ label, value, unit, done, leftLabel }: { label: string; value: number; unit: string; done: boolean; leftLabel: string }) {
   return (
     <span
       style={{
@@ -96,26 +97,27 @@ function MacroPill({ label, value, unit, done }: { label: string; value: number;
         color: done ? '#16a34a' : '#374151',
       }}
     >
-      {label}: {done ? '✓' : `${Math.round(Math.abs(value))}${unit} igjen`}
+      {label}: {done ? '✓' : `${Math.round(Math.abs(value))}${unit} ${leftLabel}`}
     </span>
   );
 }
 
-const ACTION_LABELS: Partial<Record<CoachPriority, string>> = {
-  protein: 'Logg mat',
-  calories_under: 'Logg mat',
-  logging: 'Logg mat',
-  water: 'Logg vann',
-  workout: 'Logg trening',
-};
-
-export default function CoachCard({ message, onAction }: CoachCardProps) {
+export default function CoachCard({ message, onAction, lang = 'Norsk' }: CoachCardProps) {
   const [expanded, setExpanded] = useState(false);
   const cfg = priorityConfig[message.priority];
   const Icon = cfg.icon;
+  const en = lang === 'English';
 
   const kcalDone = message.kcalRemaining <= 0;
   const proteinDone = message.proteinRemaining <= 0;
+
+  const actionLabels: Partial<Record<CoachPriority, string>> = {
+    protein: en ? 'Log food' : 'Logg mat',
+    calories_under: en ? 'Log food' : 'Logg mat',
+    logging: en ? 'Log food' : 'Logg mat',
+    water: en ? 'Log water' : 'Logg vann',
+    workout: en ? 'Log workout' : 'Logg trening',
+  };
 
   return (
     <div
@@ -181,8 +183,8 @@ export default function CoachCard({ message, onAction }: CoachCardProps) {
 
       {/* Macro pills row */}
       <div style={{ display: 'flex', gap: 6, padding: '0 14px 10px 56px', flexWrap: 'wrap' }}>
-        <MacroPill label="Kcal" value={message.kcalRemaining} unit="kcal" done={kcalDone} />
-        <MacroPill label="Protein" value={message.proteinRemaining} unit="g" done={proteinDone} />
+        <MacroPill label="Kcal" value={message.kcalRemaining} unit="kcal" done={kcalDone} leftLabel={en ? 'left' : 'igjen'} />
+        <MacroPill label="Protein" value={message.proteinRemaining} unit="g" done={proteinDone} leftLabel={en ? 'left' : 'igjen'} />
         {message.isTrainingDay && (
           <span
             style={{
@@ -197,7 +199,7 @@ export default function CoachCard({ message, onAction }: CoachCardProps) {
               color: '#d97706',
             }}
           >
-            <Dumbbell size={10} /> Treningsdag
+            <Dumbbell size={10} /> {en ? 'Training day' : 'Treningsdag'}
           </span>
         )}
       </div>
@@ -216,12 +218,12 @@ export default function CoachCard({ message, onAction }: CoachCardProps) {
           {message.reason}
           <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11 }}>
-              Mål: <strong>{Math.round(message.targetKcal)} kcal</strong>
+              {en ? 'Goal' : 'Mål'}: <strong>{Math.round(message.targetKcal)} kcal</strong>
             </span>
             <span style={{ fontSize: 11 }}>
               Protein: <strong>{Math.round(message.targetProteinG)}g</strong>
             </span>
-            {onAction && ACTION_LABELS[message.priority] && (
+            {onAction && actionLabels[message.priority] && (
               <button
                 onClick={(e) => { e.stopPropagation(); onAction(message.priority); }}
                 style={{
@@ -237,7 +239,7 @@ export default function CoachCard({ message, onAction }: CoachCardProps) {
                   whiteSpace: 'nowrap',
                 }}
               >
-                {ACTION_LABELS[message.priority]} →
+                {actionLabels[message.priority]} →
               </button>
             )}
           </div>

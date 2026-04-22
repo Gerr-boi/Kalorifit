@@ -199,12 +199,12 @@ export function calculateDailyDisciplineScore(log: DayLog, calorieGoalKcal = CAL
       key: 'calorie',
       label: 'Calorie adherence',
       percent: round(caloriePct),
-      targetLabel: `${calorieGoalKcal} kcal mål`,
-      progressLabel: `${round(consumedKcal)} kcal logget`,
+      targetLabel: `${calorieGoalKcal} kcal goal`,
+      progressLabel: `${round(consumedKcal)} kcal logged`,
       missingLabel:
         consumedKcal >= calorieGoalKcal
-          ? `${round(consumedKcal - calorieGoalKcal)} kcal over mål`
-          : `${round(calorieGoalKcal - consumedKcal)} kcal igjen til mål`,
+          ? `${round(consumedKcal - calorieGoalKcal)} kcal over goal`
+          : `${round(calorieGoalKcal - consumedKcal)} kcal remaining`,
     },
     {
       key: 'protein',
