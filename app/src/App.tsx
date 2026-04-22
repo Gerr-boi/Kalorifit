@@ -65,7 +65,7 @@ function App() {
   useCurrentUser();
 
   // Supabase auth + sync
-  const { user, loading: authLoading, isAuthenticated, signUp, signIn } = useSupabaseAuth();
+  const { user, loading: authLoading, isAuthenticated, signUp, signIn, signOut } = useSupabaseAuth();
   useSupabaseSync(user);
 
   const handleAuth = useCallback(async (identifier: string, password: string, mode: 'login' | 'signup', username?: string) => {
@@ -90,6 +90,12 @@ function App() {
     setSkippedAuth(true);
     try { window.localStorage.setItem('kalorifit:skippedAuth', 'true'); } catch {}
   }, []);
+
+  const handleSignOut = useCallback(async () => {
+    await signOut();
+    setSkippedAuth(false);
+    try { window.localStorage.removeItem('kalorifit:skippedAuth'); } catch {}
+  }, [signOut]);
   const [profileRaw] = useLocalStorageState<Record<string, unknown>>('profile', EMPTY_PROFILE);
   const onboardingCompleted = Boolean((profileRaw as { onboardingCompleted?: boolean }).onboardingCompleted);
   const language = ((profileRaw as { language?: string }).language === 'English' ? 'English' : 'Norsk') as Language;
@@ -172,7 +178,7 @@ function App() {
       case 'meals':
         return <MealsScreen />;
       case 'profile':
-        return <ProfileScreen />;
+        return <ProfileScreen onSignOut={handleSignOut} />;
       default:
         return <HomeScreen />;
     }

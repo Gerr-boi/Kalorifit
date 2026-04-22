@@ -147,10 +147,11 @@ const DIET_EXPLORER_OPTIONS: Array<{
   { style: 'structured_meal_plan', title: 'Structured Meal Plan', description: 'Pre-defined meal rhythm with less decision load.', bestFor: 'Routine-driven users who prefer consistency.' },
 ];
 
-export default function ProfileScreen() {
+export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise<void> }) {
   const t = useT();
   const { currentUser, updateUserName } = useCurrentUser();
-  const { signOut, deleteAccount } = useSupabaseAuth();
+  const { signOut: rawSignOut, deleteAccount } = useSupabaseAuth();
+  const signOut = onSignOut ?? rawSignOut;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);

@@ -252,6 +252,7 @@ export default function MealsScreen() {
       : weekSignals.protein < 650
         ? t('meals.weeklyInsight.lowProtein')
         : t('meals.weeklyInsight.good');
+  void weeklyInsight;
 
   const bannerTitle = profile.goalStrategy === 'gut_health'
     ? t('meals.banner.gutMode')
@@ -263,6 +264,8 @@ export default function MealsScreen() {
   const bannerSubtitle = profile.goalStrategy === 'gut_health'
     ? t('meals.banner.gutSub')
     : t('meals.banner.defaultSub');
+  void bannerTitle;
+  void bannerSubtitle;
 
   const recommendationBlocks = useMemo(() => {
     const blocks: Array<{ id: string; title: string; desc: string; match: (recipe: MealRecipe) => boolean }> = [];
@@ -529,8 +532,11 @@ export default function MealsScreen() {
     gut:      { border: 'border-l-4 border-l-purple-500', headerBg: 'bg-purple-50 dark:bg-purple-900/20', iconColor: 'text-purple-600 dark:text-purple-400', icon: <Sprout className="h-4 w-4" /> },
   };
   const activeSortLabel = smartSortOptions.find((item) => item.id === activeSort)?.label ?? t('meals.sort.recommended');
+  void activeSortLabel;
   const mealFilterLabel = activeMealFilter === 'alle' ? t('meals.library.discover') : mealFilterOptions.find((o) => o.id === activeMealFilter)?.label ?? activeMealFilter;
+  void mealFilterLabel;
   const activeTagLabel = activeTagFilter ? tagInfo[activeTagFilter].label : t('meals.tags.allTags');
+  void activeTagLabel;
   const selectedMacros = selectedRecipe ? estimateMacros(selectedRecipe) : null;
   const selectedMicros = selectedRecipe ? estimateMicros(selectedRecipe) : null;
   const selectedIngredients = selectedRecipe ? getRecipeIngredients(selectedRecipe) : [];
