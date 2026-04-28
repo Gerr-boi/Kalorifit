@@ -1,3 +1,4 @@
+import collections
 import hmac
 import logging
 import json
@@ -310,8 +311,39 @@ async def require_api_key(request: Request, call_next):
     ):
         return JSONResponse(
             status_code=401,
-            content={'error': 'UNAUTHORIZED', 'message': 'Invalid or missing x-api-key header.'},
+            content={'error': 'UNAUTHORIZED', 'message': 'Missing or invalid API key. Provide a valid x-api-key header.'},
         )
+    return await call_next(request)
+
+
+# ── Rate limiter middleware ───────────────────────────────────────────────────
+# Sliding-window counter: max 100 requests per client IP per 60-second window.
+_RATE_LIMIT_MAX = 100
+_RATE_LIMIT_WINDOW = 60  # seconds
+_rate_limit_store: dict[str, collections.deque] = {}
+
+
+@app.middleware('http')
+async def rate_limiter(request: Request, call_next):
+    if request.url.path in _OPEN_PATHS:
+        return await call_next(request)
+    client_ip = request.client.host if request.client else 'unknown'
+    now = time.time()
+    window_start = now - _RATE_LIMIT_WINDOW
+    timestamps = _rate_limit_store.setdefault(client_ip, collections.deque())
+    while timestamps and timestamps[0] < window_start:
+        timestamps.popleft()
+    if len(timestamps) >= _RATE_LIMIT_MAX:
+        reset_time = int(timestamps[0] + _RATE_LIMIT_WINDOW)
+        return JSONResponse(
+            status_code=429,
+            content={
+                'error': 'RATE_LIMIT_EXCEEDED',
+                'message': f'Rate limit exceeded. Maximum {_RATE_LIMIT_MAX} requests per minute. Please retry after {reset_time}.',
+            },
+            headers={'Retry-After': str(reset_time - int(now))},
+        )
+    timestamps.append(now)
     return await call_next(request)
 
 
@@ -356,7 +388,7 @@ async def generic_error_handler(request: Request, exc: Exception):
     logger.exception('Unhandled exception request_id=%s', request_id)
     payload = ErrorResponse(
         error='UNEXPECTED_SERVER_ERROR',
-        message='Unexpected server error.',
+        message='An unexpected error occurred. Please try again or contact support if the problem persists.',
         request_id=request_id,
     )
     return JSONResponse(status_code=500, content=payload.model_dump())
@@ -552,7 +584,7 @@ async def detect(
             supabase_logger: SupabaseScanLogger = app.state.supabase_logger
             supabase_logger.insert_scan(log_record)
         except Exception:
-            logger.exception('Failed to persist scan dataset row request_id=%s', request_id)
+            logger.exception('Warning: Failed to log scan data (request_id=%s). Scan processing completed but data was not persisted.', request_id)
 
     response = DetectResponse(
         ok=True,
