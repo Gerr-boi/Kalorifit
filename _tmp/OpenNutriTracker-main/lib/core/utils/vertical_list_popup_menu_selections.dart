@@ -1,4 +1,0 @@
-enum VerticalListPopupMenuSelections {
-  onCopy,
-  onDelete,
-}
