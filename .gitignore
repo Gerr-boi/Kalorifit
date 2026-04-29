@@ -66,3 +66,9 @@ _recovery/
 
 # Local scan telemetry outputs (generated)
 app/server/data/
+
+# Claude Code AI settings (contain local paths and shell permissions)
+.claude/
+
+# Temporary external repos / research dumps
+_tmp/
