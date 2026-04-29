@@ -288,6 +288,12 @@ def initialize_app_state() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    if not settings.api_key:
+        logger.critical(
+            'SECURITY WARNING: BOT_API_KEY is not set. All endpoints (/detect, /feedback, '
+            '/log-scan, /predict-dish) are completely unauthenticated. '
+            'Set BOT_API_KEY to a strong secret before exposing this service.'
+        )
     initialize_app_state()
     yield
 
@@ -371,7 +377,6 @@ def health():
         provider=settings.provider,
         model_loaded=bool(getattr(app.state, 'model_loaded', False)),
         model=getattr(detector, 'model_id', None),
-        model_weights_path=getattr(app.state, 'model_weights_path', None),
         model_weights_sha256=getattr(app.state, 'model_weights_sha256', None),
         model_loaded_at=getattr(app.state, 'model_loaded_at', None),
         uptime_s=round(time.time() - started_at, 3),

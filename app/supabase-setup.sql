@@ -523,7 +523,7 @@ CREATE TRIGGER trg_inc_comments_count
 -- 6. AUTH HELPERS
 -- =====================================================
 
--- Look up email from username (used for username login; accessible to anon)
+-- Look up email from username (used for username login; authenticated only to prevent enumeration)
 CREATE OR REPLACE FUNCTION public.get_email_by_username(p_username TEXT)
 RETURNS TEXT
 LANGUAGE plpgsql
@@ -541,7 +541,8 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_email_by_username(TEXT) TO anon, authenticated;
+-- anon intentionally excluded: allowing anon access enables unauthenticated username→email enumeration
+GRANT EXECUTE ON FUNCTION public.get_email_by_username(TEXT) TO authenticated;
 
 -- Auto-create profile row on signup
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;

@@ -50,6 +50,10 @@ class DatasetLogger:
         return day_dir
 
     def _record_path(self, scan_log_id: str) -> Path:
+        try:
+            uuid.UUID(scan_log_id)
+        except (ValueError, AttributeError):
+            raise ValueError(f'Invalid scan_log_id: must be a UUID, got {scan_log_id!r}')
         return self._records_dir / f'{scan_log_id}.json'
 
     def _serialize_predictions(self, predictions: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

@@ -62,18 +62,10 @@ export function useSupabaseAuth() {
   const signIn = useCallback(async (identifier: string, password: string) => {
     if (!supabase) return { error: { message: 'Supabase ikke konfigurert' } };
 
-    let email = identifier.trim();
+    const email = identifier.trim();
 
-    // Username login: look up the email from the profiles table
     if (!email.includes('@')) {
-      const { data: lookedUp, error: lookupErr } = await supabase.rpc(
-        'get_email_by_username',
-        { p_username: email },
-      );
-      if (lookupErr || !lookedUp) {
-        return { error: { message: 'Brukernavnet finnes ikke' } };
-      }
-      email = lookedUp as string;
+      return { error: { message: 'Logg inn med e-postadressen din' } };
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });

@@ -72,7 +72,6 @@ class HealthResponse(BaseModel):
     provider: str
     model_loaded: bool
     model: str | None = None
-    model_weights_path: str | None = None
     model_weights_sha256: str | None = None
     model_loaded_at: str | None = None
     uptime_s: float

@@ -8,7 +8,11 @@ const bootStatus = document.getElementById('boot-status');
 window.addEventListener('unhandledrejection', (event) => {
   if (!bootStatus) return;
   const reason = event.reason instanceof Error ? event.reason.message : String(event.reason);
-  bootStatus.innerHTML = `<strong>Unhandled promise rejection:</strong> ${reason}`;
+  bootStatus.textContent = '';
+  const label = document.createElement('strong');
+  label.textContent = 'Unhandled promise rejection: ';
+  bootStatus.appendChild(label);
+  bootStatus.appendChild(document.createTextNode(reason));
 });
 
 ReactDOMClient.createRoot(document.getElementById('root')!).render(
