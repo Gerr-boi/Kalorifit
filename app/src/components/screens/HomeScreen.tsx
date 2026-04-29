@@ -822,7 +822,8 @@ export default function HomeScreen() {
     return Array.from({ length: 7 }, (_, index) => {
       const date = addDays(weekStart, index);
       const key = toDateKey(date);
-      const log = logsByDate[key] ?? createEmptyDayLog();
+      const isFuture = key > todayKey;
+      const log = !isFuture ? (logsByDate[key] ?? createEmptyDayLog()) : createEmptyDayLog();
       const dayConsumed = Object.values(log.meals)
         .flat()
         .reduce((sum, item) => sum + item.kcal, 0);
@@ -832,14 +833,16 @@ export default function HomeScreen() {
         label: weekdayShort.format(date).slice(0, 3),
         isToday: key === todayKey,
         isSelected: key === selectedDateKey,
+        isFuture,
         consumed: dayConsumed,
         remaining,
       };
     });
   }, [logsByDate, optimizedTargetKcal, selectedDate, selectedDateKey, todayKey]);
 
+  const pastWeeklyDays = weeklyData.filter((d) => !d.isFuture);
   const weeklyAverage = Math.round(
-    weeklyData.reduce((sum, day) => sum + day.consumed, 0) / Math.max(weeklyData.length, 1),
+    pastWeeklyDays.reduce((sum, day) => sum + day.consumed, 0) / Math.max(pastWeeklyDays.length, 1),
   );
 
   // ─── Activity history modal data ─────────────────────────────────────────────
@@ -968,11 +971,12 @@ export default function HomeScreen() {
 
 
   const weeklyConsistencyScore = useMemo(() => {
-    const passes = weeklyData.filter((day) => {
+    const pastDays = weeklyData.filter((d) => !d.isFuture);
+    const passes = pastDays.filter((day) => {
       const log = logsByDate[day.key];
       return log ? isWithinCalorieRange(log, optimizedTargetKcal) : false;
     }).length;
-    return Math.round((passes / weeklyData.length) * 100);
+    return Math.round((passes / Math.max(pastDays.length, 1)) * 100);
   }, [logsByDate, weeklyData, optimizedTargetKcal]);
   const todaysLoggedItems = useMemo<LoggedMealEntry[]>(
     () =>
@@ -2936,7 +2940,8 @@ export default function HomeScreen() {
             const dayTarget = Math.max(1, optimizedTargetKcal + (logsByDate[day.key]?.trainingKcal ?? 0));
             const ratioRaw = day.consumed / dayTarget;
             const ratio = Math.max(0, Math.min(ratioRaw, 1));
-            const fillHeight = day.consumed > 0 ? Math.max(6, Math.round(ratio * 100)) : 4;
+            const hasLogged = !day.isFuture && day.consumed > 0;
+            const fillHeight = hasLogged ? Math.max(6, Math.round(ratio * 100)) : 4;
             const barColor = getWeeklyBarColor(ratio);
             return (
               <div key={day.key} className="flex-1 flex flex-col items-center gap-1.5">
@@ -2945,8 +2950,8 @@ export default function HomeScreen() {
                     className="w-full rounded-full weekly-bar-fill transition-all duration-700 ease-out"
                     style={{
                       height: `${fillHeight}%`,
-                      backgroundColor: day.consumed > 0 ? barColor : 'rgba(148,163,184,0.4)',
-                      boxShadow: day.consumed > 0 ? `0 0 8px ${barColor}30` : 'none',
+                      backgroundColor: hasLogged ? barColor : 'rgba(148,163,184,0.4)',
+                      boxShadow: hasLogged ? `0 0 8px ${barColor}30` : 'none',
                       animationDelay: `${barIndex * 60}ms`,
                     }}
                   />
