@@ -1959,14 +1959,14 @@ export default function ScanScreen() {
       return;
     }
 
-    const feedbackOk = await sendScanFeedback({
+    void sendScanFeedback({
       userConfirmed: true,
       userCorrectedTo: scannedFood.name ?? null,
     });
-    if (!feedbackOk) return;
     showFeedback(`${scannedFood.name} lagt til i ${mealLabel[mealId]}.`, 'success');
     setPendingUndo({ expiresAt: Date.now() + 7000 });
     clearScan(true);
+    window.dispatchEvent(new CustomEvent('kalorifit:navigate', { detail: { tab: 'home' } }));
   };
 
   // Camera roll / file picker support
@@ -5226,7 +5226,7 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
               </button>
             </div>
           )}
-          {botHealth.status === 'offline' && (
+          {botHealth.status === 'offline' && isDev && (
             <div className="absolute top-3 left-3 right-3 z-[42] rounded-xl border border-red-300 bg-red-50/95 px-3 py-2 text-sm text-red-800 backdrop-blur">
               <div className="font-semibold">Bildeskanning er ikke tilgjengelig</div>
               {isDev ? (
