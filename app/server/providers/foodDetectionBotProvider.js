@@ -130,7 +130,18 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
         } catch (err) {
           lastError = err;
           const message = err instanceof Error ? err.message : String(err);
-          if (!(message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('network'))) {
+          const msgLower = message.toLowerCase();
+          // Safari: "Load failed" / "The network connection was lost."
+          // Chrome: "Failed to fetch"  |  Node fetch: "fetch failed"
+          // All genuine network failures are TypeErrors — treat any TypeError as retryable
+          const isNetworkError =
+            err instanceof TypeError ||
+            msgLower.includes('fetch failed') ||
+            msgLower.includes('failed to fetch') ||
+            msgLower.includes('load failed') ||
+            msgLower.includes('network') ||
+            msgLower.includes('connection');
+          if (!isNetworkError) {
             throw err;
           }
         }
@@ -193,7 +204,18 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
         } catch (err) {
           lastError = err;
           const message = err instanceof Error ? err.message : String(err);
-          if (!(message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('network'))) {
+          const msgLower = message.toLowerCase();
+          // Safari: "Load failed" / "The network connection was lost."
+          // Chrome: "Failed to fetch"  |  Node fetch: "fetch failed"
+          // All genuine network failures are TypeErrors — treat any TypeError as retryable
+          const isNetworkError =
+            err instanceof TypeError ||
+            msgLower.includes('fetch failed') ||
+            msgLower.includes('failed to fetch') ||
+            msgLower.includes('load failed') ||
+            msgLower.includes('network') ||
+            msgLower.includes('connection');
+          if (!isNetworkError) {
             throw err;
           }
         }
@@ -273,7 +295,18 @@ export class FoodDetectionBotProvider extends FoodDetectorProvider {
         } catch (err) {
           lastError = err;
           const message = err instanceof Error ? err.message : String(err);
-          if (!(message.toLowerCase().includes('fetch failed') || message.toLowerCase().includes('network'))) {
+          const msgLower = message.toLowerCase();
+          // Safari: "Load failed" / "The network connection was lost."
+          // Chrome: "Failed to fetch"  |  Node fetch: "fetch failed"
+          // All genuine network failures are TypeErrors — treat any TypeError as retryable
+          const isNetworkError =
+            err instanceof TypeError ||
+            msgLower.includes('fetch failed') ||
+            msgLower.includes('failed to fetch') ||
+            msgLower.includes('load failed') ||
+            msgLower.includes('network') ||
+            msgLower.includes('connection');
+          if (!isNetworkError) {
             throw err;
           }
         }

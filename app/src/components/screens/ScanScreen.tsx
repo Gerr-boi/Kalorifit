@@ -5002,9 +5002,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     const currentIndex = devices.findIndex((d) => d.deviceId === activeId);
     const next = devices[(currentIndex + 1 + devices.length) % devices.length];
 
+    // Store desired device ID before stopping — the useEffect will restart with it
+    // once photoCamActive flips to false (stopPhotoCamera is async state).
+    // Calling startPhotoCamera() synchronously after stopPhotoCamera() reads a stale
+    // closure where photoCamActive is still true, causing the guard to bail out.
+    activeCameraIdRef.current = next.deviceId;
+    pendingPhotoRestartRef.current = true;
     stopPhotoCamera();
-    setMode('photo');
-    await startPhotoCamera(next.deviceId);
   };
 
   function calcServing(per100g: MacroNutrients | null | undefined, amount: number) {
@@ -5960,7 +5964,17 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
               <X className="w-6 h-6 text-gray-600" />
             </button>
             <h2 className="font-semibold text-gray-800">Gjenkjent mat</h2>
-            <div className="w-10" />
+            <button
+              onClick={() => {
+                clearScan(true);
+                // Explicit user-gesture restart — required on iOS Safari after stream is stopped
+                void startPhotoCamera(activeCameraIdRef.current ?? undefined);
+              }}
+              className="p-2 text-orange-500 text-xs font-semibold"
+              aria-label="Skann på nytt"
+            >
+              Nytt skann
+            </button>
           </div>
 
           {/* Food Image */}

@@ -69,15 +69,21 @@ export function getScannerRuntimeConfig(options = {}) {
   if (isProduction) {
     pushCandidate(candidates, configuredUrl);
   } else {
+    // Non-local configured URL always goes first
     if (configuredUrl && !isLocalScannerUrl(configuredUrl)) {
       pushCandidate(candidates, configuredUrl);
     }
-    pushCandidate(candidates, derivedUrl);
+    // Local configured URL and localhost come before derivedUrl.
+    // derivedUrl is derived from the request's Host header (e.g. http://192.168.x.x:8001)
+    // which is correct for the *client* machine but wrong for the *bot* — the bot always
+    // listens on localhost of the server machine. Putting it after localhost ensures that
+    // requests from phones on the LAN still reach the bot (localhost succeeds first).
     if (configuredUrl && isLocalScannerUrl(configuredUrl)) {
       pushCandidate(candidates, configuredUrl);
     }
     pushCandidate(candidates, localhostUrl);
     pushCandidate(candidates, loopbackUrl);
+    pushCandidate(candidates, derivedUrl);
   }
 
   if (!isProduction && candidates.length > 0) {

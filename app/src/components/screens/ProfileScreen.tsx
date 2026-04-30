@@ -215,8 +215,9 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
     return t('profile.bmi.obesity');
   };
 
-  const latestMeasurement = profile.bmiHistory[0] ?? null;
-  const previousMeasurement = profile.bmiHistory[1] ?? null;
+  const bmiHistory = profile.bmiHistory ?? [];
+  const latestMeasurement = bmiHistory[0] ?? null;
+  const previousMeasurement = bmiHistory[1] ?? null;
   const weightDeltaFromLast =
     latestMeasurement && previousMeasurement
       ? Number((latestMeasurement.weightKg - previousMeasurement.weightKg).toFixed(1))
@@ -471,7 +472,7 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
       ...prev,
       heightCm: entry.heightCm,
       weightKg: entry.weightKg,
-      bmiHistory: [entry, ...prev.bmiHistory].slice(0, 20),
+      bmiHistory: [entry, ...(prev.bmiHistory ?? [])].slice(0, 20),
     }));
 
     setShowBmi(false);
@@ -1623,11 +1624,11 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
                 {t('profile.bmiModal.tip')}
               </p>
 
-              {profile.bmiHistory.length > 0 && (
+              {(profile.bmiHistory ?? []).length > 0 && (
                 <div className="rounded-xl bg-gray-50 dark:bg-gray-700 p-4">
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t('profile.bmiModal.recentTitle')}</p>
                   <div className="space-y-1">
-                    {profile.bmiHistory.slice(0, 3).map((entry) => (
+                    {(profile.bmiHistory ?? []).slice(0, 3).map((entry) => (
                       <p key={`${entry.date}-${entry.bmi}`} className="text-xs text-gray-600 dark:text-gray-300">
                         {entry.date}: {entry.weightKg} kg, {entry.heightCm} cm, BMI {entry.bmi}
                       </p>
