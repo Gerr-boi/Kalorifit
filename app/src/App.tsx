@@ -62,6 +62,15 @@ function App() {
   const [skippedAuth, setSkippedAuth] = useState(() => {
     try { return window.localStorage.getItem('kalorifit:skippedAuth') === 'true'; } catch { return false; }
   });
+
+  // Detect Supabase email-confirmation redirect (hash contains type=signup)
+  const [emailJustConfirmed, setEmailJustConfirmed] = useState(() => {
+    try {
+      const hash = window.location.hash;
+      const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
+      return params.get('type') === 'signup';
+    } catch { return false; }
+  });
   useCurrentUser();
 
   // Supabase auth + sync
@@ -183,6 +192,33 @@ function App() {
         return <HomeScreen />;
     }
   };
+
+  // Show email-confirmed success page (user clicked the confirmation link in their email)
+  if (emailJustConfirmed && isAuthenticated) {
+    // Clear the hash so refreshing doesn't re-trigger this screen
+    try { window.history.replaceState(null, '', window.location.pathname + window.location.search); } catch {}
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-8 px-6 text-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center">
+            <svg className="w-10 h-10 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-black text-white">Alt i orden!</h1>
+          <p className="text-zinc-400 text-sm max-w-xs">
+            E-postadressen din er bekreftet. Du er klar til å bruke KaloriFit.
+          </p>
+        </div>
+        <button
+          onClick={() => setEmailJustConfirmed(false)}
+          className="px-8 py-3 bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-2xl transition-colors"
+        >
+          Kom i gang
+        </button>
+      </div>
+    );
+  }
 
   // Show auth screen if Supabase is configured and user hasn't logged in or skipped
   if (isSupabaseConfigured() && !isAuthenticated && !skippedAuth && !authLoading) {
