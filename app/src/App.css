@@ -24,7 +24,11 @@ label {
   max-width: 430px;
   margin: 0 auto;
   position: relative;
-  overflow: hidden;
+  /* overflow: clip clips visually like hidden but does NOT create a fixed-position
+     stacking jail — iOS Safari ≥15.4 supports this; older browsers fall back to
+     hidden but those devices handle fixed children correctly anyway. */
+  overflow: hidden; /* fallback */
+  overflow: clip;
   box-shadow: 0 0 60px rgba(15, 23, 42, 0.08);
 }
 

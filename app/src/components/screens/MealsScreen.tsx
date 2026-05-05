@@ -981,11 +981,11 @@ export default function MealsScreen() {
                     key={recipe.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setPeekRecipe(recipe)}
+                    onClick={() => setSelectedRecipe(recipe)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        setPeekRecipe(recipe);
+                        setSelectedRecipe(recipe);
                       }
                     }}
                     className="w-full text-left flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-2 border border-slate-100 dark:border-gray-700 hover:bg-slate-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
@@ -1419,8 +1419,8 @@ export default function MealsScreen() {
       )}
 
       {infoTag && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-xl border border-transparent dark:border-gray-700">
+        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4" onClick={() => setInfoTag(null)}>
+          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-xl border border-transparent dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-gray-800 dark:text-gray-100">{tagInfo[infoTag].label}</p>
@@ -1441,8 +1441,8 @@ export default function MealsScreen() {
       )}
 
       {selectedRecipe && (
-        <div className="fixed inset-0 z-50 bg-black/45 flex items-end sm:items-center justify-center p-3 sm:p-4">
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 shadow-2xl border border-transparent dark:border-gray-700">
+        <div className="fixed inset-0 z-50 bg-black/45 flex items-end sm:items-center justify-center p-3 sm:p-4" onClick={() => setSelectedRecipe(null)}>
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 shadow-2xl border border-transparent dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
               <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-48 sm:h-56 object-cover" />
               <button

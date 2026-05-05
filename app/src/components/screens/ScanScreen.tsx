@@ -2262,12 +2262,16 @@ async function startPhotoCamera(preferredDeviceId?: string) {
       });
       liveDevicesRef.current = sortedVideoInputs;
 
-      const selected =
-        preferredDeviceId
-          ? sortedVideoInputs.find((d) => d.deviceId === preferredDeviceId)
-          : sortedVideoInputs[0];
-      if (selected?.deviceId) {
-        cameraHints.push({ ...highQualityProfile, deviceId: { exact: selected.deviceId } });
+      // When a specific device is requested (e.g. after a camera flip), use it
+      // directly.  When there is no preference we intentionally skip the
+      // device-hint so that facingMode: environment (pushed below) is tried
+      // first — device labels are empty before permission on iOS Safari, so the
+      // sort order is arbitrary and could yield the front camera.
+      if (preferredDeviceId) {
+        const selected = sortedVideoInputs.find((d) => d.deviceId === preferredDeviceId);
+        if (selected?.deviceId) {
+          cameraHints.push({ ...highQualityProfile, deviceId: { exact: selected.deviceId } });
+        }
       }
     } catch {
       // device listing may fail before permission; fallback below still works
@@ -4828,11 +4832,13 @@ async function tryDecodeBarcodeFromVideo(video: HTMLVideoElement): Promise<strin
     if (mode === 'photo') {
       stopLiveBarcodeScan();
       if (!scannedFood && !photoCamActive && !isScanning) {
+        // If a camera flip is pending, honour the stored device ID; otherwise
+        // start with the default (rear) camera.
+        const deviceId = pendingPhotoRestartRef.current
+          ? (activeCameraIdRef.current ?? undefined)
+          : undefined;
         pendingPhotoRestartRef.current = false;
-        void startPhotoCamera();
-      } else if (!isScanning && pendingPhotoRestartRef.current && !photoCamActive) {
-        pendingPhotoRestartRef.current = false;
-        void startPhotoCamera(activeCameraIdRef.current ?? undefined);
+        void startPhotoCamera(deviceId);
       }
       return;
     }
