@@ -40,11 +40,15 @@ export function useSupabaseAuth() {
 
   const signUp = useCallback(async (email: string, password: string, username?: string) => {
     if (!supabase) return { error: { message: 'Supabase ikke konfigurert' } };
+    // VITE_APP_URL (set in Vercel env vars) takes priority so that even a
+    // signup initiated from a staging/local environment redirects to the real
+    // production URL.  Falls back to the current origin (correct in prod).
+    const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/$/, '') || window.location.origin;
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: appUrl,
         data: {
           username: (username ?? email.split('@')[0]).toLowerCase(),
           display_name: username ?? email.split('@')[0],
@@ -94,8 +98,9 @@ export function useSupabaseAuth() {
 
   const resetPassword = useCallback(async (email: string) => {
     if (!supabase) return { error: { message: 'Supabase ikke konfigurert' } };
+    const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/$/, '') || window.location.origin;
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
+      redirectTo: appUrl,
     });
     return { error };
   }, []);
