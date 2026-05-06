@@ -156,7 +156,10 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
-  const [profile, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
+  const [profileRaw, setProfile] = useLocalStorageState<Profile>('profile', DEFAULT_PROFILE);
+  // Merge DEFAULT_PROFILE so fields added after a user's first install are
+  // never undefined (raw JSON.parse returns exactly what was stored).
+  const profile = useMemo(() => ({ ...DEFAULT_PROFILE, ...profileRaw }), [profileRaw]);
   const [logsByDate] = useLocalStorageState<Record<string, DayLog>>('home.dailyLogs.v2', {});
   const [weeklyReports, setWeeklyReports] = useLocalStorageState<Record<string, WeeklyPerformanceReport>>('home.weeklyReports.v1', {});
   const [identityReports, setIdentityReports] = useLocalStorageState<IdentityReportsByMonth>('home.identityReports.v1', {});
