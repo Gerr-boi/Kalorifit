@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '../../lib/i18n';
-import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, Activity, ArrowLeft, Trophy, X, Trash2, AlertTriangle, Check } from 'lucide-react';
+import { Settings, ChevronRight, Bell, Shield, Moon, Globe, HelpCircle, LogOut, LogIn, Activity, ArrowLeft, Trophy, X, Trash2, AlertTriangle, Check, CloudOff, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { useLocalStorageState } from '../../hooks/useLocalStorageState';
 import { useCurrentUser } from '../../hooks/useCurrentUser';
 import { useSupabaseAuth } from '../../hooks/useSupabaseAuth';
+import { isSupabaseConfigured } from '../../lib/supabase';
 import PrivacyPolicyModal from '../legal/PrivacyPolicyModal';
 import TermsModal from '../legal/TermsModal';
 import {
@@ -150,9 +151,18 @@ const DIET_EXPLORER_OPTIONS: Array<{
 export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise<void> }) {
   const t = useT();
   const { currentUser, updateUserName } = useCurrentUser();
-  const { signOut: rawSignOut, deleteAccount } = useSupabaseAuth();
+  const { signOut: rawSignOut, deleteAccount, signIn, signUp, isAuthenticated } = useSupabaseAuth();
   const signOut = onSignOut ?? rawSignOut;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Inline login/signup for users who skipped auth
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginMode, setLoginMode] = useState<'login' | 'signup'>('login');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginShowPw, setLoginShowPw] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
@@ -523,6 +533,41 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
 
   const dayBarColor = (score: number) =>
     score >= 80 ? 'bg-green-400' : score >= 60 ? 'bg-orange-400' : score > 0 ? 'bg-amber-300' : 'bg-gray-200 dark:bg-white/[0.06]';
+
+  const handleInlineAuth = async () => {
+    const email = loginEmail.trim();
+    const password = loginPassword;
+    if (!email || !password) { setLoginError('Fyll inn e-post og passord'); return; }
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      let result: { error?: unknown };
+      if (loginMode === 'signup') {
+        result = await signUp(email, password, loginUsername.trim() || undefined);
+      } else {
+        result = await signIn(email, password);
+      }
+      if (result.error) {
+        const msg = typeof result.error === 'string' ? result.error : (result.error as { message?: string }).message ?? 'Noe gikk galt';
+        const m = msg.toLowerCase();
+        if (m.includes('invalid') || m.includes('credentials')) setLoginError('Feil e-post eller passord');
+        else if (m.includes('already registered')) setLoginError('Det finnes allerede en konto med denne e-postadressen');
+        else if (m.includes('email not confirmed')) setLoginError('Bekreft e-postadressen din først');
+        else if (m.includes('password')) setLoginError('Passordet er for kort (min 6 tegn)');
+        else setLoginError(msg);
+      } else {
+        // Success — Supabase auth state change in App.tsx will trigger sync
+        setShowLoginModal(false);
+        setLoginEmail('');
+        setLoginPassword('');
+        setLoginUsername('');
+        // Clear skippedAuth flag so the app knows the user is now logged in
+        try { window.localStorage.removeItem('kalorifit:skippedAuth'); } catch {}
+      }
+    } finally {
+      setLoginLoading(false);
+    }
+  };
 
   if (showPersonalSettings) {
     return (
@@ -922,6 +967,41 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
         ))}
       </div>
 
+      {/* ── Not logged-in banner ─────────────────────────────────────────── */}
+      {isSupabaseConfigured() && !isAuthenticated && (
+        <div className="mx-4 mt-4 rounded-2xl overflow-hidden border border-blue-200 dark:border-blue-800/60 bg-blue-50 dark:bg-blue-900/20">
+          <div className="flex items-start gap-3 p-4">
+            <div className="mt-0.5 shrink-0 w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-800/50 flex items-center justify-center">
+              <CloudOff className="w-4 h-4 text-blue-500 dark:text-blue-300" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">Data lagres ikke til skyen</p>
+              <p className="mt-0.5 text-xs text-blue-700 dark:text-blue-300/80 leading-relaxed">
+                Logg inn for å sikkerhetskopiere fremgangen din og få den tilbake om du bytter telefon.
+              </p>
+            </div>
+          </div>
+          <div className="px-4 pb-4 flex gap-2">
+            <button
+              type="button"
+              onClick={() => { setLoginMode('login'); setShowLoginModal(true); }}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white"
+            >
+              <LogIn className="w-4 h-4" />
+              Logg inn
+            </button>
+            <button
+              type="button"
+              onClick={() => { setLoginMode('signup'); setShowLoginModal(true); }}
+              className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-blue-300 dark:border-blue-700 bg-white dark:bg-blue-900/30 py-2.5 text-sm font-semibold text-blue-700 dark:text-blue-200"
+            >
+              <UserPlus className="w-4 h-4" />
+              Opprett konto
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 mx-4 rounded-2xl p-4 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/25 dark:to-orange-900/15 border border-amber-200/70 dark:border-amber-700/30">
         <div className="flex items-start justify-between mb-3">
           <div>
@@ -1201,14 +1281,24 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
         </button>
       </div>
 
-      {/* Logout */}
-      <button
-        onClick={() => signOut()}
-        className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium"
-      >
-        <LogOut className="w-5 h-5" />
-        {t('profile.logOut')}
-      </button>
+      {/* Logout / Login */}
+      {isAuthenticated ? (
+        <button
+          onClick={() => signOut()}
+          className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-red-500 font-medium"
+        >
+          <LogOut className="w-5 h-5" />
+          {t('profile.logOut')}
+        </button>
+      ) : isSupabaseConfigured() ? (
+        <button
+          onClick={() => { setLoginMode('login'); setShowLoginModal(true); }}
+          className="w-full flex items-center justify-center gap-2 p-4 mt-4 text-blue-600 dark:text-blue-400 font-medium"
+        >
+          <LogIn className="w-5 h-5" />
+          Logg inn / Opprett konto
+        </button>
+      ) : null}
 
       {/* Legal links */}
       <div className="flex justify-center gap-4 mt-2 pb-1">
@@ -1226,14 +1316,16 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
         </button>
       </div>
 
-      {/* Delete account */}
-      <button
-        onClick={() => setShowDeleteConfirm(true)}
-        className="w-full flex items-center justify-center gap-2 p-3 mt-1 mb-6 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
-      >
-        <Trash2 className="w-4 h-4" />
-        {t('profile.deleteAccount')}
-      </button>
+      {/* Delete account — only shown when logged in */}
+      {isAuthenticated && (
+        <button
+          onClick={() => setShowDeleteConfirm(true)}
+          className="w-full flex items-center justify-center gap-2 p-3 mt-1 mb-6 text-gray-400 dark:text-zinc-500 text-sm hover:text-red-500 dark:hover:text-red-400 transition-colors"
+        >
+          <Trash2 className="w-4 h-4" />
+          {t('profile.deleteAccount')}
+        </button>
+      )}
 
       {/* Delete account confirmation dialog */}
       {showDeleteConfirm && (
@@ -1278,6 +1370,120 @@ export default function ProfileScreen({ onSignOut }: { onSignOut?: () => Promise
 
       {showPrivacy && <PrivacyPolicyModal onClose={() => setShowPrivacy(false)} />}
       {showTerms && <TermsModal onClose={() => setShowTerms(false)} />}
+
+      {/* ── Inline login / signup modal ──────────────────────────────────── */}
+      {showLoginModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center"
+          onClick={() => setShowLoginModal(false)}
+        >
+          <div
+            className="w-full sm:max-w-sm bg-white dark:bg-zinc-900 rounded-t-3xl sm:rounded-3xl shadow-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                  {loginMode === 'login' ? 'Logg inn' : 'Opprett konto'}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">
+                  {loginMode === 'login'
+                    ? 'Hent frem dine lagrede data'
+                    : 'Lagre data trygt i skyen'}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowLoginModal(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-zinc-800 flex items-center justify-center"
+              >
+                <X className="w-4 h-4 text-gray-600 dark:text-zinc-300" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {/* Email */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 dark:text-zinc-400 uppercase tracking-wide">E-post</label>
+                <input
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => { setLoginEmail(e.target.value); setLoginError(''); }}
+                  placeholder="deg@eksempel.no"
+                  autoComplete="email"
+                  className="mt-1 w-full rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2.5 text-sm text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Username (signup only) */}
+              {loginMode === 'signup' && (
+                <div>
+                  <label className="text-xs font-medium text-gray-500 dark:text-zinc-400 uppercase tracking-wide">Brukernavn</label>
+                  <input
+                    type="text"
+                    value={loginUsername}
+                    onChange={(e) => setLoginUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                    placeholder="dittbrukernavn"
+                    autoComplete="username"
+                    maxLength={20}
+                    className="mt-1 w-full rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2.5 text-sm text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
+
+              {/* Password */}
+              <div>
+                <label className="text-xs font-medium text-gray-500 dark:text-zinc-400 uppercase tracking-wide">Passord</label>
+                <div className="relative mt-1">
+                  <input
+                    type={loginShowPw ? 'text' : 'password'}
+                    value={loginPassword}
+                    onChange={(e) => { setLoginPassword(e.target.value); setLoginError(''); }}
+                    placeholder="••••••••"
+                    autoComplete={loginMode === 'login' ? 'current-password' : 'new-password'}
+                    className="w-full rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2.5 pr-10 text-sm text-gray-800 dark:text-white placeholder-gray-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setLoginShowPw((p) => !p)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500"
+                    tabIndex={-1}
+                  >
+                    {loginShowPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Error */}
+              {loginError && (
+                <p className="text-xs text-red-500 dark:text-red-400">{loginError}</p>
+              )}
+
+              {/* Submit */}
+              <button
+                type="button"
+                disabled={loginLoading}
+                onClick={handleInlineAuth}
+                className="w-full mt-1 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 py-3 text-sm font-semibold text-white transition-colors"
+              >
+                {loginLoading ? 'Laster…' : loginMode === 'login' ? 'Logg inn' : 'Opprett konto'}
+              </button>
+            </div>
+
+            {/* Toggle mode */}
+            <p className="mt-4 text-center text-xs text-gray-500 dark:text-zinc-400">
+              {loginMode === 'login' ? 'Har du ikke konto?' : 'Har du allerede konto?'}{' '}
+              <button
+                type="button"
+                onClick={() => { setLoginMode(loginMode === 'login' ? 'signup' : 'login'); setLoginError(''); }}
+                className="font-semibold text-blue-600 dark:text-blue-400"
+              >
+                {loginMode === 'login' ? 'Registrer deg' : 'Logg inn'}
+              </button>
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Help & Support modal */}
       {showHelp && (
