@@ -1250,7 +1250,7 @@ export default function MealsScreen() {
         <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setPeekRecipe(null)}>
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative w-full max-w-lg rounded-t-3xl bg-white pb-8 shadow-xl dark:bg-gray-900"
+            className="relative w-full max-w-lg rounded-t-3xl bg-white pb-[calc(88px+env(safe-area-inset-bottom))] shadow-xl dark:bg-gray-900"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative h-44 w-full overflow-hidden rounded-t-3xl">
@@ -1308,7 +1308,7 @@ export default function MealsScreen() {
         <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setShowAdvancedFilters(false)}>
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative w-full max-w-lg rounded-t-3xl bg-white px-4 pb-8 pt-4 shadow-xl dark:bg-gray-900"
+            className="relative w-full max-w-lg rounded-t-3xl bg-white px-4 pb-24 pt-4 shadow-xl dark:bg-gray-900"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
@@ -1419,7 +1419,7 @@ export default function MealsScreen() {
       )}
 
       {infoTag && (
-        <div className="fixed inset-0 z-40 bg-black/40 flex items-end sm:items-center justify-center p-4" onClick={() => setInfoTag(null)}>
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center px-4 pt-4 pb-[calc(88px+env(safe-area-inset-bottom))] sm:pb-4" onClick={() => setInfoTag(null)}>
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 p-4 shadow-xl border border-transparent dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1441,8 +1441,8 @@ export default function MealsScreen() {
       )}
 
       {selectedRecipe && (
-        <div className="fixed inset-0 z-50 bg-black/45 flex items-end sm:items-center justify-center p-3 sm:p-4" onClick={() => setSelectedRecipe(null)}>
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 shadow-2xl border border-transparent dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/45 flex items-end sm:items-center justify-center px-3 pt-3 pb-[calc(88px+env(safe-area-inset-bottom))] sm:pb-4 sm:pt-4" onClick={() => setSelectedRecipe(null)}>
+          <div className="w-full max-w-2xl max-h-[80vh] sm:max-h-[88vh] overflow-y-auto rounded-2xl bg-white dark:bg-gray-800 shadow-2xl border border-transparent dark:border-gray-700" onClick={(e) => e.stopPropagation()}>
             <div className="relative">
               <img src={selectedRecipe.image} alt={selectedRecipe.title} className="w-full h-48 sm:h-56 object-cover" />
               <button
@@ -1540,7 +1540,7 @@ export default function MealsScreen() {
       )}
 
       {showCreateMealModal && (
-        <div className="fixed inset-0 z-50 bg-black/45 flex items-end sm:items-center justify-center p-3 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-black/45 flex items-end sm:items-center justify-center px-3 pt-3 pb-[calc(88px+env(safe-area-inset-bottom))] sm:pb-4">
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-gray-800 shadow-2xl border border-transparent dark:border-gray-700">
             <div className="p-4 sm:p-5">
               <div className="flex items-start justify-between gap-3">

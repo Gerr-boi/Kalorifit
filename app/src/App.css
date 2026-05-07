@@ -84,7 +84,9 @@ label {
   transform: translateX(-50%);
   width: calc(100% - 32px);
   max-width: 398px;
-  z-index: 1000;
+  /* z-index 40 keeps the nav above page content but below Tailwind z-50
+     modals (z-index: 50), so modal buttons are always clickable. */
+  z-index: 40;
   pointer-events: none;
 }
 
