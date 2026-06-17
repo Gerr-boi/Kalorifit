@@ -13,6 +13,7 @@ from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from src.config import get_settings
+from src.rate_limiter import RateLimiter
 from src.core.dish_classifier import create_dish_classifier
 from src.core.detector import create_detector
 from src.core.errors import BotError
@@ -300,10 +301,46 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title='Food Detection Bot', version=settings.version, lifespan=lifespan)
 
+# ── Shared path exclusions ────────────────────────────────────────────────────
+# Paths that bypass both rate limiting and API key authentication.
+_OPEN_PATHS = {'/health', '/docs', '/openapi.json', '/redoc'}
+
+# ── Rate limiting middleware ──────────────────────────────────────────────────
+# Registered first so it is evaluated *before* the API key check.
+# FastAPI runs @app.middleware('http') decorators in LIFO order, so the
+# middleware added last here will execute first on each incoming request.
+# Identifier priority: x-api-key header → client IP.
+_rate_limiter = RateLimiter(requests_per_minute=settings.rate_limit_requests_per_minute)
+
+
+@app.middleware('http')
+async def rate_limit(request: Request, call_next):
+    if not settings.rate_limit_enabled or request.url.path in _OPEN_PATHS:
+        return await call_next(request)
+    identifier = request.headers.get('x-api-key') or (request.client.host if request.client else 'unknown')
+    remaining = _rate_limiter.get_remaining(identifier)
+    reset_ts = int(_rate_limiter.reset_at(identifier))
+    if not _rate_limiter.is_allowed(identifier):
+        return JSONResponse(
+            status_code=429,
+            content={'error': 'RATE_LIMIT_EXCEEDED', 'message': 'Too many requests. Please slow down and retry after the reset time.'},
+            headers={
+                'X-RateLimit-Limit': str(settings.rate_limit_requests_per_minute),
+                'X-RateLimit-Remaining': '0',
+                'X-RateLimit-Reset': str(reset_ts),
+                'Retry-After': str(max(0, reset_ts - int(time.time()))),
+            },
+        )
+    response = await call_next(request)
+    response.headers['X-RateLimit-Limit'] = str(settings.rate_limit_requests_per_minute)
+    response.headers['X-RateLimit-Remaining'] = str(remaining - 1)
+    response.headers['X-RateLimit-Reset'] = str(reset_ts)
+    return response
+
+
 # ── API key middleware ────────────────────────────────────────────────────────
 # Set BOT_API_KEY in env to require authentication on all non-health endpoints.
 # Uses hmac.compare_digest to prevent timing-based key enumeration.
-_OPEN_PATHS = {'/health', '/docs', '/openapi.json', '/redoc'}
 
 
 @app.middleware('http')
@@ -321,6 +358,7 @@ async def require_api_key(request: Request, call_next):
     return await call_next(request)
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -328,6 +366,7 @@ def _parse_label_set(raw: str | None) -> set[str]:
     if not raw:
         return set()
     return {token.strip().lower() for token in raw.split(',') if token.strip()}
+
 
 
 def _is_non_food_detection_label(label: str) -> bool:

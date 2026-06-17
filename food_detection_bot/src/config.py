@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     version: str = '1.0.0'
     # Security — set BOT_API_KEY to a strong secret; leave empty to disable auth (dev only)
     api_key: str = ''
+    # Rate limiting — set RATE_LIMIT_ENABLED=false to disable; tune RATE_LIMIT_REQUESTS_PER_MINUTE as needed
+    rate_limit_enabled: bool = True
+    rate_limit_requests_per_minute: int = 100
     # Supabase — leave empty to disable Supabase logging
     supabase_url: str = ''
     supabase_service_key: str = ''
